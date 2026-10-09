@@ -289,8 +289,10 @@ class KeepAliveHandler:  # Inspired by enhanced-discord.py/Gnome
                 await asyncio.wait_for(task, timeout)
             except asyncio.TimeoutError:
                 task.cancel()
+            except asyncio.CancelledError:
+                raise
             except Exception:
-                pass
+                _log.debug('Keepalive task ended with an exception.', exc_info=True)
 
     def tick(self) -> None:
         self._last_recv = time.perf_counter()

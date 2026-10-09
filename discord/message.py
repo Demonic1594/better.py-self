@@ -64,11 +64,6 @@ from .member import Member
 from .flags import MessageFlags, AttachmentFlags
 from .file import File
 from .utils import escape_mentions, MISSING
-
-_USER_MENTION_REGEX = re.compile(r'<@!?([0-9]{15,20})>')
-_CHANNEL_MENTION_REGEX = re.compile(r'<#([0-9]{15,20})>')
-_ROLE_MENTION_REGEX = re.compile(r'<@&([0-9]{15,20})>')
-_CLEAN_CONTENT_MENTION_REGEX = re.compile(r'<(@[!&]?|#)([0-9]{15,20})>')
 from .http import handle_message_parameters
 from .guild import Guild
 from .mixins import Hashable
@@ -78,6 +73,11 @@ from .channel import PartialMessageable
 from .interactions import Interaction
 from .application import IntegrationApplication, PartialApplication
 from .poll import Poll
+
+_USER_MENTION_REGEX = re.compile(r'<@!?([0-9]{15,20})>')
+_CHANNEL_MENTION_REGEX = re.compile(r'<#([0-9]{15,20})>')
+_ROLE_MENTION_REGEX = re.compile(r'<@&([0-9]{15,20})>')
+_CLEAN_CONTENT_MENTION_REGEX = re.compile(r'<(@[!&]?|#)([0-9]{15,20})>')
 
 if TYPE_CHECKING:
     from typing_extensions import Self

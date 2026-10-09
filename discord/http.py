@@ -185,7 +185,9 @@ async def json_or_text(response: Union[aiohttp.ClientResponse, requests.Response
         # Thanks Cloudflare
         pass
 
-    return content.decode('utf-8', 'replace')
+    # Prefer the response's declared charset (e.g. Cloudflare error pages)
+    encoding = getattr(response, 'charset_encoding', None) or getattr(response, 'charset', None) or 'utf-8'
+    return content.decode(encoding, 'replace')
 
 
 async def _gen_session(session: Optional[aiohttp.ClientSession]) -> aiohttp.ClientSession:

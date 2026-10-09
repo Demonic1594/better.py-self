@@ -1103,9 +1103,9 @@ _MARKDOWN_ESCAPE_REGEX = re.compile(rf'(?P<markdown>{_MARKDOWN_ESCAPE_SUBREGEX}|
 
 _URL_REGEX = r'(?P<url><[^: >]+:\/[^ >]+>|(?:https?|steam):\/\/[^\s<]+[^<.,:;\"\'\]\s])'
 
-_MARKDOWN_STOCK_REGEX = rf'(?P<markdown>[_\\~|\*`]|{_MARKDOWN_ESCAPE_COMMON})'
+_MARKDOWN_STOCK_REGEX = re.compile(rf'(?P<markdown>[_\\~|\*`]|{_MARKDOWN_ESCAPE_COMMON})', re.MULTILINE)
 
-_MARKDOWN_STOCK_REMOVE_REGEX = re.compile(f'(?:{_URL_REGEX}|{_MARKDOWN_STOCK_REGEX})', re.MULTILINE)
+_MARKDOWN_STOCK_REMOVE_REGEX = re.compile(f'(?:{_URL_REGEX}|{_MARKDOWN_STOCK_REGEX.pattern})', re.MULTILINE)
 
 _BACKSLASH_REGEX = re.compile(r'\\')
 
