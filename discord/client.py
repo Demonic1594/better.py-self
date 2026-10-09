@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 import uuid
 from datetime import datetime
 from typing import (
@@ -52,7 +53,6 @@ from typing import (
     Union,
 )
 
-import aiohttp
 from curl_cffi import CurlError
 
 from .user import _UserTag, RecentAvatar, User, ClientUser
@@ -121,6 +121,7 @@ from .discovery import GuildProfile
 if TYPE_CHECKING:
     from types import TracebackType
 
+    import aiohttp
     from typing_extensions import Self, Unpack
 
     from .abc import Snowflake, SnowflakeTime
@@ -193,6 +194,9 @@ if TYPE_CHECKING:
         max_member_cache: Optional[int]
         max_total_member_cache: Optional[int]
         max_presence_cache: Optional[int]
+        max_guild_presence_cache: Optional[int]
+        max_thread_cache: Optional[int]
+        max_total_thread_cache: Optional[int]
         proxy: Optional[str]
         proxy_auth: Optional[aiohttp.BasicAuth]
         member_cache_flags: Optional[MemberCacheFlags]
@@ -257,6 +261,16 @@ class LocationInfo(NamedTuple):
     subdivision_code: Optional[str]
 
 
+def _reconnectable_errors() -> Tuple[Type[BaseException], ...]:
+    # aiohttp exceptions can only occur once aiohttp is in use;
+    # resolve the class lazily so importing it stays optional
+    errors = (OSError, HTTPException, GatewayNotFound, ConnectionClosed, asyncio.TimeoutError, CurlError)
+    aiohttp_module = sys.modules.get('aiohttp')
+    if aiohttp_module is not None:
+        errors += (aiohttp_module.ClientError,)
+    return errors
+
+
 class Client:
     r"""Represents a client connection that connects to Discord.
     This class is used to interact with the Discord WebSocket and API.
@@ -308,6 +322,30 @@ class Client:
         The maximum number of non-guild presences (e.g. direct message
         relationships) to store in the internal presence cache. This defaults
         to ``20000``. Passing in ``None`` disables the cap.
+
+        .. versionadded:: 2.2
+    max_guild_presence_cache: Optional[:class:`int`]
+        The maximum number of guild-scoped presences to store per guild.
+        This defaults to ``5000``. Passing in ``None`` disables the cap.
+
+        Presences are transient; an evicted member's presence is re-created
+        by their next presence update.
+
+        .. versionadded:: 2.2
+    max_thread_cache: Optional[:class:`int`]
+        The maximum number of threads to store in each guild's internal
+        thread cache. This defaults to ``5000``. Passing in ``None``
+        disables the cap.
+
+        Threads the client user has joined are never evicted, and threads
+        with recent activity are kept warm. Evicted threads can be
+        retrieved with :meth:`Guild.fetch_channel`.
+
+        .. versionadded:: 2.2
+    max_total_thread_cache: Optional[:class:`int`]
+        The maximum number of threads to store across *all* guilds'
+        internal thread caches. This defaults to ``25000``. Passing in
+        ``None`` disables the cap.
 
         .. versionadded:: 2.2
     proxy: Optional[:class:`str`]
@@ -1243,15 +1281,7 @@ class Client:
                 if e.resume:
                     ws_params['gateway'] = self.ws.gateway
                 continue
-            except (
-                OSError,
-                HTTPException,
-                GatewayNotFound,
-                ConnectionClosed,
-                aiohttp.ClientError,
-                asyncio.TimeoutError,
-                CurlError,
-            ) as exc:
+            except _reconnectable_errors() as exc:
                 self.dispatch('disconnect')
                 if not reconnect:
                     await self.close()

@@ -1119,6 +1119,19 @@ class ConnectionState:
         if self.max_total_member_cache is not None and self.max_total_member_cache <= 0:
             self.max_total_member_cache = 50_000
         self._member_add_counter: int = 0
+        # Per-guild cap on the thread cache. ``None`` disables the cap.
+        self.max_thread_cache: Optional[int] = options.get('max_thread_cache', 5_000)
+        if self.max_thread_cache is not None and self.max_thread_cache <= 0:
+            self.max_thread_cache = 5_000
+        # Global cap on the thread cache across all guilds. ``None`` disables the cap.
+        self.max_total_thread_cache: Optional[int] = options.get('max_total_thread_cache', 25_000)
+        if self.max_total_thread_cache is not None and self.max_total_thread_cache <= 0:
+            self.max_total_thread_cache = 25_000
+        self._thread_add_counter: int = 0
+        # Per-guild cap on stored (guild-scoped) presences. ``None`` disables the cap.
+        self.max_guild_presence_cache: Optional[int] = options.get('max_guild_presence_cache', 5_000)
+        if self.max_guild_presence_cache is not None and self.max_guild_presence_cache <= 0:
+            self.max_guild_presence_cache = 5_000
 
         self.dispatch: Callable[..., Any] = dispatch
         self.handlers: Dict[str, Callable[..., Any]] = handlers
@@ -1241,9 +1254,10 @@ class ConnectionState:
         self._private_channels: Dict[int, PrivateChannel] = {}
         self._private_channels_by_user: Dict[int, DMChannel] = {}
 
-        self._guild_presences: Dict[int, Dict[int, Presence]] = {}
+        self._guild_presences: Dict[int, OrderedDict[int, Presence]] = {}
         self._presences: OrderedDict[int, Presence] = OrderedDict()
         self._member_add_counter = 0
+        self._thread_add_counter = 0
         self._sessions: Dict[str, Session] = {}
 
         if self.max_messages is not None:
@@ -1301,6 +1315,47 @@ class ConnectionState:
             'Rebalanced the member cache: %d -> %d members (cap: %d).',
             total,
             sum(map(len, (guild._members for guild in guilds))),
+            cap,
+        )
+
+    def _note_thread_add(self) -> None:
+        # Amortized global thread cache rebalancing
+        if self.max_total_thread_cache is None:
+            return
+        self._thread_add_counter += 1
+        if self._thread_add_counter >= 1024:
+            self._maybe_evict_threads_global()
+
+    def _maybe_evict_threads_global(self) -> None:
+        cap = self.max_total_thread_cache
+        if cap is None:
+            self._thread_add_counter = 0
+            return
+
+        self._thread_add_counter = 0
+        guilds = [guild for guild in self._guilds.values() if guild._threads]
+        total = sum(map(len, (guild._threads for guild in guilds)))
+        if total <= cap:
+            return
+
+        # Same convergence policy as the member cache
+        n = len(guilds)
+        average_target = cap // n
+        guilds.sort(key=lambda guild: len(guild._threads), reverse=True)
+        excess = total - cap
+        for guild in guilds:
+            if excess <= 0:
+                break
+            before = len(guild._threads)
+            if before <= average_target:
+                continue
+            guild._evict_threads(max(average_target, before - excess))
+            excess -= before - len(guild._threads)
+
+        _log.debug(
+            'Rebalanced the thread cache: %d -> %d threads (cap: %d).',
+            total,
+            sum(map(len, (guild._threads for guild in guilds))),
             cap,
         )
 
@@ -2182,6 +2237,12 @@ class ConnectionState:
             read_state.last_acked_id = message.id
             read_state.badge_count = 0
 
+        # Messages keep their thread warm in the cache
+        if isinstance(channel, Thread):
+            guild = channel.guild
+            if guild is not None:
+                guild._touch_thread(channel.id)
+
     def parse_message_delete(self, data: gw.MessageDeleteEvent) -> None:
         raw = RawMessageDeleteEvent(data)
         found = self._get_message(raw.message_id)
@@ -2810,6 +2871,7 @@ class ConnectionState:
 
         existing = guild.get_thread(int(data['id']))
         if existing is not None:  # Shouldn't happen
+            guild._touch_thread(existing.id)
             old = existing._update(data)
             if old is not None:
                 self.dispatch('thread_update', old, existing)
@@ -2839,6 +2901,7 @@ class ConnectionState:
 
         existing = guild.get_thread(int(data['id']))
         if existing is not None:
+            guild._touch_thread(existing.id)
             old = existing._update(data)
             if existing.archived:
                 guild._remove_thread(existing)
@@ -2907,7 +2970,7 @@ class ConnectionState:
             guild._add_thread(k)
 
         for k in old_threads:
-            del guild._threads[k.id]
+            guild._threads.pop(k.id, None)  # may have been evicted mid-sync
             self.dispatch('thread_delete', k)  # Again, not sure
 
         for message in data.get('most_recent_messages', []):
@@ -2934,6 +2997,8 @@ class ConnectionState:
 
         member = ThreadMember(thread, data)
         thread.me = member
+        # Member activity keeps the thread warm in the cache
+        guild._touch_thread(thread_id)
 
     def parse_thread_members_update(self, data: gw.ThreadMembersUpdate) -> None:
         guild_id = int(data['guild_id'])
@@ -2948,6 +3013,9 @@ class ConnectionState:
         if thread is None:
             _log.debug('THREAD_MEMBERS_UPDATE referencing an unknown thread ID: %s. Discarding.', thread_id)
             return
+
+        # Member activity keeps the thread warm in the cache
+        guild._touch_thread(thread_id)
 
         added_members = [ThreadMember(thread, d) for d in data.get('added_members', [])]
         removed_member_ids = [int(x) for x in data.get('removed_member_ids', [])]
@@ -4298,7 +4366,11 @@ class ConnectionState:
         if guild_id is not None:
             guild = self._guild_presences.get(guild_id)
             if guild is not None:
-                return guild.get(user_id)
+                presence = guild.get(user_id)
+                if presence is not None:
+                    # Mark as most recently used
+                    guild.move_to_end(user_id)
+                return presence
             return
         presences = self._presences
         presence = presences.get(user_id)
@@ -4332,8 +4404,14 @@ class ConnectionState:
         if guild_id is not None:
             guild = self._guild_presences.get(guild_id)
             if guild is None:
-                guild = self._guild_presences[guild_id] = {}
+                guild = self._guild_presences[guild_id] = OrderedDict()
+            if user_id in guild:
+                guild.move_to_end(user_id)
             guild[user_id] = presence
+            cap = self.max_guild_presence_cache
+            if cap is not None:
+                while len(guild) > cap:
+                    guild.popitem(last=False)
         else:
             presences = self._presences
             if user_id in presences:

@@ -641,7 +641,7 @@ class Guild(Hashable):
 
     def _store_thread(self, payload: ThreadPayload, /) -> Thread:
         thread = Thread(guild=self, state=self._state, data=payload)
-        self._threads[thread.id] = thread
+        self._add_thread(thread)
         return thread
 
     def _remove_member(self, member: Snowflake, /) -> None:
@@ -650,7 +650,46 @@ class Guild(Hashable):
         self._state.remove_presence(member.id, self.id)
 
     def _add_thread(self, thread: Thread, /) -> None:
-        self._threads[thread.id] = thread
+        threads = self._threads
+        thread_id = thread.id
+        if thread_id in threads:
+            # Move to the end (most recently used) for approximate LRU eviction
+            del threads[thread_id]
+        threads[thread_id] = thread
+
+        max_thread_cache = self._state.max_thread_cache
+        if max_thread_cache is not None and len(threads) > max_thread_cache:
+            self._evict_threads(max_thread_cache)
+
+        # Amortized global cap check (spreads the cost across many insertions)
+        self._state._note_thread_add()
+
+    def _touch_thread(self, thread_id: int, /) -> None:
+        # Marks a thread as recently used without (re)inserting it
+        threads = self._threads
+        if thread_id in threads:
+            threads[thread_id] = threads.pop(thread_id)
+
+    def _evict_threads(self, cap: int, /) -> None:
+        # Evicts the least recently used threads until the cache is within the cap.
+        # Threads the client user has joined are never evicted.
+        threads = self._threads
+        self_id = self._state.self_id
+        excess = len(threads) - cap
+        victims = []
+        for thread_id, thread in threads.items():
+            if excess <= 0:
+                break
+            if self_id is not None and self_id in thread._members:
+                continue
+            victims.append(thread_id)
+            excess -= 1
+
+        for thread_id in victims:
+            del threads[thread_id]
+
+        if victims:
+            _log.debug('Evicted %d threads from the cache of guild ID %d (cap: %d).', len(victims), self.id, cap)
 
     def _remove_thread(self, thread: Snowflake, /) -> None:
         self._threads.pop(thread.id, None)
@@ -837,6 +876,13 @@ class Guild(Hashable):
     @property
     def threads(self) -> Sequence[Thread]:
         """Sequence[:class:`Thread`]: A list of active threads that you have permission to view.
+
+        .. note::
+
+            If a thread cache cap is configured (see ``max_thread_cache``),
+            this may not contain every thread of the guild. Use
+            :meth:`Guild.fetch_channel` to retrieve threads missing from
+            the cache.
 
         .. versionadded:: 2.0
         """

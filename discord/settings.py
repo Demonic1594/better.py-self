@@ -1966,6 +1966,8 @@ class MuteConfig:
         When the mute will expire.
     """
 
+    __slots__ = ('muted', 'until')
+
     def __init__(self, muted: bool, config: Optional[MuteConfigPayload] = None) -> None:
         until = parse_time(config.get('end_time') if config else None)
         if until is not None:
@@ -2013,6 +2015,8 @@ class ChannelSettings:
         level: NotificationLevel
         muted: MuteConfig
         collapsed: bool
+
+    __slots__ = ('_guild_id', '_state', '_channel_id', 'level', 'muted', 'collapsed')
 
     def __init__(self, guild_id: Optional[int] = None, *, data: ChannelOverridePayload, state: ConnectionState) -> None:
         self._guild_id = guild_id

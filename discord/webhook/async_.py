@@ -33,8 +33,6 @@ from typing import Any, Dict, List, Literal, Optional, TYPE_CHECKING, Sequence, 
 from contextvars import ContextVar
 import weakref
 
-import aiohttp
-
 from .. import utils
 from ..errors import HTTPException, Forbidden, NotFound, DiscordServerError
 from ..message import Message
@@ -61,6 +59,8 @@ if TYPE_CHECKING:
     from datetime import datetime
     from typing_extensions import Self
     from types import TracebackType
+
+    import aiohttp
 
     from ..embeds import Embed
     from ..client import Client
@@ -168,7 +168,10 @@ class AsyncWebhookAdapter:
                     file.reset(seek=attempt)
 
                 if multipart:
-                    form_data = aiohttp.FormData(quote_fields=False)
+                    # aiohttp is only needed once a webhook actually sends files
+                    from aiohttp import FormData
+
+                    form_data = FormData(quote_fields=False)
                     for p in multipart:
                         # Convert 'data' to 'value' for aiohttp.FormData compatibility
                         field_params = p.copy()

@@ -31,6 +31,7 @@ import logging
 import re
 import ssl
 import string
+import sys
 from collections import deque
 from http import HTTPStatus
 from random import choice, choices, uniform
@@ -55,7 +56,6 @@ from typing import (
 )
 from urllib.parse import quote as _uriquote
 
-import aiohttp
 import curl_cffi
 from curl_cffi import requests, CurlMime
 
@@ -80,6 +80,7 @@ from .utils import MISSING
 if TYPE_CHECKING:
     from types import TracebackType
 
+    import aiohttp
     from typing_extensions import Self
 
     from .channel import DMChannel, ForumChannel, GroupChannel, PartialMessageable, TextChannel, VoiceChannel
@@ -167,16 +168,27 @@ _CLOUDFLARE_REGEX = re.compile(r'<span>(\d{3,4})</span>')
 _log = logging.getLogger(__name__)
 
 
-# For some reason, the Discord voice websocket expects this header to be
-# completely lowercase while aiohttp respects spec and does it as case-insensitive
-aiohttp.hdrs.WEBSOCKET = 'websocket'  # type: ignore
+def _load_aiohttp():
+    """Imports aiohttp lazily.
+
+    Only the CDN/cloud session and webhooks need aiohttp; deferring the import
+    keeps it out of memory (and startup time) for sessions that never use it.
+    """
+    import aiohttp
+
+    # For some reason, the Discord voice websocket expects this header to be
+    # completely lowercase while aiohttp respects spec and does it as case-insensitive
+    aiohttp.hdrs.WEBSOCKET = 'websocket'  # type: ignore
+    return aiohttp
 
 
 async def json_or_text(response: Union[aiohttp.ClientResponse, requests.Response]) -> Union[Dict[str, Any], str]:
-    if isinstance(response, aiohttp.ClientResponse):
-        content = await response.read()
+    if hasattr(response, 'acontent'):
+        # curl_cffi response
+        content = await response.acontent()  # type: ignore # duck-typed
     else:
-        content = await response.acontent()
+        # aiohttp response
+        content = await response.read()  # type: ignore # duck-typed
 
     try:
         if response.headers['content-type'] == 'application/json':
@@ -191,6 +203,7 @@ async def json_or_text(response: Union[aiohttp.ClientResponse, requests.Response
 
 
 async def _gen_session(session: Optional[aiohttp.ClientSession]) -> aiohttp.ClientSession:
+    aiohttp = _load_aiohttp()
     connector = None
     if session:
         connector = session.connector
@@ -223,6 +236,12 @@ async def _gen_session(session: Optional[aiohttp.ClientSession]) -> aiohttp.Clie
     else:
         session = aiohttp.ClientSession(connector=connector)
     return session
+
+
+def _aiohttp_basicauth_check(proxy_auth: Any) -> bool:
+    # A BasicAuth can only exist if aiohttp has already been imported
+    aiohttp_module = sys.modules.get('aiohttp')
+    return aiohttp_module is not None and isinstance(proxy_auth, aiohttp_module.BasicAuth)
 
 
 class MultipartParameters(NamedTuple):
@@ -736,7 +755,7 @@ class HTTPClient:
 
     def __del__(self) -> None:
         asession = self.__asession
-        if asession and asession.connector:
+        if asession is not MISSING and asession and asession.connector:
             try:
                 asession.connector._close()
             except Exception:
@@ -745,7 +764,7 @@ class HTTPClient:
     def clear(self) -> None:
         if self.__session and self.__session._closed:
             self.__session = MISSING
-        if self.__asession and self.__asession.closed:
+        if self.__asession is not MISSING and self.__asession and self.__asession.closed:
             self.__asession = MISSING
 
     async def startup(self) -> None:
@@ -754,10 +773,6 @@ class HTTPClient:
 
         self._global_over = asyncio.Event()
         self._global_over.set()
-
-        if self.connector is MISSING or self.connector.closed:
-            self.connector = aiohttp.TCPConnector(limit=0)
-        self.__asession = await _gen_session(aiohttp.ClientSession(connector=self.connector))
 
         if self.client is not None:
             self.headers = await self.client.headers_context()
@@ -772,6 +787,16 @@ class HTTPClient:
 
         self.__session = requests.AsyncSession(impersonate=headers.impersonate, default_headers=False)  # pyright: ignore[reportArgumentType]
         self._started = True
+
+    async def _ensure_asession(self) -> aiohttp.ClientSession:
+        """Lazily creates the aiohttp CDN/cloud session on first use."""
+        asession = self.__asession
+        if asession is MISSING or asession.closed:
+            aiohttp = _load_aiohttp()
+            if self.connector is MISSING or self.connector.closed:
+                self.connector = aiohttp.TCPConnector(limit=0)
+            self.__asession = asession = await _gen_session(aiohttp.ClientSession(connector=self.connector))
+        return asession
 
     async def ws_connect(self, url: str, **kwargs) -> requests.AsyncWebSocket:
         await self.startup()
@@ -796,7 +821,7 @@ class HTTPClient:
         if proxy is not None:
             kwargs['proxies'] = {'all': proxy}
         if proxy_auth is not None:
-            if isinstance(proxy_auth, aiohttp.BasicAuth):
+            if _aiohttp_basicauth_check(proxy_auth):
                 proxy_auth = (proxy_auth.login, proxy_auth.password)
             kwargs['proxy_auth'] = proxy_auth
 
@@ -927,7 +952,7 @@ class HTTPClient:
         if proxy is not None:
             kwargs['proxies'] = {'all': proxy}
         if proxy_auth is not None:
-            if isinstance(proxy_auth, aiohttp.BasicAuth):
+            if _aiohttp_basicauth_check(proxy_auth):
                 proxy_auth = (proxy_auth.login, proxy_auth.password)
             kwargs['proxy_auth'] = proxy_auth
         interface = kwargs.pop('interface', self.interface)
@@ -1175,7 +1200,8 @@ class HTTPClient:
         if self.proxy_auth is not None:
             kwargs['proxy_auth'] = self.proxy_auth
 
-        async with self.__asession.get(url, **kwargs) as resp:
+        asession = await self._ensure_asession()
+        async with asession.get(url, **kwargs) as resp:
             if resp.status == 200:
                 return await resp.read()
             elif resp.status == 404:
@@ -1200,7 +1226,8 @@ class HTTPClient:
                 file.reset(seek=tries)
 
             try:
-                async with self.__asession.put(url, data=getattr(file, 'fp', file), headers=headers) as response:
+                asession = await self._ensure_asession()
+                async with asession.put(url, data=getattr(file, 'fp', file), headers=headers) as response:
                     _log.debug('PUT %s with %s has returned %s.', url, file, response.status)
                     data = await json_or_text(response)
 
@@ -1238,7 +1265,8 @@ class HTTPClient:
             raise HTTPException(response, data)
 
     async def get_preferred_voice_regions(self) -> List[guild.RTCRegion]:
-        async with self.__asession.get('https://latency.discord.media/rtc') as resp:
+        asession = await self._ensure_asession()
+        async with asession.get('https://latency.discord.media/rtc') as resp:
             if resp.status == 200:
                 return await resp.json()
             elif resp.status == 404:
@@ -1251,7 +1279,7 @@ class HTTPClient:
     # State management
 
     async def close(self) -> None:
-        if self.__asession:
+        if self.__asession is not MISSING and self.__asession:
             await self.__asession.close()
         if self.__session:
             await self.__session.close()
