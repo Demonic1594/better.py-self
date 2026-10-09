@@ -1116,6 +1116,22 @@ Interactions
 Members
 ~~~~~~~~
 
+.. function:: on_dispatch_backlog(pending, oldest_age)
+
+    Called when the number of pending event handler tasks exceeds the
+    ``dispatch_backlog_warning`` threshold (at most once every 30 seconds).
+
+    This indicates that event handlers are being scheduled faster than they
+    complete, usually because a handler is slow or blocked. Queued events are
+    delayed by the backlog and their objects stay pinned in memory.
+
+    .. versionadded:: 2.2
+
+    :param pending: The number of event handler tasks created but not yet completed.
+    :type pending: :class:`int`
+    :param oldest_age: How long the oldest pending handler has been queued, in seconds.
+    :type oldest_age: :class:`float`
+
 .. function:: on_member_join(member)
 
     Called when a :class:`Member` joins a :class:`Guild`.

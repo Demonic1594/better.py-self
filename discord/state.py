@@ -1138,8 +1138,9 @@ class CacheStats(NamedTuple):
     ``-1.0`` indicates the loop was stalled for over a second.
     """
     per_guild: Dict[int, Dict[str, int]]
-    """Per-guild breakdown: ``members``, ``threads``, ``presences``,
-    ``evicted_members`` and ``evicted_threads`` for each cached guild."""
+    """A per-guild breakdown with the cached ``members``, ``threads`` and
+    ``presences`` counts, plus ``evicted_members`` and ``evicted_threads``,
+    for each cached guild."""
 
 
 async def logging_coroutine(coroutine: Coroutine[Any, Any, T], *, info: str) -> Optional[T]:

@@ -1038,7 +1038,7 @@ class Client:
 
         Returns
         --------
-        :class:`CacheStats`
+        :class:`.CacheStats`
             The snapshot. Most counters reset on reconnect.
         """
         state = self._connection
