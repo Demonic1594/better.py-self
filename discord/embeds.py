@@ -276,7 +276,18 @@ class Embed:
 
     def copy(self) -> Self:
         """Returns a shallow copy of the embed."""
-        return self.__class__.from_dict(self.to_dict())
+        new = self.__class__.__new__(self.__class__)
+        for key in Embed.__slots__:
+            try:
+                value = getattr(self, key)
+            except AttributeError:
+                continue
+            if key == '_fields':
+                value = [dict(field) for field in value]
+            elif isinstance(value, dict):
+                value = dict(value)
+            setattr(new, key, value)
+        return new
 
     def __len__(self) -> int:
         total = len(self.title or '') + len(self.description or '')
@@ -734,9 +745,9 @@ class Embed:
         # add in the raw data into the dict
         # fmt: off
         result = {
-            key[1:]: getattr(self, key)
-            for key in Embed.__slots__
-            if key[0] == '_' and hasattr(self, key)
+            name: getattr(self, key)
+            for key, name in _EMBED_DICT_SLOTS
+            if hasattr(self, key)
         }
         # fmt: on
 
@@ -775,3 +786,7 @@ class Embed:
             result['title'] = self.title
 
         return result  # type: ignore # This payload is equivalent to the EmbedData type
+
+
+# Precomputed (private slot, public name) pairs for Embed.to_dict
+_EMBED_DICT_SLOTS = tuple((key, key[1:]) for key in Embed.__slots__ if key[0] == '_')

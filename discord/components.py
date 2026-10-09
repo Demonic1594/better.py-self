@@ -369,16 +369,11 @@ class Button(Component):
         self.url: Optional[str] = data.get('url')
         self.disabled: bool = data.get('disabled', False)
         self.label: Optional[str] = data.get('label')
-        self.emoji: Optional[PartialEmoji]
-        try:
-            self.emoji = PartialEmoji.from_dict(data['emoji'])  # pyright: ignore[reportTypedDictNotRequiredAccess]
-        except KeyError:
-            self.emoji = None
+        emoji_data = data.get('emoji')
+        self.emoji: Optional[PartialEmoji] = PartialEmoji.from_dict(emoji_data) if emoji_data is not None else None
 
-        try:
-            self.sku_id: Optional[int] = int(data['sku_id'])  # pyright: ignore[reportTypedDictNotRequiredAccess]
-        except KeyError:
-            self.sku_id = None
+        sku_id = data.get('sku_id')
+        self.sku_id: Optional[int] = int(sku_id) if sku_id is not None else None
 
     @property
     def type(self) -> Literal[ComponentType.button]:
@@ -716,10 +711,8 @@ class SelectOption(BaseOption):
 
     @classmethod
     def from_dict(cls, data: SelectOptionPayload) -> SelectOption:
-        try:
-            emoji = PartialEmoji.from_dict(data['emoji'])  # pyright: ignore[reportTypedDictNotRequiredAccess]
-        except KeyError:
-            emoji = None
+        emoji_data = data.get('emoji')
+        emoji = PartialEmoji.from_dict(emoji_data) if emoji_data is not None else None
 
         return cls(
             label=data['label'],
@@ -874,6 +867,8 @@ class SelectDefaultValue:
 
     .. versionadded:: 2.2
     """
+
+    __slots__ = ('id', '_type')
 
     def __init__(self, *, id: int, type: SelectDefaultValueType) -> None:
         self.id = id
@@ -1937,37 +1932,32 @@ def _component_factory(
 def _component_factory(data: ComponentPayload, message: ComponentWithMessage = ...) -> Optional[Component]: ...
 
 
+_COMPONENT_CLASSES = {
+    1: ActionRow,
+    2: Button,
+    4: TextInput,
+    3: SelectMenu,
+    5: SelectMenu,
+    6: SelectMenu,
+    7: SelectMenu,
+    8: SelectMenu,
+    9: SectionComponent,
+    10: TextDisplay,
+    11: ThumbnailComponent,
+    12: MediaGalleryComponent,
+    13: FileComponent,
+    14: SeparatorComponent,
+    17: Container,
+    18: LabelComponent,
+    19: FileUploadComponent,
+    21: RadioGroupComponent,
+    22: CheckboxGroupComponent,
+    23: CheckboxComponent,
+}
+
+
 def _component_factory(data: ComponentPayload, message: ComponentWithMessage = MISSING) -> Optional[Component]:
-    if data['type'] == 1:
-        return ActionRow(data, message)
-    elif data['type'] == 2:
-        return Button(data, message)
-    elif data['type'] == 4:
-        return TextInput(data, message)
-    elif data['type'] in (3, 5, 6, 7, 8):
-        return SelectMenu(data, message)  # type: ignore
-    elif data['type'] == 9:
-        return SectionComponent(data, message)
-    elif data['type'] == 10:
-        return TextDisplay(data, message)
-    elif data['type'] == 11:
-        return ThumbnailComponent(data, message)
-    elif data['type'] == 12:
-        return MediaGalleryComponent(data, message)
-    elif data['type'] == 13:
-        return FileComponent(data, message)
-    elif data['type'] == 14:
-        return SeparatorComponent(data, message)
-    elif data['type'] == 17:
-        return Container(data, message)
-    elif data['type'] == 18:
-        return LabelComponent(data, message)
-    elif data['type'] == 19:
-        return FileUploadComponent(data, message)
-    elif data['type'] == 21:
-        return RadioGroupComponent(data, message)
-    elif data['type'] == 22:
-        return CheckboxGroupComponent(data, message)
-    elif data['type'] == 23:
-        return CheckboxComponent(data, message)
-    return None
+    cls = _COMPONENT_CLASSES.get(data['type'])
+    if cls is None:
+        return None
+    return cls(data, message)

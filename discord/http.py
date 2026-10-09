@@ -33,7 +33,7 @@ import ssl
 import string
 from collections import deque
 from http import HTTPStatus
-from random import choice, choices
+from random import choice, choices, uniform
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -174,18 +174,18 @@ aiohttp.hdrs.WEBSOCKET = 'websocket'  # type: ignore
 
 async def json_or_text(response: Union[aiohttp.ClientResponse, requests.Response]) -> Union[Dict[str, Any], str]:
     if isinstance(response, aiohttp.ClientResponse):
-        text = await response.text(encoding='utf-8')
+        content = await response.read()
     else:
-        text = await response.atext()
+        content = await response.acontent()
 
     try:
         if response.headers['content-type'] == 'application/json':
-            return utils._from_json(text)
+            return utils._from_json(content)
     except KeyError:
         # Thanks Cloudflare
         pass
 
-    return text
+    return content.decode('utf-8', 'replace')
 
 
 async def _gen_session(session: Optional[aiohttp.ClientSession]) -> aiohttp.ClientSession:
@@ -459,24 +459,20 @@ class Route:
         self.webhook_token: Optional[str] = parameters.get('webhook_token')
         self.application_id: Optional[Snowflake] = parameters.get('application_id')
 
-    @property
-    def key(self) -> str:
-        """The bucket key is used to represent the route in various mappings."""
-        if self.metadata:
-            return f'{self.method} {self.path}:{self.metadata}'
-        return f'{self.method} {self.path}'
+        # The bucket key is used to represent the route in various mappings
+        if metadata:
+            self.key: str = f'{method} {path}:{metadata}'
+        else:
+            self.key = f'{method} {path}'
 
-    @property
-    def major_parameters(self) -> str:
-        """Returns the major parameters formatted a string.
-
-        This needs to be appended to a bucket hash to constitute as a full rate limit key.
-        """
-        if self.path.startswith('/users/@me'):
-            return ''
-        return '+'.join(
-            str(k) for k in (self.channel_id, self.guild_id, self.webhook_id, self.webhook_token) if k is not None
-        )
+        # Major parameters formatted as a string.
+        # This needs to be appended to a bucket hash to constitute as a full rate limit key.
+        if path.startswith('/users/@me'):
+            self.major_parameters: str = ''
+        else:
+            self.major_parameters = '+'.join(
+                str(k) for k in (self.channel_id, self.guild_id, self.webhook_id, self.webhook_token) if k is not None
+            )
 
 
 class Ratelimit:
@@ -710,6 +706,31 @@ class HTTPClient:
 
         self.headers: HeadersContext = headers_context
         self._started: bool = False
+        self._base_headers: Optional[Dict[str, str]] = None
+        self._base_headers_src: Optional[HeadersContext] = None
+        self._timezone_failed: bool = False
+
+    def _get_base_headers(self) -> Dict[str, str]:
+        # Caches the static per-request headers; rebuilt if the headers context is replaced
+        headers = self.headers
+        base = self._base_headers
+        if base is None or self._base_headers_src is not headers:
+            base = {
+                **headers.client_hints,
+                'Accept': '*/*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br, zstd',
+                'Origin': f'https://{headers.BASE_DOMAIN}',
+                'Referer': f'https://{headers.BASE_DOMAIN}/channels/@me',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-origin',
+                'User-Agent': headers.user_agent,
+                'X-Super-Properties': headers.encoded_super_properties,
+            }
+            self._base_headers = base
+            self._base_headers_src = headers
+        return base
 
     def __del__(self) -> None:
         asession = self.__asession
@@ -845,37 +866,29 @@ class HTTPClient:
         ratelimit = self.get_ratelimit(key)
 
         # Header creation
-        headers = {
-            **self.headers.client_hints,
-            'Accept': '*/*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br, zstd',
-            'Origin': f'https://{self.headers.BASE_DOMAIN}',
-            'Referer': f'https://{self.headers.BASE_DOMAIN}/channels/@me',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
-            'User-Agent': self.headers.user_agent,
-            'X-Discord-Locale': self.client._connection.locale if self.client else 'en-US',
-            'X-Super-Properties': self.headers.encoded_super_properties,
-        }
+        headers = self._get_base_headers().copy()
 
         if self.client and self.client._connection.installation_id is not None:
             headers['X-Installation-ID'] = self.client._connection.installation_id
 
-        if self.timezone is not None:
-            headers['X-Discord-Timezone'] = self.timezone
-        else:
+        headers['X-Discord-Locale'] = self.client._connection.locale if self.client else 'en-US'
+
+        timezone = self.timezone
+        if timezone is None and not self._timezone_failed:
             # Timezones are annoying, so if it errors, we don't care
             try:
                 from tzlocal import get_localzone_name
 
                 timezone = get_localzone_name()
             except Exception:
-                pass
+                self._timezone_failed = True
             else:
                 if timezone:
-                    headers['X-Discord-Timezone'] = timezone
+                    self.timezone = timezone
+                else:
+                    self._timezone_failed = True
+        if timezone:
+            headers['X-Discord-Timezone'] = timezone
 
         if self.debug_options:
             headers['X-Debug-Options'] = ','.join(self.debug_options)
@@ -1093,7 +1106,7 @@ class HTTPClient:
                     # Unconditional retry
                     if response.status_code in {502, 504, 507, 522, 523, 524}:
                         failed += 1
-                        await asyncio.sleep(1 + tries * 2)
+                        await asyncio.sleep(1 + tries * 2 + uniform(0, 1))
                         continue
 
                     # Usual error cases
@@ -1112,7 +1125,7 @@ class HTTPClient:
                 except requests.RequestsError as e:
                     if tries < 4 and e.code in (23, 28, 35):
                         failed += 1
-                        await asyncio.sleep(1 + tries * 2)
+                        await asyncio.sleep(1 + tries * 2 + uniform(0, 1))
                         continue
                     raise
 
@@ -1121,7 +1134,7 @@ class HTTPClient:
                     # Connection reset by peer
                     if tries < 4 and e.errno in (54, 10054):
                         failed += 1
-                        await asyncio.sleep(1 + tries * 2)
+                        await asyncio.sleep(1 + tries * 2 + uniform(0, 1))
                         continue
                     raise
 

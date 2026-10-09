@@ -110,6 +110,8 @@ class BaseActivity:
         return hash((self.id, self.type, self.name))
 
     def __eq__(self, other: object) -> bool:
+        if self is other:
+            return True
         if isinstance(other, BaseActivity):
             return self.to_dict() == other.to_dict() and self.id == other.id
         return NotImplemented
@@ -2167,10 +2169,8 @@ def create_activity(data: Optional[ActivityPayload], state: ConnectionState, use
         return CustomActivity.from_dict(data=data, state=state)
     elif game_type is ActivityType.hang:
         return HangActivity.from_dict(data=data, state=state)
-    elif (
-        game_type is ActivityType.listening
-        and data['name'] == 'Spotify'
-        and data.get('party', {}).get('id', '').startswith('spotify:')
+    elif game_type is ActivityType.listening and data['name'] == 'Spotify' and (
+        (party := data.get('party')) is not None and party.get('id', '').startswith('spotify:')
     ):
         return Spotify.from_dict(data=data, state=state, user_id=user_id)
     else:

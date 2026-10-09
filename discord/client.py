@@ -190,6 +190,9 @@ if TYPE_CHECKING:
 
     class _ClientOptions(TypedDict, total=False):
         max_messages: Optional[int]
+        max_member_cache: Optional[int]
+        max_total_member_cache: Optional[int]
+        max_presence_cache: Optional[int]
         proxy: Optional[str]
         proxy_auth: Optional[aiohttp.BasicAuth]
         member_cache_flags: Optional[MemberCacheFlags]
@@ -280,6 +283,33 @@ class Client:
 
         .. versionchanged:: 1.3
             Allow disabling the message cache and change the default size to ``1000``.
+    max_member_cache: Optional[:class:`int`]
+        The maximum number of members to store in each guild's internal member
+        cache. This defaults to ``10000``. Passing in ``None`` disables the cap.
+
+        When the cap is exceeded, the least recently used members are evicted
+        (the client user and members in voice channels are never evicted).
+        Members that send messages or are mentioned are automatically re-cached
+        and protected, and evicted members can still be retrieved with
+        :meth:`Guild.fetch_member` or :meth:`Guild.query_members`.
+
+        .. versionadded:: 2.3
+    max_total_member_cache: Optional[:class:`int`]
+        The maximum number of members to store across *all* guilds' internal
+        member caches. This defaults to ``50000``. Passing in ``None``
+        disables the cap.
+
+        When the cap is exceeded, members are evicted from the fullest guilds
+        first. The same eviction protections and re-warm behavior as
+        ``max_member_cache`` apply.
+
+        .. versionadded:: 2.3
+    max_presence_cache: Optional[:class:`int`]
+        The maximum number of non-guild presences (e.g. direct message
+        relationships) to store in the internal presence cache. This defaults
+        to ``20000``. Passing in ``None`` disables the cap.
+
+        .. versionadded:: 2.3
     proxy: Optional[:class:`str`]
         Proxy URL.
     proxy_auth: Optional[:class:`aiohttp.BasicAuth`]
@@ -432,6 +462,7 @@ class Client:
         # self.ws is set in the connect method
         self.ws: DiscordWebSocket = None  # type: ignore
         self._listeners: Dict[str, List[Tuple[asyncio.Future, Callable[..., bool]]]] = {}
+        self._event_handlers: Dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {}
 
         self.captcha_handler: Optional[Callable[[CaptchaRequired, Client], Awaitable[str]]] = options.pop(
             'captcha_handler', None
@@ -931,12 +962,16 @@ class Client:
                 for idx in reversed(removed):
                     del listeners[idx]
 
-        try:
-            coro = getattr(self, method)
-        except AttributeError:
-            pass
-        else:
-            self._schedule_event(coro, method, *args, **kwargs)
+        coro = self._event_handlers.get(method)
+        if coro is None:
+            try:
+                coro = getattr(self, method)
+            except AttributeError:
+                return
+            else:
+                self._event_handlers[method] = coro
+
+        self._schedule_event(coro, method, *args, **kwargs)
 
     async def on_error(self, event_method: str, /, *args: Any, **kwargs: Any) -> None:
         """|coro|
@@ -3053,6 +3088,7 @@ class Client:
             raise TypeError('event registered must be a coroutine function')
 
         setattr(self, coro.__name__, coro)
+        self._event_handlers.pop(coro.__name__, None)
         _log.debug('%s has successfully been registered as an event', coro.__name__)
         return coro
 

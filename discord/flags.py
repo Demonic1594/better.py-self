@@ -107,7 +107,8 @@ class flag_value:
     def __get__(self, instance: Optional[BF], owner: Type[BF]) -> Any:
         if instance is None:
             return self
-        return instance._has_flag(self.flag)
+        # Inlined instance._has_flag(self.flag) to skip a method call
+        return (instance.value & self.flag) == self.flag
 
     def __set__(self, instance: BaseFlags, value: bool) -> None:
         instance._set_flag(self.flag, value)
@@ -128,11 +129,18 @@ def fill_with_flags(*, inverted: bool = False) -> Callable[[Type[BF]], Type[BF]]
             for name, value in cls.__dict__.items()
             if isinstance(value, flag_value)
         }
+        # Precomputed for __iter__; mirrors the class-dict order and skips aliases
+        cls._ITER_FLAGS = tuple(
+            (name, value.flag)
+            for name, value in cls.__dict__.items()
+            if isinstance(value, flag_value) and not isinstance(value, alias_flag_value)
+        )
         # fmt: on
 
+        max_bits = max(cls.VALID_FLAGS.values()).bit_length()
+        cls._INVERT_MASK = -1 + (2**max_bits)
         if inverted:
-            max_bits = max(cls.VALID_FLAGS.values()).bit_length()
-            cls.DEFAULT_VALUE = -1 + (2**max_bits)
+            cls.DEFAULT_VALUE = cls._INVERT_MASK
         else:
             cls.DEFAULT_VALUE = 0
 
@@ -145,6 +153,8 @@ def fill_with_flags(*, inverted: bool = False) -> Callable[[Type[BF]], Type[BF]]
 class BaseFlags:
     VALID_FLAGS: ClassVar[Dict[str, int]]
     DEFAULT_VALUE: ClassVar[int]
+    _INVERT_MASK: ClassVar[int] = 0
+    _ITER_FLAGS: ClassVar[Tuple[Tuple[str, int], ...]] = ()
 
     value: int
 
@@ -152,10 +162,13 @@ class BaseFlags:
 
     def __init__(self, **kwargs: bool):
         self.value = self.DEFAULT_VALUE
+        valid_flags = self.VALID_FLAGS
         for key, value in kwargs.items():
-            if key not in self.VALID_FLAGS:
-                raise TypeError(f'{key!r} is not a valid flag name.')
-            setattr(self, key, value)
+            try:
+                flag = valid_flags[key]
+            except KeyError:
+                raise TypeError(f'{key!r} is not a valid flag name.') from None
+            self._set_flag(flag, value)
 
     @classmethod
     def _from_value(cls, value: int) -> Self:
@@ -185,9 +198,7 @@ class BaseFlags:
         return self
 
     def __invert__(self) -> Self:
-        max_bits = max(self.VALID_FLAGS.values()).bit_length()
-        max_value = -1 + (2**max_bits)
-        return self._from_value(self.value ^ max_value)
+        return self._from_value(self.value ^ self._INVERT_MASK)
 
     def __bool__(self) -> bool:
         return self.value != self.DEFAULT_VALUE
@@ -205,12 +216,9 @@ class BaseFlags:
         return f'<{self.__class__.__name__} value={self.value}>'
 
     def __iter__(self) -> Iterator[Tuple[str, bool]]:
-        for name, value in self.__class__.__dict__.items():
-            if isinstance(value, alias_flag_value):
-                continue
-
-            if isinstance(value, flag_value):
-                yield (name, self._has_flag(value.flag))
+        value = self.value
+        for name, flag in self._ITER_FLAGS:
+            yield (name, (value & flag) == flag)
 
     def _has_flag(self, o: int) -> bool:
         return (self.value & o) == o
@@ -245,10 +253,8 @@ class ArrayFlags(BaseFlags):
     @classmethod
     def all(cls: Type[Self]) -> Self:
         """A factory method that creates an instance of ArrayFlags with everything enabled."""
-        bits = max(cls.VALID_FLAGS.values()).bit_length()
-        value = (1 << bits) - 1
         self = cls.__new__(cls)
-        self.value = value
+        self.value = cls._INVERT_MASK
         return self
 
     @classmethod
@@ -1487,10 +1493,8 @@ class MemberCacheFlags(BaseFlags):
     @classmethod
     def all(cls: Type[MemberCacheFlags]) -> MemberCacheFlags:
         """A factory method that creates a :class:`MemberCacheFlags` with everything enabled."""
-        bits = max(cls.VALID_FLAGS.values()).bit_length()
-        value = (1 << bits) - 1
         self = cls.__new__(cls)
-        self.value = value
+        self.value = cls._INVERT_MASK
         return self
 
     @classmethod
@@ -3137,10 +3141,8 @@ class AutoModPresets(ArrayFlags):
     @classmethod
     def all(cls: Type[Self]) -> Self:
         """A factory method that creates a :class:`AutoModPresets` with everything enabled."""
-        bits = max(cls.VALID_FLAGS.values()).bit_length()
-        value = (1 << bits) - 1
         self = cls.__new__(cls)
-        self.value = value
+        self.value = cls._INVERT_MASK
         return self
 
     @classmethod

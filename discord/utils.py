@@ -923,10 +923,14 @@ def utcnow() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc)
 
 
+_ICON_ADDITIONAL_SIZES = frozenset(
+    (20, 22, 24, 28, 40, 44, 48, 56, 60, 80, 96, 100, 160, 240, 300, 320, 480, 600, 640, 1280, 1536, 3072)
+)
+
+
 def valid_icon_size(size: int) -> bool:
     """Icons must be power of 2 within [16, 4096]."""
-    ADDITIONAL_SIZES = (20, 22, 24, 28, 40, 44, 48, 56, 60, 80, 96, 100, 160, 240, 300, 320, 480, 600, 640, 1280, 1536, 3072)
-    return (not size & (size - 1) and 4096 >= size >= 16) or size in ADDITIONAL_SIZES
+    return (not size & (size - 1) and 4096 >= size >= 16) or size in _ICON_ADDITIONAL_SIZES
 
 
 class SnowflakeList(_SnowflakeListBase):
@@ -1020,8 +1024,7 @@ def resolve_invite(invite: Union[Invite, str]) -> ResolvedInvite:
     if isinstance(invite, Invite):
         return ResolvedInvite(invite.code, invite.scheduled_event_id)
     else:
-        rx = r'(?:https?\:\/\/)?discord(?:\.gg|(?:app)?\.com\/invite)\/[^/]+'
-        m = re.match(rx, invite)
+        m = _INVITE_URL_REGEX.match(invite)
 
         if m:
             url = yarl.URL(invite)
@@ -1030,8 +1033,7 @@ def resolve_invite(invite: Union[Invite, str]) -> ResolvedInvite:
 
             return ResolvedInvite(code, int(event_id) if event_id else None)
 
-        allowed_characters = r'[a-zA-Z0-9\-_]+'
-        if not re.fullmatch(allowed_characters, invite):
+        if not _ALLOWED_INVITE_CHARACTERS.fullmatch(invite):
             raise ValueError('Invite contains characters that are not allowed')
 
         return ResolvedInvite(invite, None)
@@ -1103,6 +1105,16 @@ _URL_REGEX = r'(?P<url><[^: >]+:\/[^ >]+>|(?:https?|steam):\/\/[^\s<]+[^<.,:;\"\
 
 _MARKDOWN_STOCK_REGEX = rf'(?P<markdown>[_\\~|\*`]|{_MARKDOWN_ESCAPE_COMMON})'
 
+_MARKDOWN_STOCK_REMOVE_REGEX = re.compile(f'(?:{_URL_REGEX}|{_MARKDOWN_STOCK_REGEX})', re.MULTILINE)
+
+_BACKSLASH_REGEX = re.compile(r'\\')
+
+_ESCAPE_MENTIONS_REGEX = re.compile(r'@(everyone|here|[!&]?[0-9]{17,20})')
+
+_INVITE_URL_REGEX = re.compile(r'(?:https?\:\/\/)?discord(?:\.gg|(?:app)?\.com\/invite)\/[^/]+')
+
+_ALLOWED_INVITE_CHARACTERS = re.compile(r'[a-zA-Z0-9\-_]+')
+
 
 def remove_markdown(text: str, *, ignore_links: bool = True) -> str:
     """A helper function that removes markdown characters.
@@ -1132,10 +1144,8 @@ def remove_markdown(text: str, *, ignore_links: bool = True) -> str:
         groupdict = match.groupdict()
         return groupdict.get('url', '')
 
-    regex = _MARKDOWN_STOCK_REGEX
-    if ignore_links:
-        regex = f'(?:{_URL_REGEX}|{regex})'
-    return re.sub(regex, replacement, text, 0, re.MULTILINE)
+    regex = _MARKDOWN_STOCK_REMOVE_REGEX if ignore_links else _MARKDOWN_STOCK_REGEX
+    return regex.sub(replacement, text, 0)
 
 
 def escape_markdown(text: str, *, as_needed: bool = False, ignore_links: bool = True) -> str:
@@ -1172,12 +1182,10 @@ def escape_markdown(text: str, *, as_needed: bool = False, ignore_links: bool = 
                 return is_url
             return '\\' + groupdict['markdown']
 
-        regex = _MARKDOWN_STOCK_REGEX
-        if ignore_links:
-            regex = f'(?:{_URL_REGEX}|{regex})'
-        return re.sub(regex, replacement, text, count=0, flags=re.MULTILINE)
+        regex = _MARKDOWN_STOCK_REMOVE_REGEX if ignore_links else _MARKDOWN_STOCK_REGEX
+        return regex.sub(replacement, text, count=0)
     else:
-        text = re.sub(r'\\', r'\\\\', text)
+        text = _BACKSLASH_REGEX.sub(r'\\\\', text)
         return _MARKDOWN_ESCAPE_REGEX.sub(r'\\\1', text)
 
 
@@ -1204,7 +1212,7 @@ def escape_mentions(text: str) -> str:
     :class:`str`
         The text with the mentions removed.
     """
-    return re.sub(r'@(everyone|here|[!&]?[0-9]{17,20})', '@\u200b\\1', text)
+    return _ESCAPE_MENTIONS_REGEX.sub('@\u200b\\1', text)
 
 
 def _chunk(iterator: Iterable[T], max_size: int) -> Iterator[List[T]]:
@@ -1774,14 +1782,19 @@ else:
             self.context = zlib.decompressobj()
 
         def decompress(self, data: bytes, /) -> str | None:
-            self.buffer.extend(data)
-
-            # Check whether ending is Z_SYNC_FLUSH
-            if len(data) < 4 or data[-4:] != b'\x00\x00\xff\xff':
-                return
-
-            msg = self.context.decompress(self.buffer)
-            self.buffer = bytearray()
+            buffer = self.buffer
+            if buffer:
+                buffer.extend(data)
+                if buffer[-4:] != b'\x00\x00\xff\xff':
+                    return
+                msg = self.context.decompress(buffer)
+                buffer.clear()
+            else:
+                # Fast path: most messages arrive whole
+                if len(data) < 4 or data[-4:] != b'\x00\x00\xff\xff':
+                    buffer.extend(data)
+                    return
+                msg = self.context.decompress(data)
 
             return msg.decode('utf-8')
 

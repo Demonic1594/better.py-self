@@ -64,6 +64,11 @@ from .member import Member
 from .flags import MessageFlags, AttachmentFlags
 from .file import File
 from .utils import escape_mentions, MISSING
+
+_USER_MENTION_REGEX = re.compile(r'<@!?([0-9]{15,20})>')
+_CHANNEL_MENTION_REGEX = re.compile(r'<#([0-9]{15,20})>')
+_ROLE_MENTION_REGEX = re.compile(r'<@&([0-9]{15,20})>')
+_CLEAN_CONTENT_MENTION_REGEX = re.compile(r'<(@[!&]?|#)([0-9]{15,20})>')
 from .http import handle_message_parameters
 from .guild import Guild
 from .mixins import Hashable
@@ -259,8 +264,13 @@ class Attachment(Hashable):
         self.ephemeral: bool = data.get('ephemeral', False)
         self.duration: Optional[float] = data.get('duration_secs')
         self.title: Optional[str] = data.get('title')
-        self.clip_created_at: Optional[datetime.datetime] = utils.parse_time(data.get('clip_created_at'))
-        self.clip_participants: List[User] = [state.create_user(d) for d in data.get('clip_participants', [])]
+        self.clip_created_at: Optional[datetime.datetime] = (
+            utils.parse_time(clip_created_at) if (clip_created_at := data.get('clip_created_at')) is not None else None
+        )
+        clip_participants = data.get('clip_participants')
+        self.clip_participants: List[User] = (
+            [state.create_user(d) for d in clip_participants] if clip_participants else []
+        )
         self.application: Optional[PartialApplication] = (
             PartialApplication(data=data['application'], state=state) if data.get('application') else None  # type: ignore
         )
@@ -595,21 +605,21 @@ class MessageSnapshot(Hashable):
         This allows you to receive the user IDs of mentioned users
         even in a private message context.
         """
-        return [int(x) for x in re.findall(r'<@!?([0-9]{15,20})>', self.content)]
+        return [int(x) for x in _USER_MENTION_REGEX.findall(self.content)]
 
     @utils.cached_slot_property('_cs_raw_channel_mentions')
     def raw_channel_mentions(self) -> List[int]:
         """List[:class:`int`]: A property that returns an array of channel IDs matched with
         the syntax of ``<#channel_id>`` in the message content.
         """
-        return [int(x) for x in re.findall(r'<#([0-9]{15,20})>', self.content)]
+        return [int(x) for x in _CHANNEL_MENTION_REGEX.findall(self.content)]
 
     @utils.cached_slot_property('_cs_raw_role_mentions')
     def raw_role_mentions(self) -> List[int]:
         """List[:class:`int`]: A property that returns an array of role IDs matched with
         the syntax of ``<@&role_id>`` in the message content.
         """
-        return [int(x) for x in re.findall(r'<@&([0-9]{15,20})>', self.content)]
+        return [int(x) for x in _ROLE_MENTION_REGEX.findall(self.content)]
 
     @utils.cached_slot_property('_cs_cached_message')
     def cached_message(self) -> Optional[Message]:
@@ -785,6 +795,10 @@ def flatten_handlers(cls: Type[Message]) -> Type[Message]:
     # Store _handle_member last
     handlers.append(('member', cls._handle_member))
     cls._HANDLERS = handlers
+    handler_map = dict(handlers)
+    cls._INIT_HANDLERS = [
+        (key, handler_map[key]) for key in ('author', 'member', 'mentions', 'mention_roles', 'call', 'interaction', 'components')
+    ]
     cls._CACHED_SLOTS = [attr for attr in cls.__slots__ if attr.startswith('_cs_')]
     return cls
 
@@ -2019,16 +2033,14 @@ class Message(PartialMessage, Hashable):
         self._pinned_at: Optional[datetime.datetime] = None
 
         self.poll: Optional[Poll] = None
-        try:
-            poll = data['poll']  # pyright: ignore[reportTypedDictNotRequiredAccess]
+        poll = data.get('poll')
+        if poll is not None:
             self.poll = Poll._from_data(data=poll, message=self, state=state)
-        except KeyError:
-            pass
 
-        try:
-            # If the channel doesn't have a guild attribute, we handle that
-            self.guild = channel.guild
-        except AttributeError:
+        guild = getattr(channel, 'guild', MISSING)
+        if guild is not MISSING:
+            self.guild = guild
+        else:
             guild_id = utils._get_as_snowflake(data, 'guild_id')
             if guild_id is not None:
                 channel.guild_id = guild_id  # type: ignore
@@ -2041,11 +2053,8 @@ class Message(PartialMessage, Hashable):
         self._thread: Optional[Thread] = None
 
         if self.guild is not None:
-            try:
-                thread = data['thread']  # pyright: ignore[reportTypedDictNotRequiredAccess]
-            except KeyError:
-                pass
-            else:
+            thread = data.get('thread')
+            if thread is not None:
                 self._thread = self.guild.get_thread(int(thread['id']))
 
                 if self._thread is not None:
@@ -2054,37 +2063,31 @@ class Message(PartialMessage, Hashable):
                     self._thread = Thread(guild=self.guild, state=state, data=thread)
 
         self.application: Optional[IntegrationApplication] = None
-        try:
-            application = data['application']  # pyright: ignore[reportTypedDictNotRequiredAccess]
-        except KeyError:
-            pass
-        else:
+        application = data.get('application')
+        if application is not None:
             self.application = IntegrationApplication(state=self._state, data=application)
 
-        try:
-            ref = data['message_reference']  # pyright: ignore[reportTypedDictNotRequiredAccess]
-        except KeyError:
+        ref_data = data.get('message_reference')
+        if ref_data is None:
             self.reference = None
         else:
-            self.reference = ref = MessageReference.with_state(state, ref)
-            try:
-                resolved = data['referenced_message']  # pyright: ignore[reportTypedDictNotRequiredAccess]
-            except KeyError:
+            self.reference = ref = MessageReference.with_state(state, ref_data)
+            resolved = data.get('referenced_message', MISSING)
+            if resolved is MISSING:
                 pass
+            elif resolved is None:
+                ref.resolved = DeletedReferencedMessage(ref)
             else:
-                if resolved is None:
-                    ref.resolved = DeletedReferencedMessage(ref)
+                # Right now the channel IDs match but maybe in the future they won't
+                if ref.channel_id == channel.id:
+                    chan = channel
+                elif isinstance(channel, Thread) and channel.parent_id == ref.channel_id:
+                    chan = channel
                 else:
-                    # Right now the channel IDs match but maybe in the future they won't
-                    if ref.channel_id == channel.id:
-                        chan = channel
-                    elif isinstance(channel, Thread) and channel.parent_id == ref.channel_id:
-                        chan = channel
-                    else:
-                        chan, _ = state._get_guild_channel(resolved, ref.guild_id)
+                    chan, _ = state._get_guild_channel(resolved, ref.guild_id)
 
-                    # The channel will be the correct type here
-                    ref.resolved = self.__class__(channel=chan, data=resolved, state=state)  # type: ignore
+                # The channel will be the correct type here
+                ref.resolved = self.__class__(channel=chan, data=resolved, state=state)  # type: ignore
 
             if self.type is MessageType.poll_result:
                 if isinstance(self.reference.resolved, self.__class__):
@@ -2100,19 +2103,13 @@ class Message(PartialMessage, Hashable):
         )
 
         self.role_subscription: Optional[RoleSubscriptionInfo] = None
-        try:
-            role_subscription = data['role_subscription_data']  # pyright: ignore[reportTypedDictNotRequiredAccess]
-        except KeyError:
-            pass
-        else:
+        role_subscription = data.get('role_subscription_data')
+        if role_subscription is not None:
             self.role_subscription = RoleSubscriptionInfo(role_subscription)
 
         self.purchase_notification: Optional[PurchaseNotification] = None
-        try:
-            purchase_notification = data['purchase_notification']  # pyright: ignore[reportTypedDictNotRequiredAccess]
-        except KeyError:
-            pass
-        else:
+        purchase_notification = data.get('purchase_notification')
+        if purchase_notification is not None:
             self.purchase_notification = PurchaseNotification(purchase_notification)
 
         search_payload = search_result or {}
@@ -2121,11 +2118,11 @@ class Message(PartialMessage, Hashable):
         self.analytics_id: Optional[str] = search_payload.get('analytics_id')
         self.doing_deep_historical_index: Optional[bool] = search_payload.get('doing_deep_historical_index')
 
-        for handler in ('author', 'member', 'mentions', 'mention_roles', 'call', 'interaction', 'components'):
-            try:
-                getattr(self, f'_handle_{handler}')(data[handler])  # type: ignore
-            except KeyError:
-                continue
+        get = data.get
+        for key, handler in self._INIT_HANDLERS:
+            value = get(key, MISSING)
+            if value is not MISSING:
+                handler(self, value)
 
     def __repr__(self) -> str:
         name = self.__class__.__name__
@@ -2197,12 +2194,10 @@ class Message(PartialMessage, Hashable):
         # otherwise they overwrite each other which is undesirable
         # Since there's no good way to do this we have to iterate over every
         # handler rather than iterating over the keys which is a little slower
+        get = data.get
         for key, handler in self._HANDLERS:
-            try:
-                value = data[key]
-            except KeyError:
-                continue
-            else:
+            value = get(key, MISSING)
+            if value is not MISSING:
                 handler(self, value)
 
         # Clear the cached properties
@@ -2269,8 +2264,18 @@ class Message(PartialMessage, Hashable):
             author._update_from_message(member)  # type: ignore
         except AttributeError:
             # It's a user here
-            # TODO: consider adding to cache here
-            self.author = Member._from_message(message=self, data=member)
+            # The member was likely evicted from the cache, so re-warm it
+            # from the message's member payload if applicable
+            new_member = Member._from_message(message=self, data=member)
+            self.author = new_member
+            guild = self.guild
+            if isinstance(guild, Guild) and guild._should_cache_member(new_member):
+                guild._add_member(new_member)
+        else:
+            guild = self.guild
+            if isinstance(guild, Guild):
+                # Active members should be protected from cache eviction
+                guild._touch_member(author.id)
 
     def _handle_mentions(self, mentions: List[UserWithMemberPayload]) -> None:
         self.mentions = r = []
@@ -2285,8 +2290,14 @@ class Message(PartialMessage, Hashable):
             member = guild.get_member(id_search)
             if member is not None:
                 r.append(member)
+                # Mentioned members are relevant, so protect them from eviction
+                guild._touch_member(id_search)
             else:
-                r.append(Member._try_upgrade(data=mention, guild=guild, state=state))
+                upgraded = Member._try_upgrade(data=mention, guild=guild, state=state)
+                r.append(upgraded)
+                if isinstance(upgraded, Member) and guild._should_cache_member(upgraded):
+                    # Re-warm the member cache from the mention payload
+                    guild._add_member(upgraded)
 
     def _handle_mention_roles(self, role_mentions: List[int]) -> None:
         self.role_mentions = r = []
@@ -2302,11 +2313,12 @@ class Message(PartialMessage, Hashable):
             return
 
         participants = []
+        mentions_by_id = {user.id: user for user in self.mentions}
         for uid in map(int, call.get('participants', [])):
             if uid == self.author.id:
                 participants.append(self.author)
             else:
-                user = utils.find(lambda u: u.id == uid, self.mentions)
+                user = mentions_by_id.get(uid)
                 if user is not None:
                     participants.append(user)
 
@@ -2358,21 +2370,21 @@ class Message(PartialMessage, Hashable):
         This allows you to receive the user IDs of mentioned users
         even in a private message context.
         """
-        return [int(x) for x in re.findall(r'<@!?([0-9]{15,20})>', self.content)]
+        return [int(x) for x in _USER_MENTION_REGEX.findall(self.content)]
 
     @utils.cached_slot_property('_cs_raw_channel_mentions')
     def raw_channel_mentions(self) -> List[int]:
         """List[:class:`int`]: A property that returns an array of channel IDs matched with
         the syntax of ``<#channel_id>`` in the message content.
         """
-        return [int(x) for x in re.findall(r'<#([0-9]{15,20})>', self.content)]
+        return [int(x) for x in _CHANNEL_MENTION_REGEX.findall(self.content)]
 
     @utils.cached_slot_property('_cs_raw_role_mentions')
     def raw_role_mentions(self) -> List[int]:
         """List[:class:`int`]: A property that returns an array of role IDs matched with
         the syntax of ``<@&role_id>`` in the message content.
         """
-        return [int(x) for x in re.findall(r'<@&([0-9]{15,20})>', self.content)]
+        return [int(x) for x in _ROLE_MENTION_REGEX.findall(self.content)]
 
     @utils.cached_slot_property('_cs_channel_mentions')
     def channel_mentions(self) -> List[Union[GuildChannel, Thread]]:
@@ -2437,7 +2449,7 @@ class Message(PartialMessage, Hashable):
             transformed = transforms[type](id)
             return transformed
 
-        result = re.sub(r'<(@[!&]?|#)([0-9]{15,20})>', repl, self.content)
+        result = _CLEAN_CONTENT_MENTION_REGEX.sub(repl, self.content)
 
         return escape_mentions(result)
 

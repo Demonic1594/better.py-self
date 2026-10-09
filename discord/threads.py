@@ -154,6 +154,7 @@ class Thread(Messageable, Hashable):
         '_created_at',
         '_flags',
         '_applied_tags',
+        '_raw_metadata',
     )
 
     def __init__(self, *, guild: Guild, state: ConnectionState, data: ThreadPayload) -> None:
@@ -193,6 +194,7 @@ class Thread(Messageable, Hashable):
         self._unroll_metadata(data['thread_metadata'])
 
     def _unroll_metadata(self, data: ThreadMetadata):
+        self._raw_metadata = data
         self.archived: bool = data['archived']
         self.auto_archive_duration: int = data['auto_archive_duration']
         self.archive_timestamp: datetime = parse_time(data['archive_timestamp'])
@@ -201,29 +203,48 @@ class Thread(Messageable, Hashable):
         self._created_at: Optional[datetime] = parse_time(data.get('create_timestamp'))
 
     def _update(self, data):
-        old = copy.copy(self)
-        self.slowmode_delay = data.get('rate_limit_per_user', 0)
-        self._flags: int = data.get('flags', 0)
-        self._applied_tags: array.array[int] = array.array('Q', map(int, data.get('applied_tags', [])))
+        get = data.get
 
-        if (meta := data.get('thread_metadata')) is not None:
-            self._unroll_metadata(meta)
-        if (name := data.get('name')) is not None:
+        applied_tags = get('applied_tags')
+        _applied_tags = self._applied_tags if applied_tags is None else array.array('Q', map(int, applied_tags))
+        raw_meta = get('thread_metadata')
+
+        # Fast path: skip the snapshot entirely when nothing changed
+        if (
+            get('rate_limit_per_user', 0) == self.slowmode_delay
+            and get('flags', 0) == self._flags
+            and _applied_tags == self._applied_tags
+            and (raw_meta is None or raw_meta == self._raw_metadata)
+            and get('name', self.name) == self.name
+            and _get_as_snowflake(data, 'last_message_id') in (None, self.last_message_id)
+            and get('message_count', self.message_count) == self.message_count
+            and get('member_count', self.member_count) == self.member_count
+            and get('total_message_sent', self.total_message_sent) == self.total_message_sent
+            and get('member_ids_preview', self._member_ids) == self._member_ids
+        ):
+            return
+
+        old = copy.copy(self)
+        self.slowmode_delay = get('rate_limit_per_user', 0)
+        self._flags: int = get('flags', 0)
+        self._applied_tags = _applied_tags
+
+        if raw_meta is not None:
+            self._unroll_metadata(raw_meta)
+        if (name := get('name')) is not None:
             self.name = name
         if (last_message_id := _get_as_snowflake(data, 'last_message_id')) is not None:
             self.last_message_id = last_message_id
-        if (message_count := data.get('message_count')) is not None:
+        if (message_count := get('message_count')) is not None:
             self.message_count = message_count
-        if (member_count := data.get('member_count')) is not None:
+        if (member_count := get('member_count')) is not None:
             self.member_count = member_count
-        if (total_message_sent := data.get('total_message_sent')) is not None:
+        if (total_message_sent := get('total_message_sent')) is not None:
             self.total_message_sent = total_message_sent
-        if (member_ids := data.get('member_ids_preview')) is not None:
+        if (member_ids := get('member_ids_preview')) is not None:
             self._member_ids = member_ids
 
-        attrs = [x for x in self.__slots__ if not any(y in x for y in ('member', 'guild', 'state', 'count'))]
-
-        if any(getattr(self, attr) != getattr(old, attr) for attr in attrs):
+        if any(getattr(self, attr) != getattr(old, attr) for attr in _THREAD_UPDATE_ATTRS):
             return old
 
     @property
@@ -952,6 +973,12 @@ class Thread(Messageable, Hashable):
 
     def _pop_member(self, member_id: int, /) -> Optional[ThreadMember]:
         return self._members.pop(member_id, None)
+
+
+# Precomputed for Thread._update; mirrors the original slot-filtering logic
+_THREAD_UPDATE_ATTRS = tuple(
+    x for x in Thread.__slots__ if not any(y in x for y in ('member', 'guild', 'state', 'count'))
+)
 
 
 class ThreadMember(Hashable):

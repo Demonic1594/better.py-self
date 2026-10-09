@@ -929,7 +929,6 @@ class HeadersContext:
 
     @staticmethod
     def _get_random_order(seed: int, size: int) -> List[int]:
-        random.seed(seed)
         if size == 2:
             return [seed % size, (seed + 1) % size]
         elif size == 3:

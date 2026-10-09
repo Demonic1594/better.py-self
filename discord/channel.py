@@ -49,6 +49,13 @@ from operator import attrgetter
 import discord.abc
 from .scheduled_event import ScheduledEvent
 from .permissions import PermissionOverwrite, Permissions
+
+# Precomputed voice-permission masks used by permissions_for
+_VOICE_PERMISSIONS_VALUE: int = Permissions.voice().value
+_VOICE_DENIED_MASK: int = ~_VOICE_PERMISSIONS_VALUE
+_VOICE_DENIED_EDIT_MASK: int = ~(
+    _VOICE_PERMISSIONS_VALUE | Permissions(manage_channels=True, manage_roles=True).value
+)
 from .enums import (
     ChannelType,
     EntityType,
@@ -307,8 +314,7 @@ class TextChannel(discord.abc.Messageable, discord.abc.GuildChannel, Hashable):
         self._apply_implicit_permissions(base)
 
         # text channels do not have voice related permissions
-        denied = Permissions.voice()
-        base.value &= ~denied.value
+        base.value &= _VOICE_DENIED_MASK
         return base
 
     @property
@@ -1125,9 +1131,7 @@ class VocalGuildChannel(discord.abc.Messageable, discord.abc.Connectable, discor
         # voice channels cannot be edited by people who can't connect to them
         # It also implicitly denies all other voice perms
         if not base.connect:
-            denied = Permissions.voice()
-            denied.update(manage_channels=True, manage_roles=True)
-            base.value &= ~denied.value
+            base.value &= _VOICE_DENIED_EDIT_MASK
         return base
 
     @property
@@ -2627,8 +2631,7 @@ class ForumChannel(discord.abc.GuildChannel, Hashable):
         self._apply_implicit_permissions(base)
 
         # text channels do not have voice related permissions
-        denied = Permissions.voice()
-        base.value &= ~denied.value
+        base.value &= _VOICE_DENIED_MASK
         return base
 
     def get_thread(self, thread_id: int, /) -> Optional[Thread]:
@@ -3295,8 +3298,7 @@ class DirectoryChannel(discord.abc.GuildChannel, Hashable):
         self._apply_implicit_permissions(base)
 
         # text channels do not have voice related permissions
-        denied = Permissions.voice()
-        base.value &= ~denied.value
+        base.value &= _VOICE_DENIED_MASK
         return base
 
     @property

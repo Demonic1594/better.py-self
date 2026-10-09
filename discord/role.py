@@ -242,7 +242,7 @@ class Role(Hashable):
         if not isinstance(other, Role) or not isinstance(self, Role):
             return NotImplemented
 
-        if self.guild != other.guild:
+        if self.guild is not other.guild and self.guild != other.guild:
             raise RuntimeError('cannot compare roles from two different guilds.')
 
         # the @everyone role is always the lowest role in hierarchy
@@ -290,10 +290,8 @@ class Role(Hashable):
         self._secondary_colour = colors.get('secondary_color', None)
         self._tertiary_colour = colors.get('tertiary_color', None)
 
-        try:
-            self.tags = RoleTags(data['tags'])  # pyright: ignore[reportTypedDictNotRequiredAccess]
-        except KeyError:
-            self.tags = None
+        tags = data.get('tags')
+        self.tags: Optional[RoleTags] = RoleTags(tags) if tags is not None else None
 
     def is_default(self) -> bool:
         """:class:`bool`: Checks if the role is the default role."""

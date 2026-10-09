@@ -259,23 +259,22 @@ class Permissions(BaseFlags):
 
     @classmethod
     def _timeout_mask(cls) -> int:
-        p = cls.all()
-        p.view_channel = False
-        p.read_message_history = False
-        return ~p.value
+        return _TIMEOUT_PERMISSIONS_MASK
 
     @classmethod
     def _dm_permissions(cls) -> Self:
-        base = cls.text()
-        base.read_messages = True
-        base.send_tts_messages = False
-        base.manage_messages = False
-        base.pin_messages = True
-        base.create_private_threads = False
-        base.create_public_threads = False
-        base.manage_threads = False
-        base.send_messages_in_threads = False
-        return base
+        global _DM_PERMISSIONS_VALUE
+        value = _DM_PERMISSIONS_VALUE
+        if value is None:
+            base = cls.text()
+            base.read_messages = True
+            base.send_tts_messages = False
+            base.manage_messages = False
+            base.pin_messages = True
+            base.create_private_threads = False
+            base.send_messages_in_threads = False
+            value = _DM_PERMISSIONS_VALUE = base.value
+        return cls._from_value(value)
 
     @classmethod
     def all_channel(cls) -> Self:
@@ -892,18 +891,31 @@ def _augment_from_permissions(cls):
         else:
             continue
 
-        # God bless Python
-        def getter(self, x=key):
-            return self._values.get(x)
+    # God bless Python
+    def getter(self, x=key):
+        return self._values.get(x)
 
-        def setter(self, value, x=key):
-            self._set(x, value)
+    def setter(self, value, x=key):
+        self._set(x, value)
 
-        prop = property(getter, setter)
-        setattr(cls, name, prop)
+    prop = property(getter, setter)
+    setattr(cls, name, prop)
 
     cls.PURE_FLAGS = cls.VALID_NAMES - aliases
     return cls
+
+
+def _compute_timeout_mask() -> int:
+    p = Permissions.all()
+    p.view_channel = False
+    p.read_message_history = False
+    return ~p.value
+
+
+# Precomputed timeout mask; this only changes when the permission flags themselves change
+_TIMEOUT_PERMISSIONS_MASK: int = _compute_timeout_mask()
+
+_DM_PERMISSIONS_VALUE: Optional[int] = None
 
 
 @_augment_from_permissions

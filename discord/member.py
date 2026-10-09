@@ -35,7 +35,7 @@ from . import utils
 from .asset import Asset
 from .utils import MISSING
 from .user import BaseUser, User, _UserTag
-from .permissions import Permissions
+from .permissions import Permissions, _TIMEOUT_PERMISSIONS_MASK
 from .enums import Status, try_enum
 from .errors import ClientException
 from .colour import Colour
@@ -280,6 +280,10 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
         '_avatar_decoration_data',
         '_banner',
         '_flags',
+        '_raw_joined_at',
+        '_raw_premium_since',
+        '_raw_timed_out_until',
+        '_raw_roles',
     )
 
     if TYPE_CHECKING:
@@ -321,9 +325,12 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
         self._state: ConnectionState = state
         self._user: User = state.store_user(data['user'])
         self.guild: Guild = guild
-        self.joined_at: Optional[datetime.datetime] = utils.parse_time(data.get('joined_at'))
-        self.premium_since: Optional[datetime.datetime] = utils.parse_time(data.get('premium_since'))
-        self._roles: utils.SnowflakeList = utils.SnowflakeList(map(int, data['roles']))
+        self._raw_joined_at: Optional[str] = data.get('joined_at')
+        self.joined_at: Optional[datetime.datetime] = utils.parse_time(self._raw_joined_at)
+        self._raw_premium_since: Optional[str] = data.get('premium_since')
+        self.premium_since: Optional[datetime.datetime] = utils.parse_time(self._raw_premium_since)
+        self._raw_roles = data['roles']
+        self._roles: utils.SnowflakeList = utils.SnowflakeList(map(int, self._raw_roles))
         self._presence: Optional[Presence] = None
         self.nick: Optional[str] = data.get('nick', None)
         self.pending: bool = data.get('pending', False)
@@ -331,7 +338,8 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
         self._avatar_decoration_data: Optional[AvatarDecorationData] = data.get('avatar_decoration_data')
         self._banner: Optional[str] = data.get('banner')
         self._flags: int = data.get('flags', 0)
-        self.timed_out_until: Optional[datetime.datetime] = utils.parse_time(data.get('communication_disabled_until'))
+        self._raw_timed_out_until: Optional[str] = data.get('communication_disabled_until')
+        self.timed_out_until: Optional[datetime.datetime] = utils.parse_time(self._raw_timed_out_until)
 
     def __str__(self) -> str:
         return str(self._user)
@@ -358,16 +366,33 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
         return cls(data=data, guild=message.guild, state=message._state)  # type: ignore
 
     def _update_from_message(self, data: MemberPayload) -> None:
-        self.joined_at = utils.parse_time(data.get('joined_at'))
-        self.premium_since = utils.parse_time(data.get('premium_since'))
-        self._roles = utils.SnowflakeList(map(int, data['roles']))
+        # Only re-parse fields that actually changed
+        raw = data.get('joined_at')
+        if raw != self._raw_joined_at:
+            self._raw_joined_at = raw
+            self.joined_at = utils.parse_time(raw)
+
+        raw = data.get('premium_since')
+        if raw != self._raw_premium_since:
+            self._raw_premium_since = raw
+            self.premium_since = utils.parse_time(raw)
+
+        raw = data.get('communication_disabled_until')
+        if raw != self._raw_timed_out_until:
+            self._raw_timed_out_until = raw
+            self.timed_out_until = utils.parse_time(raw)
+
+        roles = data.get('roles')
+        if roles is not None and roles != self._raw_roles:
+            self._raw_roles = roles
+            self._roles = utils.SnowflakeList(map(int, roles))
+
         self.nick = data.get('nick', None)
         self.pending = data.get('pending', False)
         self._avatar = data.get('avatar')
         self._avatar_decoration_data = data.get('avatar_decoration_data')
         self._banner = data.get('banner')
         self._flags = data.get('flags', 0)
-        self.timed_out_until = utils.parse_time(data.get('communication_disabled_until'))
 
     @classmethod
     def _try_upgrade(cls, *, data: UserWithMemberPayload, guild: Guild, state: ConnectionState) -> Union[User, Self]:
@@ -397,6 +422,10 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
         self._avatar = member._avatar
         self._avatar_decoration_data = member._avatar_decoration_data
         self._banner = member._banner
+        self._raw_joined_at = member._raw_joined_at
+        self._raw_premium_since = member._raw_premium_since
+        self._raw_timed_out_until = member._raw_timed_out_until
+        self._raw_roles = member._raw_roles
 
         # Reference will not be copied unless necessary by PRESENCE_UPDATE
         # See below
@@ -404,30 +433,64 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
         return self
 
     def _update(self, data: Union[GuildMemberUpdateEvent, MemberWithUserPayload]) -> Optional[Member]:
-        old = Member._copy(self)
+        get = data.get
 
         # Some changes are optional
         # If they aren't in the payload then they didn't change
-        try:
-            self.nick = data['nick']  # pyright: ignore[reportTypedDictNotRequiredAccess]
-        except KeyError:
-            pass
+        nick = get('nick', MISSING)
+        if nick is MISSING:
+            nick = self.nick
 
-        try:
-            self.pending = data['pending']  # pyright: ignore[reportTypedDictNotRequiredAccess]
-        except KeyError:
-            pass
+        pending = get('pending', MISSING)
+        if pending is MISSING:
+            pending = self.pending
 
-        self.premium_since = utils.parse_time(data.get('premium_since'))
-        self.timed_out_until = utils.parse_time(data.get('communication_disabled_until'))
-        self._roles = utils.SnowflakeList(map(int, data['roles']))
-        self._avatar = data.get('avatar')
-        self._banner = data.get('banner')
-        self._flags = data.get('flags', 0)
+        raw_premium = get('premium_since')
+        if raw_premium == self._raw_premium_since:
+            premium_since = self.premium_since
+        else:
+            premium_since = utils.parse_time(raw_premium)
 
-        attrs = {'joined_at', 'premium_since', '_roles', '_avatar', '_banner', 'timed_out_until', 'nick', 'pending'}
+        raw_timeout = get('communication_disabled_until')
+        if raw_timeout == self._raw_timed_out_until:
+            timed_out_until = self.timed_out_until
+        else:
+            timed_out_until = utils.parse_time(raw_timeout)
 
-        if any(getattr(self, attr) != getattr(old, attr) for attr in attrs):
+        roles = get('roles')
+        if roles is None or roles == self._raw_roles:
+            _roles = self._roles
+        else:
+            _roles = utils.SnowflakeList(map(int, roles))
+
+        _avatar = get('avatar')
+        _banner = get('banner')
+        _flags = get('flags', 0)
+        self._flags = _flags
+
+        # Note: _flags is assigned but intentionally not compared,
+        # matching the original change-detection semantics
+        if (
+            nick != self.nick
+            or pending != self.pending
+            or premium_since != self.premium_since
+            or timed_out_until != self.timed_out_until
+            or (_roles is not self._roles and _roles != self._roles)
+            or _avatar != self._avatar
+            or _banner != self._banner
+        ):
+            old = Member._copy(self)
+            self.nick = nick
+            self.pending = pending
+            self.premium_since = premium_since
+            self.timed_out_until = timed_out_until
+            self._roles = _roles
+            self._avatar = _avatar
+            self._banner = _banner
+            self._raw_premium_since = raw_premium
+            self._raw_timed_out_until = raw_timeout
+            if roles is not None:
+                self._raw_roles = roles
             return old
 
     def _presence_update(
@@ -516,12 +579,16 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
         There is an alias for this named :attr:`color`.
         """
 
-        roles = self.roles[1:]  # Remove @everyone
-
         # Highest role with a colour is the one that's rendered
-        for role in reversed(roles):
-            if role.colour.value:
-                return role.colour
+        get_role = self.guild.get_role
+        best_role = None
+        for rid in self._roles:
+            role = get_role(rid)
+            if role is not None and role._colour and (best_role is None or best_role < role):
+                best_role = role
+
+        if best_role is not None:
+            return best_role.colour
         return Colour.default()
 
     @property
@@ -583,7 +650,7 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
         but if they have a guild specific nickname then that
         is returned instead.
         """
-        return self.nick or self.global_name or self.name
+        return self.nick or self._user.global_name or self._user.name
 
     @property
     def display_avatar(self) -> Asset:
@@ -783,15 +850,23 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
         if self.guild.owner_id == self.id:
             return Permissions.all()
 
-        base = Permissions.none()
-        for r in self.roles:
-            base.value |= r.permissions.value
+        guild = self.guild
+        get_role = guild.get_role
+        value = 0
+        for rid in self._roles:
+            role = get_role(rid)
+            if role is not None:
+                value |= role._permissions
+        default_role = guild.default_role
+        if default_role is not None:
+            value |= default_role._permissions
+        base = Permissions._from_value(value)
 
         if base.administrator:
             return Permissions.all()
 
         if self.is_timed_out():
-            base.value &= Permissions._timeout_mask()
+            base.value &= _TIMEOUT_PERMISSIONS_MASK
 
         return base
 

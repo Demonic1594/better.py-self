@@ -1257,8 +1257,7 @@ def is_generic_type(tp: Any, *, _GenericAlias: type = _GenericAlias) -> bool:
     return isinstance(tp, type) and issubclass(tp, Generic) or isinstance(tp, _GenericAlias)
 
 
-CONVERTER_MAPPING: Dict[type, Any] = {
-    discord.Object: ObjectConverter,
+CONVERTER_MAPPING: Dict[type, Any] = {    discord.Object: ObjectConverter,
     discord.Member: MemberConverter,
     discord.User: UserConverter,
     discord.Message: MessageConverter,
@@ -1281,18 +1280,30 @@ CONVERTER_MAPPING: Dict[type, Any] = {
     discord.ForumChannel: ForumChannelConverter,
 }
 
+# Memoizes the reflective remapping done in _actual_conversion
+_converter_resolution_cache: Dict[Any, Any] = {}
+
 
 async def _actual_conversion(ctx: Context[BotT], converter: Any, argument: str, param: inspect.Parameter):
     if converter is bool:
         return _convert_to_bool(argument)
 
+    # Memoize the reflective converter remapping
     try:
-        module = converter.__module__
-    except AttributeError:
-        pass
-    else:
-        if module is not None and (module.startswith('discord.') and not module.endswith('converter')):
-            converter = CONVERTER_MAPPING.get(converter, converter)
+        converter = _converter_resolution_cache[converter]
+    except (KeyError, TypeError):
+        try:
+            module = converter.__module__
+        except AttributeError:
+            pass
+        else:
+            if module is not None and (module.startswith('discord.') and not module.endswith('converter')):
+                converter = CONVERTER_MAPPING.get(converter, converter)
+
+        try:
+            _converter_resolution_cache[converter] = converter
+        except TypeError:
+            pass
 
     try:
         if inspect.isclass(converter) and issubclass(converter, Converter):

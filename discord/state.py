@@ -969,7 +969,7 @@ class ClientStatus:
 
 
 class Presence:
-    __slots__ = ('client_status', 'activities', 'hidden_activities')
+    __slots__ = ('client_status', 'activities', 'hidden_activities', '_raw_activities')
 
     _OFFLINE: ClassVar[Self] = MISSING
 
@@ -981,6 +981,7 @@ class Presence:
         self.hidden_activities: Tuple[ActivityTypes, ...] = tuple(
             create_activity(d, state, user_id) for d in data.get('hidden_activities', [])
         )
+        self._raw_activities: List[Any] = data.get('activities', [])
 
     def __repr__(self) -> str:
         attrs = [
@@ -992,18 +993,25 @@ class Presence:
         return f'<{self.__class__.__name__} {inner}>'
 
     def __eq__(self, other: Any) -> bool:
+        if self is other:
+            return True
         if not isinstance(other, Presence):
             return False
         return self.client_status == other.client_status and self.activities == other.activities
 
     def __ne__(self, other: Any) -> bool:
+        if self is other:
+            return False
         if not isinstance(other, Presence):
             return True
         return self.client_status != other.client_status or self.activities != other.activities
 
     def _update(self, data: gw.BasePresenceUpdate, state: ConnectionState, user_id: int, /) -> None:
         self.client_status._update(data['status'], data.get('client_status'))
-        self.activities = tuple(create_activity(d, state, user_id) for d in data['activities'])
+        raw_activities = data['activities']
+        if raw_activities != self._raw_activities:
+            self._raw_activities = raw_activities
+            self.activities = tuple(create_activity(d, state, user_id) for d in raw_activities)
 
     @classmethod
     def _offline(cls) -> Self:
@@ -1012,6 +1020,7 @@ class Presence:
             self.client_status = ClientStatus()
             self.activities = ()
             self.hidden_activities = ()
+            self._raw_activities = []
             cls._OFFLINE = self
 
         return cls._OFFLINE
@@ -1022,6 +1031,7 @@ class Presence:
         self.client_status = ClientStatus._copy(presence.client_status)
         self.activities = presence.activities
         self.hidden_activities = presence.hidden_activities
+        self._raw_activities = presence._raw_activities
         return self
 
 
@@ -1075,6 +1085,22 @@ class ConnectionState:
         self.max_messages: Optional[int] = options.get('max_messages', 1000)
         if self.max_messages is not None and self.max_messages <= 0:
             self.max_messages = 1000
+
+        # Per-guild cap on the member cache; evicts least recently used members.
+        # ``None`` disables the cap.
+        self.max_member_cache: Optional[int] = options.get('max_member_cache', 10_000)
+        if self.max_member_cache is not None and self.max_member_cache <= 0:
+            self.max_member_cache = 10_000
+        # Global cap on the (non-guild) presence cache. ``None`` disables the cap.
+        self.max_presence_cache: Optional[int] = options.get('max_presence_cache', 20_000)
+        if self.max_presence_cache is not None and self.max_presence_cache <= 0:
+            self.max_presence_cache = 20_000
+        # Global cap on the member cache across all guilds; evicts from the
+        # fullest guilds first. ``None`` disables the cap.
+        self.max_total_member_cache: Optional[int] = options.get('max_total_member_cache', 50_000)
+        if self.max_total_member_cache is not None and self.max_total_member_cache <= 0:
+            self.max_total_member_cache = 50_000
+        self._member_add_counter: int = 0
 
         self.dispatch: Callable[..., Any] = dispatch
         self.handlers: Dict[str, Callable[..., Any]] = handlers
@@ -1180,7 +1206,7 @@ class ConnectionState:
 
         self._join_requests: Dict[int, JoinRequest] = {}
         self._calls: Dict[int, Call] = {}
-        self._call_message_cache: Dict[int, Message] = {}
+        self._call_message_cache: OrderedDict[int, Message] = OrderedDict()
         self._voice_clients: Dict[int, VoiceProtocol] = {}
         self._voice_states: Dict[int, VoiceState] = {}
         self._streams: Dict[StreamKey, Stream] = {}
@@ -1198,13 +1224,15 @@ class ConnectionState:
         self._private_channels_by_user: Dict[int, DMChannel] = {}
 
         self._guild_presences: Dict[int, Dict[int, Presence]] = {}
-        self._presences: Dict[int, Presence] = {}
+        self._presences: OrderedDict[int, Presence] = OrderedDict()
+        self._member_add_counter = 0
         self._sessions: Dict[str, Session] = {}
 
         if self.max_messages is not None:
             self._messages: Optional[Deque[Message]] = deque(maxlen=self.max_messages)
         else:
             self._messages: Optional[Deque[Message]] = None
+        self._messages_index: Dict[int, Message] = {}
 
         self.experiments: Dict[int, UserExperiment] = {}
         self.guild_experiments: Dict[int, GuildExperiment] = {}
@@ -1212,6 +1240,49 @@ class ConnectionState:
 
         if full:
             self.subscriptions: GuildSubscriptions = GuildSubscriptions(self)
+
+    def _note_member_add(self) -> None:
+        # Amortized global member cache rebalancing; the actual check is
+        # spread out so it does not run on every single insertion
+        self._member_add_counter += 1
+        if self._member_add_counter >= 1024:
+            self._maybe_evict_members_global()
+
+    def _maybe_evict_members_global(self) -> None:
+        cap = self.max_total_member_cache
+        if cap is None:
+            self._member_add_counter = 0
+            return
+
+        self._member_add_counter = 0
+        guilds = [guild for guild in self._guilds.values() if guild._members]
+        total = sum(map(len, (guild._members for guild in guilds)))
+        if total <= cap:
+            return
+
+        # Converge every guild toward the average guild size implied by the cap.
+        # Guilds at or below the average are left untouched, so small guilds
+        # the user actually participates in keep their members.
+        n = len(guilds)
+        average_target = cap // n
+        guilds.sort(key=lambda guild: len(guild._members), reverse=True)
+        excess = total - cap
+        for guild in guilds:
+            if excess <= 0:
+                break
+            before = len(guild._members)
+            if before <= average_target:
+                continue
+            # Evict towards the average, but never more than the excess needs
+            guild._evict_members(max(average_target, before - excess))
+            excess -= before - len(guild._members)
+
+        _log.debug(
+            'Rebalanced the member cache: %d -> %d members (cap: %d).',
+            total,
+            sum(map(len, (guild._members for guild in guilds))),
+            cap,
+        )
 
     def process_chunk_requests(self, guild_id: int, nonce: Optional[str], members: List[Member], complete: bool) -> None:
         removed = []
@@ -1447,8 +1518,10 @@ class ConnectionState:
             vc.main_ws = ws  # type: ignore # Silencing the unknown attribute (ok at runtime).
 
     def _add_interaction(self, interaction: Interaction) -> None:
-        self._interactions[interaction.id] = interaction
-        self._interactions.move_to_end(interaction.id)
+        interactions = self._interactions
+        interactions[interaction.id] = interaction
+        if len(interactions) > 100:
+            interactions.popitem(last=False)
 
     def _pop_interaction(self, interaction: Interaction, data: gw.InteractionEvent) -> None:
         self._interactions.pop(interaction.id, None)
@@ -1613,11 +1686,30 @@ class ConnectionState:
                 self._private_channels_by_user.pop(recipient.id, None)
 
     def _get_message(self, msg_id: Optional[int]) -> Optional[Message]:
-        return (
-            utils.find(lambda m: m.id == msg_id, reversed(self._messages))
-            if self._messages
-            else utils.find(lambda m: m.id == msg_id, reversed(self._call_message_cache.values()))
-        )
+        if msg_id is None:
+            return None
+        if self._messages:
+            return self._messages_index.get(msg_id)
+        return utils.find(lambda m: m.id == msg_id, reversed(self._call_message_cache.values()))
+
+    def _add_message_to_cache(self, message: Message) -> None:
+        messages = self._messages
+        if messages is None:
+            return
+        index = self._messages_index
+        if messages.maxlen is not None and len(messages) == messages.maxlen:
+            # The append is about to evict the oldest entry
+            oldest = messages[0]
+            if index.get(oldest.id) is oldest:
+                del index[oldest.id]
+        messages.append(message)
+        index[message.id] = message
+
+    def _remove_message_from_cache(self, message: Message) -> None:
+        self._messages.remove(message)
+        index = self._messages_index
+        if index.get(message.id) is message:
+            del index[message.id]
 
     def _add_guild_from_data(self, data: GuildPayload) -> Guild:
         guild = self.create_guild(data)
@@ -2027,9 +2119,12 @@ class ConnectionState:
         message = Message(channel=channel, data=data, state=self)  # type: ignore
         self.dispatch('message', message)
         if self._messages is not None:
-            self._messages.append(message)
+            self._add_message_to_cache(message)
         if message.call is not None:
-            self._call_message_cache[message.id] = message
+            call_cache = self._call_message_cache
+            call_cache[message.id] = message
+            if len(call_cache) > 100:
+                call_cache.popitem(last=False)
         if channel:
             channel.last_message_id = message.id  # type: ignore
 
@@ -2053,7 +2148,7 @@ class ConnectionState:
         self.dispatch('raw_message_delete', raw)
         if self._messages is not None and found is not None:
             self.dispatch('message_delete', found)
-            self._messages.remove(found)
+            self._remove_message_from_cache(found)
 
     def parse_message_delete_bulk(self, data: gw.MessageDeleteBulkEvent) -> None:
         raw = RawBulkMessageDeleteEvent(data)
@@ -2067,25 +2162,42 @@ class ConnectionState:
             self.dispatch('bulk_message_delete', found_messages)
             for msg in found_messages:
                 # self._messages won't be None here
-                self._messages.remove(msg)  # type: ignore
+                self._remove_message_from_cache(msg)  # type: ignore
+
+    def _has_listener(self, *events: str) -> bool:
+        # Checks whether any wait_for listener or event handler exists for the given events
+        client = self.client
+        listeners = client._listeners
+        for event in events:
+            if listeners.get(event):
+                return True
+            if hasattr(client, 'on_' + event):
+                return True
+        return False
 
     def parse_message_update(self, data: gw.MessageUpdateEvent) -> None:
         channel, _ = self._get_guild_channel(data)
-        # channel would be the correct type here
-        updated_message = Message(channel=channel, data=data, state=self)  # type: ignore
+        cached_message = self._get_message(utils._get_as_snowflake(data, 'id'))
 
-        raw = RawMessageUpdateEvent(data=data, message=updated_message)
-        cached_message = self._get_message(updated_message.id)
         if cached_message is not None:
-            older_message = copy.copy(cached_message)
-            raw.cached_message = older_message
-            self.dispatch('raw_message_edit', raw)
-            cached_message._update(data)
-            # Coerce the `after` parameter to take the new updated Member
-            # ref: #5999
-            older_message.author = updated_message.author
-            self.dispatch('message_edit', older_message, updated_message)
-        else:
+            if self._has_listener('message_edit', 'raw_message_edit'):
+                # channel would be the correct type here
+                updated_message = Message(channel=channel, data=data, state=self)  # type: ignore
+
+                raw = RawMessageUpdateEvent(data=data, message=updated_message)
+                older_message = copy.copy(cached_message)
+                raw.cached_message = older_message
+                cached_message._update(data)
+                # Coerce the `after` parameter to take the new updated Member
+                # ref: #5999
+                older_message.author = updated_message.author
+                self.dispatch('raw_message_edit', raw)
+                self.dispatch('message_edit', older_message, updated_message)
+            else:
+                cached_message._update(data)
+        elif self._has_listener('raw_message_edit'):
+            updated_message = Message(channel=channel, data=data, state=self)  # type: ignore
+            raw = RawMessageUpdateEvent(data=data, message=updated_message)
             self.dispatch('raw_message_edit', raw)
 
     def parse_message_ack(self, data: gw.MessageAckEvent) -> None:
@@ -2231,6 +2343,10 @@ class ConnectionState:
             if member is None:
                 _log.debug('PRESENCE_UPDATE referencing an unknown member ID: %s. Discarding.', user_id)
                 return
+
+            # Presence updates keep flowing for online members, so mark them as
+            # recently used to protect them from cache eviction
+            guild._touch_member(user_id)
 
             user_update = member._user._update_self(user)  # type: ignore
             if old_presence != presence:
@@ -2742,7 +2858,7 @@ class ConnectionState:
             # channel will be the correct type here
             message = Message(channel=channel, data=message, state=self)  # type: ignore
             if self._messages is not None:
-                self._messages.append(message)
+                self._add_message_to_cache(message)
 
     def parse_thread_member_update(self, data: gw.ThreadMemberUpdate) -> None:
         guild_id = int(data['guild_id'])
@@ -2857,18 +2973,14 @@ class ConnectionState:
             _log.debug('GUILD_MEMBER_REMOVE referencing an unknown user ID: %s. Discarding.', data['user']['id'])
             return
 
-        guild = self._get_guild(raw.guild_id)
-        if guild is not None:
-            if guild._member_count is not None:
-                guild._member_count -= 1
+        if guild._member_count is not None:
+            guild._member_count -= 1
 
-            member = guild.get_member(user.id)
-            if member is not None:
-                raw.user = member
-                guild._remove_member(member)
-                self.dispatch('member_remove', member)
-        else:
-            _log.debug('GUILD_MEMBER_REMOVE referencing an unknown guild ID: %s. Discarding.', data['guild_id'])
+        member = guild.get_member(user.id)
+        if member is not None:
+            raw.user = member
+            guild._remove_member(member)
+            self.dispatch('member_remove', member)
 
         self.dispatch('raw_member_remove', raw)
 
@@ -2913,6 +3025,7 @@ class ConnectionState:
             guild._member_count = data['member_count']
         if data['online_count'] > 0:
             guild._presence_count = data['online_count']
+        group_ids = {group['id'] for group in data['groups']}
         guild._true_online_count = sum(group['count'] for group in data['groups'] if group['id'] != 'offline')
 
         empty_tuple = tuple()
@@ -2940,9 +3053,7 @@ class ConnectionState:
                     members.append(member)
 
         if request:
-            if request.chunk and not (
-                any(group['id'] == 'offline' for group in data['groups']) or data['member_count'] == data['online_count']
-            ):
+            if request.chunk and not ('offline' in group_ids or data['member_count'] == data['online_count']):
                 # The guild has offline members hidden
                 _log.debug(f'Detected guild {guild} with erroneous offline members.')
                 return
@@ -2954,7 +3065,7 @@ class ConnectionState:
                 and not request.manual_override
                 and data['online_count'] > 0
                 and guild._true_online_count < data['online_count']
-                and 'online' not in [group['id'] for group in data['groups']]
+                and 'online' not in group_ids
             ):
                 _log.debug(
                     f'Detected guild {guild} with manually overriden member list groups: online members not cached by the Gateway.'
@@ -3274,6 +3385,7 @@ class ConnectionState:
             self._messages: Optional[Deque[Message]] = deque(
                 (msg for msg in self._messages if msg.guild != guild), maxlen=self.max_messages
             )
+            self._messages_index = {msg.id: msg for msg in self._messages}
 
         self._remove_guild(guild)
         self.dispatch('guild_remove', guild)
@@ -4120,7 +4232,12 @@ class ConnectionState:
             if guild is not None:
                 return guild.get(user_id)
             return
-        return self._presences.get(user_id)
+        presences = self._presences
+        presence = presences.get(user_id)
+        if presence is not None:
+            # Mark as most recently used
+            presences.move_to_end(user_id)
+        return presence
 
     def remove_presence(self, user_id: int, guild_id: Optional[int] = None) -> None:
         if guild_id is not None:
@@ -4150,7 +4267,14 @@ class ConnectionState:
                 guild = self._guild_presences[guild_id] = {}
             guild[user_id] = presence
         else:
-            self._presences[user_id] = presence
+            presences = self._presences
+            if user_id in presences:
+                presences.move_to_end(user_id)
+            presences[user_id] = presence
+            cap = self.max_presence_cache
+            if cap is not None:
+                while len(presences) > cap:
+                    presences.popitem(last=False)
         return presence
 
     @overload

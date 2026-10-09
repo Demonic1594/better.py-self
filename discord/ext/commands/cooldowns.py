@@ -250,14 +250,20 @@ class CooldownMapping(Generic[T_contra]):
         if self._type is BucketType.default:
             return self._cooldown
 
-        self._verify_cache_integrity(current)
+        # O(1) lazy expiry of the accessed bucket instead of sweeping the whole cache
         key = self._bucket_key(message)
-        if key not in self._cache:
+        cache = self._cache
+        bucket = cache.get(key)
+        if bucket is not None:
+            if current is None:
+                current = time.time()
+            if current > bucket._last + bucket.per:
+                bucket = None
+
+        if bucket is None:
             bucket = self.create_bucket(message)
             if bucket is not None:
-                self._cache[key] = bucket
-        else:
-            bucket = self._cache[key]
+                cache[key] = bucket
 
         return bucket
 

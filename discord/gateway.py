@@ -50,6 +50,8 @@ try:
 except ImportError:
     pass
 
+_HAS_ASYNCIO_TIMEOUT = hasattr(asyncio, 'timeout')
+
 _log = logging.getLogger(__name__)
 
 __all__ = (
@@ -109,6 +111,8 @@ class EventListener(NamedTuple):
 
 
 class GatewayRatelimiter:
+    __slots__ = ('max', 'remaining', 'window', 'per', 'lock')
+
     def __init__(self, count: int = 110, per: float = 60.0) -> None:
         # The default is 110 to give room for at least 10 heartbeats per minute
         self.max: int = count
@@ -149,6 +153,25 @@ class GatewayRatelimiter:
 class KeepAliveHandler:  # Inspired by enhanced-discord.py/Gnome
     HEARTBEAT_VERSION = 27
     UPDATE_TIME_SPEND_INTERVAL_SECONDS = 30 * 60
+
+    __slots__ = (
+        'ws',
+        'interval',
+        'heartbeat_timeout',
+        'msg',
+        'time_spent_msg',
+        'block_msg',
+        'behind_msg',
+        'not_responding_msg',
+        'no_stop_msg',
+        '_stop',
+        '_last_send',
+        '_last_recv',
+        '_last_ack',
+        '_last_time_spent',
+        'latency',
+        '_task',
+    )
 
     def __init__(self, *, ws: Any, interval: Optional[float] = None):
         self.ws: Any = ws
@@ -254,10 +277,20 @@ class KeepAliveHandler:  # Inspired by enhanced-discord.py/Gnome
         }
 
     def start(self) -> None:
-        self.ws.loop.create_task(self.run())
+        self._task = self.ws.loop.create_task(self.run())
 
     def stop(self) -> None:
         self._stop.set()
+
+    async def _join(self, timeout: float = 5.0) -> None:
+        task = getattr(self, '_task', None)
+        if task is not None and task is not asyncio.current_task():
+            try:
+                await asyncio.wait_for(task, timeout)
+            except asyncio.TimeoutError:
+                task.cancel()
+            except Exception:
+                pass
 
     def tick(self) -> None:
         self._last_recv = time.perf_counter()
@@ -277,6 +310,8 @@ class KeepAliveHandler:  # Inspired by enhanced-discord.py/Gnome
 class VoiceKeepAliveHandler(KeepAliveHandler):
     UPDATE_TIME_SPEND_INTERVAL_SECONDS = None
     ws: DiscordVoiceWebSocket
+
+    __slots__ = ('recent_ack_latencies',)
 
     def __init__(self, *, ws: DiscordVoiceWebSocket, interval: Optional[float] = None):
         super().__init__(ws=ws, interval=interval)
@@ -673,29 +708,30 @@ class DiscordWebSocket:
                 )
 
         # Remove the dispatched listeners
-        removed = []
-        for index, entry in enumerate(self._dispatch_listeners):
-            if entry.event != event:
-                continue
+        if self._dispatch_listeners:
+            removed = []
+            for index, entry in enumerate(self._dispatch_listeners):
+                if entry.event != event:
+                    continue
 
-            future = entry.future
-            if future.cancelled():
-                removed.append(index)
-                continue
-
-            try:
-                valid = entry.predicate(data)
-            except Exception as exc:
-                future.set_exception(exc)
-                removed.append(index)
-            else:
-                if valid:
-                    ret = data if entry.result is None else entry.result(data)
-                    future.set_result(ret)
+                future = entry.future
+                if future.cancelled():
                     removed.append(index)
+                    continue
 
-        for index in reversed(removed):
-            del self._dispatch_listeners[index]
+                try:
+                    valid = entry.predicate(data)
+                except Exception as exc:
+                    future.set_exception(exc)
+                    removed.append(index)
+                else:
+                    if valid:
+                        ret = data if entry.result is None else entry.result(data)
+                        future.set_result(ret)
+                        removed.append(index)
+
+            for index in reversed(removed):
+                del self._dispatch_listeners[index]
 
     @property
     def latency(self) -> float:
@@ -719,7 +755,11 @@ class DiscordWebSocket:
             The websocket connection was terminated for unhandled reasons.
         """
         try:
-            msg, flags = await asyncio.wait_for(self.socket.recv(), timeout=self._max_heartbeat_timeout)
+            if _HAS_ASYNCIO_TIMEOUT:
+                with asyncio.timeout(self._max_heartbeat_timeout):
+                    msg, flags = await self.socket.recv()
+            else:
+                msg, flags = await asyncio.wait_for(self.socket.recv(), timeout=self._max_heartbeat_timeout)
             if (flags & CurlWsFlag.TEXT) or (flags & CurlWsFlag.BINARY):
                 await self.received_message(msg)
             elif flags & CurlWsFlag.CLOSE:
@@ -1005,9 +1045,10 @@ class DiscordWebSocket:
         await self.send_as_json(payload)
 
     async def close(self, code: int = 4000, reason: bytes = b'') -> None:
-        _log.debug(f'Closing websocket with code {code}.')
+        _log.debug('Closing websocket with code %s.', code)
         if self._keep_alive:
             self._keep_alive.stop()
+            await self._keep_alive._join()
             self._keep_alive = None
 
         self._close_code = code
@@ -1515,7 +1556,7 @@ class DiscordVoiceWebSocket:
             await self.received_binary_message(msg)
         elif flags & CurlWsFlag.CLOSE:
             socket = self.ws
-            _log.info(f'Voice socket received close code {socket.close_code} and reason {socket.close_reason!r}.')
+            _log.info('Voice socket received close code %s and reason %r.', socket.close_code, socket.close_reason)
             raise ConnectionClosed(socket.close_code or self._close_code, socket.close_reason or '')
 
     async def close(self, code: int = 1000, reason: bytes = b'') -> None:

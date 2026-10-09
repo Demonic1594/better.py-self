@@ -1619,6 +1619,34 @@ class AudioContext:
         return self._state.get_user(self.user_id) if self._state is not None else None
 
 
+_LEGACY_RAW_VALUES = frozenset(
+    (
+        'afk_timeout',
+        'allow_accessibility_detection',
+        'animate_emojis',
+        'contact_sync_enabled',
+        'convert_emoticons',
+        'default_guilds_restricted',
+        'detect_platform_accounts',
+        'developer_mode',
+        'disable_games_tab',
+        'enable_tts_command',
+        'gif_auto_play',
+        'inline_attachment_media',
+        'inline_embed_media',
+        'message_display_compact',
+        'native_phone_integration_enabled',
+        'render_embeds',
+        'render_reactions',
+        'show_current_game',
+        'stream_notifications_enabled',
+        'timezone_offset',
+        'view_nsfw_commands',
+        'view_nsfw_guilds',
+    )
+)
+
+
 class LegacyUserSettings:
     """Represents the legacy Discord client settings.
 
@@ -1723,33 +1751,8 @@ class LegacyUserSettings:
         return self._state._get_or_create_unavailable_guild(int(id))
 
     def _update(self, data: Dict[str, Any]) -> None:
-        RAW_VALUES = {
-            'afk_timeout',
-            'allow_accessibility_detection',
-            'animate_emojis',
-            'contact_sync_enabled',
-            'convert_emoticons',
-            'default_guilds_restricted',
-            'detect_platform_accounts',
-            'developer_mode',
-            'disable_games_tab',
-            'enable_tts_command',
-            'gif_auto_play',
-            'inline_attachment_media',
-            'inline_embed_media',
-            'message_display_compact',
-            'native_phone_integration_enabled',
-            'render_embeds',
-            'render_reactions',
-            'show_current_game',
-            'stream_notifications_enabled',
-            'timezone_offset',
-            'view_nsfw_commands',
-            'view_nsfw_guilds',
-        }
-
         for key, value in data.items():
-            if key in RAW_VALUES:
+            if key in _LEGACY_RAW_VALUES:
                 setattr(self, key, value)
             else:
                 setattr(self, '_' + key, value)

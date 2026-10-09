@@ -1088,7 +1088,7 @@ class User(BaseUser, discord.abc.Connectable, discord.abc.Messageable):
         return self._state.self_id, self.dm_channel.id  # type: ignore # self_id is always set at this point
 
     def _update_self(self, user: Union[PartialUserPayload, Tuple[()]]) -> Optional[Tuple[User, User]]:
-        if len(user) == 0 or len(user) <= 1:  # Done because of typing
+        if len(user) <= 1:  # Done because of typing
             return
 
         original = (

@@ -429,11 +429,11 @@ class AuditLogChanges:
                 self._handle_colours(self.after, elem.get('new_value'))  # type: ignore  # should be a RoleColours dict
                 continue
 
-            try:
-                key, transformer = self.TRANSFORMERS[attr]
-            except (ValueError, KeyError):
+            pair = self.TRANSFORMERS.get(attr)
+            if pair is None:
                 transformer = None
             else:
+                key, transformer = pair
                 if key:
                     attr = key
 

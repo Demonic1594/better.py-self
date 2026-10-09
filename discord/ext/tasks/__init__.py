@@ -640,7 +640,7 @@ class Loop(Generic[LF]):
 
     def _get_next_sleep_time(self, now: datetime.datetime = MISSING) -> datetime.datetime:
         if self._sleep is not MISSING:
-            return self._last_iteration + datetime.timedelta(seconds=self._sleep)
+            return self._last_iteration + self._sleep_delta
 
         if now is MISSING:
             now = datetime.datetime.now(datetime.timezone.utc)
@@ -673,11 +673,16 @@ class Loop(Generic[LF]):
         # If the timezone is set to UTC+9 and the now timezone is UTC
         # A conversion needs to be done.
         # i.e. 03:00 UTC+9 -> 18:00 UTC the previous day
+        now_by_tz = {}
         for idx, time in enumerate(self._time):
-            # Convert the current time to the target timezone
+            # Convert the current time to the target timezone (cached per unique tzinfo)
             # e.g. 18:00 UTC -> 03:00 UTC+9
             # Then compare the time instances to see if they're the same
-            start = now.astimezone(time.tzinfo)
+            tz = time.tzinfo
+            try:
+                start = now_by_tz[tz]
+            except KeyError:
+                start = now_by_tz[tz] = now.astimezone(tz)
             if time >= start.timetz():
                 return idx
         else:
@@ -776,6 +781,7 @@ class Loop(Generic[LF]):
                 raise ValueError('Total number of seconds cannot be less than zero.')
 
             self._sleep = sleep
+            self._sleep_delta = datetime.timedelta(seconds=sleep)
             self._seconds = float(seconds)
             self._hours = float(hours)
             self._minutes = float(minutes)

@@ -195,7 +195,12 @@ class File(_FileBase):
     @cached_slot_property('_cs_md5')
     def md5(self):
         try:
-            return md5(self.fp.read())
+            h = md5()
+            fp = self.fp
+            # Hash in chunks to avoid reading the whole file into memory
+            for chunk in iter(lambda: fp.read(1 << 20), b''):
+                h.update(chunk)
+            return h
         finally:
             self.reset()
 

@@ -598,6 +598,7 @@ class Command(_BaseCommand, Generic[CogT, P, T]):
         cog = self.cog
         self.__init__(self.callback, **dict(self.__original_kwargs__, **kwargs))
         self.cog = cog
+        self._signature = None
 
     async def __call__(self, context: Context[BotT], /, *args: P.args, **kwargs: P.kwargs) -> T:
         """|coro|
@@ -1199,11 +1200,17 @@ class Command(_BaseCommand, Generic[CogT, P, T]):
     @property
     def signature(self) -> str:
         """:class:`str`: Returns a POSIX-like signature useful for help command output."""
+        cached = self.__dict__.get('_signature')
+        if cached is not None:
+            return cached
+
         if self.usage is not None:
+            self._signature = self.usage
             return self.usage
 
         params = self.clean_params
         if not params:
+            self._signature = ''
             return ''
 
         result = []
@@ -1261,7 +1268,9 @@ class Command(_BaseCommand, Generic[CogT, P, T]):
             else:
                 result.append(f'<{name}>')
 
-        return ' '.join(result)
+        result_str = ' '.join(result)
+        self._signature = result_str
+        return result_str
 
     async def can_run(self, ctx: Context[BotT], /) -> bool:
         """|coro|

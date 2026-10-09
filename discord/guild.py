@@ -25,6 +25,7 @@ DEALINGS IN THE SOFTWARE.
 from __future__ import annotations
 
 import copy
+import logging
 from datetime import datetime, timedelta
 from operator import attrgetter
 from typing import (
@@ -104,6 +105,8 @@ from .automod import AutoModRule, AutoModTrigger, AutoModRuleAction
 from .partial_emoji import _EmojiTag
 from .commands import GuildApplicationCommandPermissions, _command_factory, _commands_from_index
 from .discovery import GuildProfile
+
+_log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .abc import Snowflake, SnowflakeTime
@@ -508,6 +511,7 @@ class Guild(Hashable):
         'widget_enabled',
         '_widget_channel_id',
         '_members',
+        '_members_seen',
         '_channels',
         '_icon',
         '_banner',
@@ -532,7 +536,6 @@ class Guild(Hashable):
         'premium_progress_bar_enabled',
         '_presence_count',
         '_true_online_count',
-        '_member_list',
         'keywords',
         'primary_category_id',
         'hub_type',
@@ -555,7 +558,7 @@ class Guild(Hashable):
         self._roles: Dict[int, Role] = {}
         self._channels: Dict[int, GuildChannel] = {}
         self._members: Dict[int, Member] = {}
-        self._member_list: List[Optional[Member]] = []
+        self._members_seen: int = 0
         self._voice_states: Dict[int, VoiceState] = {}
         self._threads: Dict[int, Thread] = {}
         self._stage_instances: Dict[int, StageInstance] = {}
@@ -576,10 +579,69 @@ class Guild(Hashable):
         return self._voice_states.get(user_id)
 
     def _add_member(self, member: Member, /) -> None:
-        self._members[member.id] = member
+        members = self._members
+        member_id = member.id
+        if member_id in members:
+            # Move to the end (most recently used) for approximate LRU eviction
+            del members[member_id]
+        else:
+            self._members_seen += 1
+        members[member_id] = member
         if member._presence:
             self._state.store_presence(member.id, member._presence, self.id)
             member._presence = None
+
+        max_member_cache = self._state.max_member_cache
+        if max_member_cache is not None and len(members) > max_member_cache:
+            self._evict_members(max_member_cache)
+
+        # Amortized global cap check (spreads the cost across many insertions)
+        self._state._note_member_add()
+
+    def _touch_member(self, member_id: int, /) -> None:
+        # Marks a member as recently used without (re)inserting it
+        members = self._members
+        if member_id in members:
+            try:
+                members[member_id] = members.pop(member_id)
+            except KeyError:
+                pass
+
+    def _should_cache_member(self, member: Member, /) -> bool:
+        # Mirrors the gating used when ingesting guild member data
+        state = self._state
+        cache_flags = state.member_cache_flags
+        return (
+            cache_flags.joined
+            or member.id == state.self_id
+            or (cache_flags.voice and member.id in self._voice_states)
+        )
+
+    def _evict_members(self, cap: int, /) -> None:
+        # Evicts the least recently used members until the cache is within the cap.
+        # The client user and members with active voice states are never evicted.
+        members = self._members
+        state = self._state
+        protected = set(self._voice_states)
+        self_id = state.self_id
+        if self_id is not None:
+            protected.add(self_id)
+
+        excess = len(members) - cap
+        victims = []
+        for member_id in members:
+            if excess <= 0:
+                break
+            if member_id in protected:
+                continue
+            victims.append(member_id)
+            excess -= 1
+
+        for member_id in victims:
+            del members[member_id]
+
+        if victims:
+            _log.debug('Evicted %d members from the cache of guild ID %d (cap: %d).', len(victims), self.id, cap)
 
     def _store_thread(self, payload: ThreadPayload, /) -> Thread:
         thread = Thread(guild=self, state=self._state, data=payload)
@@ -587,7 +649,8 @@ class Guild(Hashable):
         return thread
 
     def _remove_member(self, member: Snowflake, /) -> None:
-        self._members.pop(member.id, None)
+        if self._members.pop(member.id, None) is not None:
+            self._members_seen = max(0, self._members_seen - 1)
         self._state.remove_presence(member.id, self.id)
 
     def _add_thread(self, thread: Thread, /) -> None:
@@ -755,9 +818,15 @@ class Guild(Hashable):
 
         cache_flags = state.member_cache_flags
         for mdata in guild.get('members', []):
+            if not cache_flags.joined:
+                # Skip constructing the Member if it would be discarded anyway
+                user_data = mdata['user']
+                uid = int(user_data['id'])
+                if uid != state.self_id and not (cache_flags.voice and uid in self._voice_states):
+                    state.store_user(user_data)
+                    continue
             member = Member(data=mdata, guild=self, state=state)
-            if cache_flags.joined or member.id == state.self_id or (cache_flags.voice and member.id in self._voice_states):
-                self._add_member(member)
+            self._add_member(member)
 
         for presence in guild.get('presences', []):
             user_id = int(presence['user']['id'])
@@ -794,7 +863,7 @@ class Guild(Hashable):
     def _offline_members_hidden(self) -> bool:
         # Member count, hoisted role count, and Online/Offline group
         # This may not be 100% accurate because member list groups are cached server-side
-        return (self._member_count or 0) + len([role for role in self.roles if role.hoist]) + 2 >= 1000
+        return (self._member_count or 0) + sum(role.hoist for role in self._roles.values()) + 2 >= 1000
 
     @property
     def _extra_large(self) -> bool:
@@ -1407,13 +1476,19 @@ class Guild(Hashable):
 
         If this value returns ``False``, then you should request for
         offline members.
+
+        .. note::
+
+            If a member cache cap is configured (see ``max_member_cache``),
+            members may be evicted from the cache; the count of members ever
+            seen is used instead so that eviction does not invalidate chunking.
         """
         count = self._member_count
         if count is None:
             return False
 
         # Member updates must be enabled to have an accurate member count
-        return count == len(self._members) and self._state.subscriptions.has_feature(self, 'member_updates')
+        return count <= self._members_seen and self._state.subscriptions.has_feature(self, 'member_updates')
 
     @property
     def created_at(self) -> datetime:
