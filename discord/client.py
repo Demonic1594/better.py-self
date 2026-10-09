@@ -197,6 +197,7 @@ if TYPE_CHECKING:
         max_guild_presence_cache: Optional[int]
         max_thread_cache: Optional[int]
         max_total_thread_cache: Optional[int]
+        gc_freeze: bool
         proxy: Optional[str]
         proxy_auth: Optional[aiohttp.BasicAuth]
         member_cache_flags: Optional[MemberCacheFlags]
@@ -346,6 +347,19 @@ class Client:
         The maximum number of threads to store across *all* guilds'
         internal thread caches. This defaults to ``25000``. Passing in
         ``None`` disables the cap.
+
+        .. versionadded:: 2.2
+    gc_freeze: :class:`bool`
+        Whether to freeze the startup object graph for the cyclic garbage
+        collector shortly after the client becomes ready. This stops the GC
+        from repeatedly rescanning the long-lived cache graph, reducing GC
+        pause times and background CPU usage on large accounts.
+
+        On reconnect the graph is unfrozen so that the reset caches can be
+        reclaimed. Guild data deleted while frozen is only reclaimed on the
+        next reconnect; if that matters for your workload, disable this.
+
+        This defaults to ``True``.
 
         .. versionadded:: 2.2
     proxy: Optional[:class:`str`]

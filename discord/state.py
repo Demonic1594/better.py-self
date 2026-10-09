@@ -28,6 +28,7 @@ import asyncio
 from collections import deque, OrderedDict
 import copy
 import datetime
+import gc
 import logging
 from typing import (
     ClassVar,
@@ -1132,6 +1133,10 @@ class ConnectionState:
         self.max_guild_presence_cache: Optional[int] = options.get('max_guild_presence_cache', 5_000)
         if self.max_guild_presence_cache is not None and self.max_guild_presence_cache <= 0:
             self.max_guild_presence_cache = 5_000
+        # Whether to freeze the startup object graph after READY so the cyclic
+        # garbage collector stops rescanning long-lived objects
+        self.gc_freeze: bool = options.get('gc_freeze', True)
+        self._gc_freeze_task: Optional[asyncio.Task] = None
 
         self.dispatch: Callable[..., Any] = dispatch
         self.handlers: Dict[str, Callable[..., Any]] = handlers
@@ -1209,6 +1214,10 @@ class ConnectionState:
         self.clear(full=True)
 
     def clear(self, *, full: bool = False) -> None:
+        if self.gc_freeze:
+            # The frozen startup graph is about to be dropped en masse; return
+            # it to the collectable generations so reconnects don't leak it
+            gc.unfreeze()
         self.user: Optional[ClientUser] = None
         self._users: weakref.WeakValueDictionary[int, User] = weakref.WeakValueDictionary()
         self.settings: Optional[UserSettings] = None
@@ -2014,10 +2023,29 @@ class ConnectionState:
             # Dispatch the event
             self.call_handlers('ready')
             self.dispatch('ready')
+            self._schedule_gc_freeze()
         finally:
             # Make sure we don't block it forever
             manager.blocked = False
             self._ready_task = None
+
+    def _schedule_gc_freeze(self) -> None:
+        # The cyclic GC periodically rescans every tracked object; after READY
+        # the cache graph is long-lived and will never form collectable cycles,
+        # so freezing it cuts GC pause times and background CPU.
+        if not self.gc_freeze:
+            return
+        if self._gc_freeze_task is not None and not self._gc_freeze_task.done():
+            return
+
+        async def freeze_later() -> None:
+            # Give ready handlers a moment to finish before freezing the graph
+            await asyncio.sleep(2.0)
+            gc.collect()
+            gc.freeze()
+            _log.debug('Froze the startup object graph for the garbage collector.')
+
+        self._gc_freeze_task = asyncio.create_task(freeze_later())
 
     def parse_ready(self, data: gw.ReadyEvent) -> None:
         if self._ready_task is not None:
