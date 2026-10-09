@@ -1293,6 +1293,7 @@ async def _actual_conversion(ctx: Context[BotT], converter: Any, argument: str, 
     try:
         converter = _converter_resolution_cache[converter]
     except (KeyError, TypeError):
+        original = converter
         try:
             module = converter.__module__
         except AttributeError:
@@ -1302,7 +1303,7 @@ async def _actual_conversion(ctx: Context[BotT], converter: Any, argument: str, 
                 converter = CONVERTER_MAPPING.get(converter, converter)
 
         try:
-            _converter_resolution_cache[converter] = converter
+            _converter_resolution_cache[original] = converter
         except TypeError:
             pass
 

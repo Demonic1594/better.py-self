@@ -602,10 +602,7 @@ class Guild(Hashable):
         # Marks a member as recently used without (re)inserting it
         members = self._members
         if member_id in members:
-            try:
-                members[member_id] = members.pop(member_id)
-            except KeyError:
-                pass
+            members[member_id] = members.pop(member_id)
 
     def _should_cache_member(self, member: Member, /) -> bool:
         # Mirrors the gating used when ingesting guild member data
@@ -635,6 +632,9 @@ class Guild(Hashable):
 
         for member_id in victims:
             del members[member_id]
+            # Keep the presence store in sync; online members are re-stored by
+            # their next presence update, offline ones are freed
+            state.remove_presence(member_id, self.id)
 
         if victims:
             _log.debug('Evicted %d members from the cache of guild ID %d (cap: %d).', len(victims), self.id, cap)
@@ -1247,7 +1247,15 @@ class Guild(Hashable):
 
     @property
     def members(self) -> Sequence[Member]:
-        """Sequence[:class:`Member`]: A list of members that belong to this guild."""
+        """Sequence[:class:`Member`]: A list of members that belong to this guild.
+
+        .. note::
+
+            If a member cache cap is configured (see ``max_member_cache``),
+            this may not contain every member of the guild. Use
+            :meth:`Guild.fetch_member` or :meth:`Guild.query_members` to
+            retrieve members missing from the cache.
+        """
         return utils.SequenceProxy(self._members.values())
 
     def get_member(self, user_id: int, /) -> Optional[Member]:

@@ -213,7 +213,6 @@ async def _wrapped_interaction(
     **kwargs,
 ) -> None:
     state._interaction_cache[nonce] = (type.value, name, channel)
-    state._interaction_cache.move_to_end(nonce)
     if len(state._interaction_cache) > 50:
         state._interaction_cache.popitem(last=False)
 

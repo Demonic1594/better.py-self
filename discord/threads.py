@@ -206,7 +206,8 @@ class Thread(Messageable, Hashable):
         get = data.get
 
         applied_tags = get('applied_tags')
-        _applied_tags = self._applied_tags if applied_tags is None else array.array('Q', map(int, applied_tags))
+        # Absent resets to no tags, matching the original semantics
+        _applied_tags = array.array('Q', map(int, applied_tags)) if applied_tags is not None else array.array('Q')
         raw_meta = get('thread_metadata')
 
         # Fast path: skip the snapshot entirely when nothing changed
@@ -975,8 +976,11 @@ class Thread(Messageable, Hashable):
         return self._members.pop(member_id, None)
 
 
-# Precomputed for Thread._update; mirrors the original slot-filtering logic
-_THREAD_UPDATE_ATTRS = tuple(x for x in Thread.__slots__ if not any(y in x for y in ('member', 'guild', 'state', 'count')))
+# Precomputed for Thread._update; mirrors the original slot-filtering logic.
+# _raw_metadata is excluded: it is internal bookkeeping, not a dispatchable field.
+_THREAD_UPDATE_ATTRS = tuple(
+    x for x in Thread.__slots__ if x != '_raw_metadata' and not any(y in x for y in ('member', 'guild', 'state', 'count'))
+)
 
 
 class ThreadMember(Hashable):

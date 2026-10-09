@@ -682,7 +682,10 @@ class Loop(Generic[LF]):
             try:
                 start = now_by_tz[tz]
             except KeyError:
-                start = now_by_tz[tz] = now.astimezone(tz)
+                try:
+                    now_by_tz[tz] = start = now.astimezone(tz)
+                except TypeError:  # unhashable tzinfo
+                    start = now.astimezone(tz)
             if time >= start.timetz():
                 return idx
         else:

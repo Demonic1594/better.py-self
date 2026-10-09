@@ -107,8 +107,9 @@ class flag_value:
     def __get__(self, instance: Optional[BF], owner: Type[BF]) -> Any:
         if instance is None:
             return self
-        # Inlined instance._has_flag(self.flag) to skip a method call
-        return (instance.value & self.flag) == self.flag
+        # Delegates so inverted flag classes (e.g. SystemChannelFlags)
+        # can override the semantics
+        return instance._has_flag(self.flag)
 
     def __set__(self, instance: BaseFlags, value: bool) -> None:
         instance._set_flag(self.flag, value)
@@ -216,9 +217,10 @@ class BaseFlags:
         return f'<{self.__class__.__name__} value={self.value}>'
 
     def __iter__(self) -> Iterator[Tuple[str, bool]]:
-        value = self.value
+        # Delegates to _has_flag so inverted flag classes keep their semantics
+        has_flag = self._has_flag
         for name, flag in self._ITER_FLAGS:
-            yield (name, (value & flag) == flag)
+            yield (name, has_flag(flag))
 
     def _has_flag(self, o: int) -> bool:
         return (self.value & o) == o

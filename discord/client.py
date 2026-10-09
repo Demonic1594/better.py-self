@@ -293,7 +293,7 @@ class Client:
         and protected, and evicted members can still be retrieved with
         :meth:`Guild.fetch_member` or :meth:`Guild.query_members`.
 
-        .. versionadded:: 2.3
+        .. versionadded:: 2.2
     max_total_member_cache: Optional[:class:`int`]
         The maximum number of members to store across *all* guilds' internal
         member caches. This defaults to ``50000``. Passing in ``None``
@@ -303,13 +303,13 @@ class Client:
         first. The same eviction protections and re-warm behavior as
         ``max_member_cache`` apply.
 
-        .. versionadded:: 2.3
+        .. versionadded:: 2.2
     max_presence_cache: Optional[:class:`int`]
         The maximum number of non-guild presences (e.g. direct message
         relationships) to store in the internal presence cache. This defaults
         to ``20000``. Passing in ``None`` disables the cap.
 
-        .. versionadded:: 2.3
+        .. versionadded:: 2.2
     proxy: Optional[:class:`str`]
         Proxy URL.
     proxy_auth: Optional[:class:`aiohttp.BasicAuth`]
@@ -944,10 +944,11 @@ class Client:
                 try:
                     result = condition(*args)
                 except Exception as exc:
-                    future.set_exception(exc)
+                    if not future.done():
+                        future.set_exception(exc)
                     removed.append(i)
                 else:
-                    if result:
+                    if result and not future.done():
                         if len(args) == 0:
                             future.set_result(None)
                         elif len(args) == 1:
@@ -957,7 +958,8 @@ class Client:
                         removed.append(i)
 
             if len(removed) == len(listeners):
-                self._listeners.pop(event)
+                # Tolerate a concurrent (re-entrant) dispatch having popped it already
+                self._listeners.pop(event, None)
             else:
                 for idx in reversed(removed):
                     del listeners[idx]
@@ -967,6 +969,15 @@ class Client:
             try:
                 coro = getattr(self, method)
             except AttributeError:
+                return
+            else:
+                self._event_handlers[method] = coro
+        elif getattr(self, method, None) is not coro:
+            # The handler was replaced/removed by direct attribute assignment
+            try:
+                coro = getattr(self, method)
+            except AttributeError:
+                del self._event_handlers[method]
                 return
             else:
                 self._event_handlers[method] = coro

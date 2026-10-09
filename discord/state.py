@@ -394,7 +394,8 @@ class MemberSidebar:
         return [channel.id for channel in self.guild.channels if channel._can_everyone(Permissions.read_messages)][:amount]
 
     def add_members(self, members: List[Member]) -> None:
-        members = list(set(members))
+        # Order-preserving dedupe so within-batch LRU freshness is deterministic
+        members = list(dict.fromkeys(members))
         self.buffer.extend(members)
         if self.cache:
             guild = self.guild
@@ -958,6 +959,22 @@ class ClientStatus:
         self.web = data.get('web')
         self.embedded = data.get('embedded')
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ClientStatus):
+            return False
+        return (
+            self.status == other.status
+            and self.desktop == other.desktop
+            and self.mobile == other.mobile
+            and self.web == other.web
+            and self.embedded == other.embedded
+        )
+
+    def __ne__(self, other: object) -> bool:
+        if not isinstance(other, ClientStatus):
+            return True
+        return not self.__eq__(other)
+
     @classmethod
     def _copy(cls, client_status: Self, /) -> Self:
         self = cls.__new__(cls)  # bypass __init__
@@ -965,6 +982,7 @@ class ClientStatus:
         self.desktop = client_status.desktop
         self.mobile = client_status.mobile
         self.web = client_status.web
+        self.embedded = client_status.embedded
         return self
 
 
@@ -1218,7 +1236,7 @@ class ConnectionState:
         self._application_command_autocomplete_cache: OrderedDict[
             Union[int, str], Tuple[MessageableChannel, Any, Any, Union[str, int, float]]
         ] = OrderedDict()
-        self._interaction_iframe_modals: Dict[int, IFrameModal] = {}
+        self._interaction_iframe_modals: OrderedDict[int, IFrameModal] = OrderedDict()
         self._relationships: Dict[int, Relationship] = {}
         self._private_channels: Dict[int, PrivateChannel] = {}
         self._private_channels_by_user: Dict[int, DMChannel] = {}
@@ -1244,6 +1262,8 @@ class ConnectionState:
     def _note_member_add(self) -> None:
         # Amortized global member cache rebalancing; the actual check is
         # spread out so it does not run on every single insertion
+        if self.max_total_member_cache is None:
+            return
         self._member_add_counter += 1
         if self._member_add_counter >= 1024:
             self._maybe_evict_members_global()
@@ -1519,6 +1539,8 @@ class ConnectionState:
 
     def _add_interaction(self, interaction: Interaction) -> None:
         interactions = self._interactions
+        if interaction.id in interactions:
+            interactions.move_to_end(interaction.id)
         interactions[interaction.id] = interaction
         if len(interactions) > 100:
             interactions.popitem(last=False)
@@ -1617,6 +1639,16 @@ class ConnectionState:
     def _remove_guild(self, guild: Guild, /) -> None:
         self._guilds.pop(guild.id, None)
         self._guild_presences.pop(guild.id, None)
+        self.guild_settings.pop(guild.id, None)
+
+        # Purge read states belonging to this guild's channels
+        channel_ids = set(guild._channels)
+        channel_ids.update(guild._threads)
+        if channel_ids:
+            channel_states = self._read_states.get(ReadStateType.channel.value)
+            if channel_states:
+                for cid in channel_ids:
+                    channel_states.pop(cid, None)
 
         # Nuke guild expressions
         for emoji in guild.emojis:
@@ -1689,8 +1721,11 @@ class ConnectionState:
         if msg_id is None:
             return None
         if self._messages:
-            return self._messages_index.get(msg_id)
-        return utils.find(lambda m: m.id == msg_id, reversed(self._call_message_cache.values()))
+            message = self._messages_index.get(msg_id)
+            if message is not None:
+                return message
+        # Call messages (keyed by message id) may live outside the main cache
+        return self._call_message_cache.get(msg_id)
 
     def _add_message_to_cache(self, message: Message) -> None:
         messages = self._messages
@@ -1708,10 +1743,14 @@ class ConnectionState:
     def _remove_message_from_cache(self, message: Message) -> None:
         messages = self._messages
         if messages is not None:
-            messages.remove(message)
+            try:
+                messages.remove(message)
+            except ValueError:
+                pass  # the message may only live in the call cache
         index = self._messages_index
         if index.get(message.id) is message:
             del index[message.id]
+        self._call_message_cache.pop(message.id, None)
 
     def _add_guild_from_data(self, data: GuildPayload) -> Guild:
         guild = self.create_guild(data)
@@ -2148,9 +2187,12 @@ class ConnectionState:
         found = self._get_message(raw.message_id)
         raw.cached_message = found
         self.dispatch('raw_message_delete', raw)
-        if self._messages is not None and found is not None:
+        if found is not None:
             self.dispatch('message_delete', found)
-            self._remove_message_from_cache(found)
+            if self._messages is not None:
+                self._remove_message_from_cache(found)
+            else:
+                self._call_message_cache.pop(found.id, None)
 
     def parse_message_delete_bulk(self, data: gw.MessageDeleteBulkEvent) -> None:
         raw = RawBulkMessageDeleteEvent(data)
@@ -2174,6 +2216,10 @@ class ConnectionState:
             if listeners.get(event):
                 return True
             if hasattr(client, 'on_' + event):
+                return True
+            # ext.commands Bot.listen/cog listeners are stored separately
+            extra_events = getattr(client, 'extra_events', None)
+            if extra_events and extra_events.get('on_' + event):
                 return True
         return False
 
@@ -2320,6 +2366,13 @@ class ConnectionState:
             return
         user_id = int(user['id'])
 
+        if guild is not None and guild.get_member(user_id) is None:
+            # Drop any stale presence left over from before the member was
+            # evicted; keeping it would leak memory and could serve stale data
+            self.remove_presence(user_id, guild_id)
+            _log.debug('PRESENCE_UPDATE referencing an unknown member ID: %s. Discarding.', user_id)
+            return
+
         presence = self.get_presence(user_id, guild_id)
         if presence is not None:
             old_presence = Presence._copy(presence)
@@ -2342,9 +2395,6 @@ class ConnectionState:
                 self.dispatch('presence_update', old_relationship, relationship)
         else:
             member = guild.get_member(user_id)
-            if member is None:
-                _log.debug('PRESENCE_UPDATE referencing an unknown member ID: %s. Discarding.', user_id)
-                return
 
             # Presence updates keep flowing for online members, so mark them as
             # recently used to protect them from cache eviction
@@ -2352,7 +2402,7 @@ class ConnectionState:
 
             user_update = member._user._update_self(user)  # type: ignore
             if old_presence != presence:
-                old_member = Member._copy(member)
+                old_member = Member._copy(member)  # type: ignore # Member existence was validated above
                 old_member._presence = old_presence
                 self.dispatch('presence_update', old_member, member)
 
@@ -2414,6 +2464,7 @@ class ConnectionState:
         else:
             old_settings = None
             settings = GuildSettings(data=data, state=self)
+            self.guild_settings[guild_id] = settings
         self.guild_settings_version = data.get('version', self.guild_settings_version)
         self.dispatch('guild_settings_update', old_settings, settings)
 
@@ -2621,6 +2672,12 @@ class ConnectionState:
             channel = self._get_private_channel(channel_id)
             if channel is not None:
                 self._remove_private_channel(channel)
+                # Private/group channels can carry call voice states; purge them
+                self._voice_states = {
+                    k: v
+                    for k, v in self._voice_states.items()
+                    if v is None or v.channel is None or v.channel.id != channel_id
+                }
                 self.dispatch('private_channel_delete', channel)
 
         # Nuke read state
@@ -3759,6 +3816,11 @@ class ConnectionState:
 
             call._delete()
             self._call_message_cache.pop(call._message_id, None)
+            # Purge any voice states still pointing at the deleted call's channel
+            channel_id = call.channel.id
+            self._voice_states = {
+                k: v for k, v in self._voice_states.items() if v is None or v.channel is None or v.channel.id != channel_id
+            }
             self.dispatch('call_delete', call)
 
     def parse_voice_state_update(self, data: gw.VoiceStateUpdateEvent) -> None:
@@ -4051,7 +4113,11 @@ class ConnectionState:
             return
 
         modal = IFrameModal(data=data, state=self, channel=channel, interaction=interaction)  # type: ignore
-        self._interaction_iframe_modals[modal.application.id] = modal
+        modals = self._interaction_iframe_modals
+        modals[modal.application.id] = modal
+        if len(modals) > 32:
+            # Dropped CLOSE events would otherwise strand entries until reconnect
+            modals.popitem(last=False)
         self.dispatch('iframe_modal', modal)
 
     def parse_interaction_iframe_modal_close(self, data: gw.InteractionIframeModalCloseEvent) -> None:

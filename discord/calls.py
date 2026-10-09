@@ -237,7 +237,7 @@ class PrivateCall:
         state = self._state
         if self.message is None:
             if state._messages is not None:
-                state._messages.append(message)
+                state._add_message_to_cache(message)
             self._cs_message = message
         return message
 

@@ -211,12 +211,14 @@ class CooldownMapping(Generic[T_contra]):
             raise TypeError('Cooldown type must be a BucketType or callable')
 
         self._cache: Dict[Any, Cooldown] = {}
+        self._last_sweep_size: int = 256
         self._cooldown: Optional[Cooldown] = original
         self._type: Callable[[T_contra], Any] = type
 
     def copy(self) -> CooldownMapping[T_contra]:
         ret = CooldownMapping(self._cooldown, self._type)
         ret._cache = self._cache.copy()
+        ret._last_sweep_size = self._last_sweep_size
         return ret
 
     @property
@@ -263,6 +265,11 @@ class CooldownMapping(Generic[T_contra]):
         if bucket is None:
             bucket = self.create_bucket(message)
             if bucket is not None:
+                # Sweep BEFORE inserting: a fresh bucket has _last == 0.0 and
+                # would otherwise be reaped as dead by its own insertion sweep
+                if len(cache) > 512 and len(cache) >= self._last_sweep_size * 2:
+                    self._verify_cache_integrity(current)
+                    self._last_sweep_size = max(256, len(cache))
                 cache[key] = bucket
 
         return bucket

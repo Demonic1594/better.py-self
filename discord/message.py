@@ -2313,9 +2313,10 @@ class Message(PartialMessage, Hashable):
             return
 
         participants = []
+        author_id = self.author.id
         mentions_by_id = {user.id: user for user in self.mentions}
         for uid in map(int, call.get('participants', [])):
-            if uid == self.author.id:
+            if uid == author_id:
                 participants.append(self.author)
             else:
                 user = mentions_by_id.get(uid)

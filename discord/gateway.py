@@ -290,6 +290,8 @@ class KeepAliveHandler:  # Inspired by enhanced-discord.py/Gnome
                 await asyncio.wait_for(task, timeout)
             except asyncio.TimeoutError:
                 task.cancel()
+                # Reap the cancellation so no send is left in flight past close
+                await asyncio.gather(task, return_exceptions=True)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -759,7 +761,7 @@ class DiscordWebSocket:
         """
         try:
             if _asyncio_timeout is not None:
-                with _asyncio_timeout(self._max_heartbeat_timeout):
+                async with _asyncio_timeout(self._max_heartbeat_timeout):
                     msg, flags = await self.socket.recv()
             else:
                 msg, flags = await asyncio.wait_for(self.socket.recv(), timeout=self._max_heartbeat_timeout)
@@ -1048,6 +1050,10 @@ class DiscordWebSocket:
         await self.send_as_json(payload)
 
     async def close(self, code: int = 4000, reason: bytes = b'') -> None:
+        if getattr(self, '_closing', False):
+            # close() can race from both the poll loop and event handlers
+            return
+        self._closing = True
         _log.debug('Closing websocket with code %s.', code)
         if self._keep_alive:
             self._keep_alive.stop()

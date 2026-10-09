@@ -272,6 +272,8 @@ class Permissions(BaseFlags):
             base.manage_messages = False
             base.pin_messages = True
             base.create_private_threads = False
+            base.create_public_threads = False
+            base.manage_threads = False
             base.send_messages_in_threads = False
             value = _DM_PERMISSIONS_VALUE = base.value
         return cls._from_value(value)
@@ -891,15 +893,15 @@ def _augment_from_permissions(cls):
         else:
             continue
 
-    # God bless Python
-    def getter(self, x=key):
-        return self._values.get(x)
+        # God bless Python
+        def getter(self, x=key):
+            return self._values.get(x)
 
-    def setter(self, value, x=key):
-        self._set(x, value)
+        def setter(self, value, x=key):
+            self._set(x, value)
 
-    prop = property(getter, setter)
-    setattr(cls, name, prop)
+        prop = property(getter, setter)
+        setattr(cls, name, prop)
 
     cls.PURE_FLAGS = cls.VALID_NAMES - aliases
     return cls

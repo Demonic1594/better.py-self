@@ -1125,7 +1125,6 @@ class SlashMixin(ApplicationCommand, Protocol):
         nonce = _generate_nonce()
         resolved_channel = await channel._get_channel()
         state._application_command_autocomplete_cache[nonce] = (resolved_channel, obj, option, focused_val)
-        state._application_command_autocomplete_cache.move_to_end(nonce)
         if len(state._application_command_autocomplete_cache) > 50:
             state._application_command_autocomplete_cache.popitem(last=False)
 

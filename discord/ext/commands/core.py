@@ -1200,13 +1200,12 @@ class Command(_BaseCommand, Generic[CogT, P, T]):
     @property
     def signature(self) -> str:
         """:class:`str`: Returns a POSIX-like signature useful for help command output."""
+        if self.usage is not None:
+            return self.usage
+
         cached = self.__dict__.get('_signature')
         if cached is not None:
             return cached
-
-        if self.usage is not None:
-            self._signature = self.usage
-            return self.usage
 
         params = self.clean_params
         if not params:
