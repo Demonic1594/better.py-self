@@ -53,6 +53,14 @@ HeadersContext
 .. autoclass:: HeadersContext
     :members:
 
+CacheStats
+~~~~~~~~~~~
+
+.. attributetable:: CacheStats
+
+.. autoclass:: discord.CacheStats
+    :members:
+
 Voice Related
 ---------------
 
