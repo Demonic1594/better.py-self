@@ -976,9 +976,7 @@ class Thread(Messageable, Hashable):
 
 
 # Precomputed for Thread._update; mirrors the original slot-filtering logic
-_THREAD_UPDATE_ATTRS = tuple(
-    x for x in Thread.__slots__ if not any(y in x for y in ('member', 'guild', 'state', 'count'))
-)
+_THREAD_UPDATE_ATTRS = tuple(x for x in Thread.__slots__ if not any(y in x for y in ('member', 'guild', 'state', 'count')))
 
 
 class ThreadMember(Hashable):

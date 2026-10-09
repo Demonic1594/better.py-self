@@ -53,9 +53,7 @@ from .permissions import PermissionOverwrite, Permissions
 # Precomputed voice-permission masks used by permissions_for
 _VOICE_PERMISSIONS_VALUE: int = Permissions.voice().value
 _VOICE_DENIED_MASK: int = ~_VOICE_PERMISSIONS_VALUE
-_VOICE_DENIED_EDIT_MASK: int = ~(
-    _VOICE_PERMISSIONS_VALUE | Permissions(manage_channels=True, manage_roles=True).value
-)
+_VOICE_DENIED_EDIT_MASK: int = ~(_VOICE_PERMISSIONS_VALUE | Permissions(manage_channels=True, manage_roles=True).value)
 from .enums import (
     ChannelType,
     EntityType,

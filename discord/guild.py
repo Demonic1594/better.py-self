@@ -611,11 +611,7 @@ class Guild(Hashable):
         # Mirrors the gating used when ingesting guild member data
         state = self._state
         cache_flags = state.member_cache_flags
-        return (
-            cache_flags.joined
-            or member.id == state.self_id
-            or (cache_flags.voice and member.id in self._voice_states)
-        )
+        return cache_flags.joined or member.id == state.self_id or (cache_flags.voice and member.id in self._voice_states)
 
     def _evict_members(self, cap: int, /) -> None:
         # Evicts the least recently used members until the cache is within the cap.

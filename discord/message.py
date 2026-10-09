@@ -268,9 +268,7 @@ class Attachment(Hashable):
             utils.parse_time(clip_created_at) if (clip_created_at := data.get('clip_created_at')) is not None else None
         )
         clip_participants = data.get('clip_participants')
-        self.clip_participants: List[User] = (
-            [state.create_user(d) for d in clip_participants] if clip_participants else []
-        )
+        self.clip_participants: List[User] = [state.create_user(d) for d in clip_participants] if clip_participants else []
         self.application: Optional[PartialApplication] = (
             PartialApplication(data=data['application'], state=state) if data.get('application') else None  # type: ignore
         )
@@ -797,7 +795,8 @@ def flatten_handlers(cls: Type[Message]) -> Type[Message]:
     cls._HANDLERS = handlers
     handler_map = dict(handlers)
     cls._INIT_HANDLERS = [
-        (key, handler_map[key]) for key in ('author', 'member', 'mentions', 'mention_roles', 'call', 'interaction', 'components')
+        (key, handler_map[key])
+        for key in ('author', 'member', 'mentions', 'mention_roles', 'call', 'interaction', 'components')
     ]
     cls._CACHED_SLOTS = [attr for attr in cls.__slots__ if attr.startswith('_cs_')]
     return cls
@@ -1993,6 +1992,7 @@ class Message(PartialMessage, Hashable):
 
     if TYPE_CHECKING:
         _HANDLERS: ClassVar[List[Tuple[str, Callable[..., None]]]]
+        _INIT_HANDLERS: ClassVar[List[Tuple[str, Callable[..., None]]]]
         _CACHED_SLOTS: ClassVar[List[str]]
         reference: Optional[MessageReference]
         mentions: List[Union[User, Member]]

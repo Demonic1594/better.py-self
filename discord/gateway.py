@@ -50,7 +50,8 @@ try:
 except ImportError:
     pass
 
-_HAS_ASYNCIO_TIMEOUT = hasattr(asyncio, 'timeout')
+# asyncio.timeout is 3.11+; resolve dynamically to stay compatible and type-check clean
+_asyncio_timeout = getattr(asyncio, 'timeout', None)
 
 _log = logging.getLogger(__name__)
 
@@ -757,8 +758,8 @@ class DiscordWebSocket:
             The websocket connection was terminated for unhandled reasons.
         """
         try:
-            if _HAS_ASYNCIO_TIMEOUT:
-                with asyncio.timeout(self._max_heartbeat_timeout):
+            if _asyncio_timeout is not None:
+                with _asyncio_timeout(self._max_heartbeat_timeout):
                     msg, flags = await self.socket.recv()
             else:
                 msg, flags = await asyncio.wait_for(self.socket.recv(), timeout=self._max_heartbeat_timeout)

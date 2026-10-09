@@ -1706,7 +1706,9 @@ class ConnectionState:
         index[message.id] = message
 
     def _remove_message_from_cache(self, message: Message) -> None:
-        self._messages.remove(message)
+        messages = self._messages
+        if messages is not None:
+            messages.remove(message)
         index = self._messages_index
         if index.get(message.id) is message:
             del index[message.id]
