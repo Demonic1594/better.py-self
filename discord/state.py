@@ -34,6 +34,7 @@ from typing import (
     ClassVar,
     Dict,
     Final,
+    NamedTuple,
     Optional,
     TYPE_CHECKING,
     Union,
@@ -1079,6 +1080,68 @@ class FakeClientPresence(Presence):
         )
 
 
+class CacheStats(NamedTuple):
+    """A snapshot of the client's cache utilization and effectiveness.
+
+    Returned by :meth:`Client.cache_stats`.
+
+    .. versionadded:: 2.2
+    """
+
+    guilds: int
+    """Total number of cached guilds."""
+    members: int
+    """Total number of cached members across all guilds."""
+    member_cache_cap: Optional[int]
+    """The configured per-guild member cache cap, if any."""
+    total_member_cache_cap: Optional[int]
+    """The configured global member cache cap, if any."""
+    evicted_members: int
+    """Total members evicted from the cache since the last reset."""
+    member_hits: int
+    """Total :meth:`Guild.get_member` calls that found a cached member."""
+    member_misses: int
+    """Total :meth:`Guild.get_member` calls that missed."""
+    threads: int
+    """Total number of cached threads across all guilds."""
+    thread_cache_cap: Optional[int]
+    """The configured per-guild thread cache cap, if any."""
+    total_thread_cache_cap: Optional[int]
+    """The configured global thread cache cap, if any."""
+    evicted_threads: int
+    """Total threads evicted from the cache since the last reset."""
+    guild_presences: int
+    """Total stored guild-scoped presences across all guilds."""
+    guild_presence_cap: Optional[int]
+    """The configured per-guild presence cap, if any."""
+    dm_presences: int
+    """Total stored non-guild presences (e.g. relationships)."""
+    dm_presence_cap: Optional[int]
+    """The configured non-guild presence cap, if any."""
+    evicted_presences: int
+    """Total presences evicted since the last reset."""
+    messages: int
+    """Number of messages currently in the message cache."""
+    message_cache_cap: Optional[int]
+    """The configured message cache size, if any."""
+    dispatch_backlog: int
+    """Event handler tasks created but not yet completed."""
+    dispatch_oldest_age: float
+    """Seconds the oldest pending event handler has been queued."""
+    dispatch_created: int
+    """Total event handler tasks created since the last reset."""
+    dispatch_completed: int
+    """Total event handler tasks completed since the last reset."""
+    event_loop_lag: float
+    """Measured event loop scheduling delay in seconds at snapshot time.
+
+    ``-1.0`` indicates the loop was stalled for over a second.
+    """
+    per_guild: Dict[int, Dict[str, int]]
+    """Per-guild breakdown: ``members``, ``threads``, ``presences``,
+    ``evicted_members`` and ``evicted_threads`` for each cached guild."""
+
+
 async def logging_coroutine(coroutine: Coroutine[Any, Any, T], *, info: str) -> Optional[T]:
     try:
         await coroutine
@@ -1137,6 +1200,10 @@ class ConnectionState:
         # garbage collector stops rescanning long-lived objects
         self.gc_freeze: bool = options.get('gc_freeze', True)
         self._gc_freeze_task: Optional[asyncio.Task] = None
+        # Cache effectiveness accounting (see ConnectionState.cache_stats)
+        self._member_hits: int = 0
+        self._member_misses: int = 0
+        self._presence_evictions: int = 0
 
         self.dispatch: Callable[..., Any] = dispatch
         self.handlers: Dict[str, Callable[..., Any]] = handlers
@@ -1267,6 +1334,9 @@ class ConnectionState:
         self._presences: OrderedDict[int, Presence] = OrderedDict()
         self._member_add_counter = 0
         self._thread_add_counter = 0
+        self._member_hits = 0
+        self._member_misses = 0
+        self._presence_evictions = 0
         self._sessions: Dict[str, Session] = {}
 
         if self.max_messages is not None:
@@ -4380,6 +4450,66 @@ class ConnectionState:
     def client_presence(self) -> FakeClientPresence:
         return FakeClientPresence(self)
 
+    def _build_cache_stats(self, event_loop_lag: float = 0.0) -> CacheStats:
+        """Gathers a cache utilization snapshot. See :meth:`Client.cache_stats`."""
+        guilds = self._guilds
+        per_guild: Dict[int, Dict[str, int]] = {}
+        members = 0
+        threads = 0
+        evicted_members = 0
+        evicted_threads = 0
+        guild_presences = 0
+        for guild_id, guild in guilds.items():
+            member_count = len(guild._members)
+            thread_count = len(guild._threads)
+            presence_count = len(self._guild_presences.get(guild_id, ()))
+            evicted_members += guild._evicted_members
+            evicted_threads += guild._evicted_threads
+            members += member_count
+            threads += thread_count
+            guild_presences += presence_count
+            if member_count or thread_count or presence_count or guild._evicted_members or guild._evicted_threads:
+                per_guild[guild_id] = {
+                    'members': member_count,
+                    'threads': thread_count,
+                    'presences': presence_count,
+                    'evicted_members': guild._evicted_members,
+                    'evicted_threads': guild._evicted_threads,
+                }
+
+        client = self.client
+        if client is not None:
+            backlog, oldest_age, created, completed = client._dispatch_backlog_stats()
+        else:
+            backlog = oldest_age = created = completed = 0
+
+        return CacheStats(
+            guilds=len(guilds),
+            members=members,
+            member_cache_cap=self.max_member_cache,
+            total_member_cache_cap=self.max_total_member_cache,
+            evicted_members=evicted_members,
+            member_hits=self._member_hits,
+            member_misses=self._member_misses,
+            threads=threads,
+            thread_cache_cap=self.max_thread_cache,
+            total_thread_cache_cap=self.max_total_thread_cache,
+            evicted_threads=evicted_threads,
+            guild_presences=guild_presences,
+            guild_presence_cap=self.max_guild_presence_cache,
+            dm_presences=len(self._presences),
+            dm_presence_cap=self.max_presence_cache,
+            evicted_presences=self._presence_evictions,
+            messages=len(self._messages) if self._messages is not None else 0,
+            message_cache_cap=self.max_messages,
+            dispatch_backlog=backlog,
+            dispatch_oldest_age=oldest_age,
+            dispatch_created=created,
+            dispatch_completed=completed,
+            event_loop_lag=event_loop_lag,
+            per_guild=per_guild,
+        )
+
     def create_presence(self, data: gw.BasePresenceUpdate, user_id: int) -> Presence:
         return Presence(data, self, user_id)
 
@@ -4438,8 +4568,12 @@ class ConnectionState:
             guild[user_id] = presence
             cap = self.max_guild_presence_cache
             if cap is not None:
+                evicted = 0
                 while len(guild) > cap:
                     guild.popitem(last=False)
+                    evicted += 1
+                if evicted:
+                    self._presence_evictions += evicted
         else:
             presences = self._presences
             if user_id in presences:
@@ -4447,8 +4581,12 @@ class ConnectionState:
             presences[user_id] = presence
             cap = self.max_presence_cache
             if cap is not None:
+                evicted = 0
                 while len(presences) > cap:
                     presences.popitem(last=False)
+                    evicted += 1
+                if evicted:
+                    self._presence_evictions += evicted
         return presence
 
     @overload

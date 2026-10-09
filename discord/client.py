@@ -47,6 +47,7 @@ from typing import (
     Sequence,
     TYPE_CHECKING,
     Tuple,
+    cast,
     Type,
     TypeVar,
     TypedDict,
@@ -81,7 +82,7 @@ from .gateway import *
 from .activity import ActivityTypes, BaseActivity, Session, Spotify, create_activity
 from .voice_client import VoiceClient
 from .http import HTTPClient
-from .state import ConnectionState
+from .state import CacheStats, ConnectionState
 from . import utils
 from .utils import MISSING, _iscoroutinefunction
 from .object import Object, OLDEST_OBJECT
@@ -229,6 +230,7 @@ if TYPE_CHECKING:
 # fmt: off
 __all__ = (
     'Client',
+    'CacheStats',
 )
 # fmt: on
 
@@ -360,6 +362,14 @@ class Client:
         next reconnect; if that matters for your workload, disable this.
 
         This defaults to ``True``.
+
+        .. versionadded:: 2.2
+    dispatch_backlog_warning: :class:`int`
+        The number of pending event handler tasks at which a
+        :func:`on_dispatch_backlog` event is dispatched (at most once every
+        30 seconds). This makes slow event handlers visible instead of
+        silently accumulating queued events. Use ``0`` to disable.
+        This defaults to ``1000``.
 
         .. versionadded:: 2.2
     proxy: Optional[:class:`str`]
@@ -515,6 +525,11 @@ class Client:
         self.ws: DiscordWebSocket = None  # type: ignore
         self._listeners: Dict[str, List[Tuple[asyncio.Future, Callable[..., bool]]]] = {}
         self._event_handlers: Dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {}
+        self._dispatch_pending: Dict[asyncio.Task, float] = {}
+        self._dispatch_created: int = 0
+        self._dispatch_completed: int = 0
+        self._last_backlog_warning: float = float('-inf')
+        self._dispatch_backlog_warning: int = cast(int, options.pop('dispatch_backlog_warning', 1000))
 
         self.captcha_handler: Optional[Callable[[CaptchaRequired, Client], Awaitable[str]]] = options.pop(
             'captcha_handler', None
@@ -979,7 +994,74 @@ class Client:
     ) -> asyncio.Task:
         wrapped = self._run_event(coro, event_name, *args, **kwargs)
         # Schedules the task
-        return self.loop.create_task(wrapped, name=f'discord.py: {event_name}')
+        task = self.loop.create_task(wrapped, name=f'discord.py: {event_name}')
+        self._track_dispatch(task)
+        return task
+
+    def _track_dispatch(self, task: asyncio.Task, /) -> None:
+        # Backpressure accounting (see Client.cache_stats / on_dispatch_backlog)
+        loop = self.loop
+        self._dispatch_pending[task] = loop.time()
+        self._dispatch_created += 1
+        task.add_done_callback(self._dispatch_done_callback)
+
+        threshold = self._dispatch_backlog_warning
+        if threshold and len(self._dispatch_pending) >= threshold and loop.time() - self._last_backlog_warning >= 30.0:
+            self._last_backlog_warning = loop.time()
+            backlog, oldest_age, _, _ = self._dispatch_backlog_stats()
+            _log.warning('Event handler backlog is %d (oldest %.1fs old).', backlog, oldest_age)
+            self.dispatch('dispatch_backlog', backlog, oldest_age)
+
+    def _dispatch_done_callback(self, task: asyncio.Task, /) -> None:
+        self._dispatch_pending.pop(task, None)
+        self._dispatch_completed += 1
+
+    def _dispatch_backlog_stats(self) -> Tuple[int, float, int, int]:
+        pending = self._dispatch_pending
+        backlog = len(pending)
+        oldest_age = 0.0
+        if backlog:
+            loop = self.loop
+            oldest_age = max(0.0, loop.time() - min(pending.values()))
+        return backlog, oldest_age, self._dispatch_created, self._dispatch_completed
+
+    async def cache_stats(self) -> CacheStats:
+        """|coro|
+
+        Returns a snapshot of the client's cache utilization, effectiveness
+        counters, dispatch backlog and event loop health.
+
+        This is useful for monitoring long-running accounts and tuning the
+        cache cap options (``max_member_cache``, ``max_thread_cache``, etc.).
+
+        .. versionadded:: 2.2
+
+        Returns
+        --------
+        :class:`CacheStats`
+            The snapshot. Most counters reset on reconnect.
+        """
+        state = self._connection
+        loop = self.loop
+        lag = 0.0
+        if loop is not _loop:
+            # Instantaneous scheduling lag: how long a ready callback waits
+            # before running (approximately the loop's current backlog)
+            start = loop.time()
+            probe = loop.create_future()
+
+            def _probe() -> None:
+                if not probe.done():
+                    probe.set_result(loop.time() - start)
+
+            loop.call_soon(_probe)
+            try:
+                await asyncio.wait_for(probe, timeout=1.0)
+            except asyncio.TimeoutError:
+                lag = -1.0
+            else:
+                lag = probe.result()
+        return state._build_cache_stats(lag)
 
     def dispatch(self, event: str, /, *args: Any, **kwargs: Any) -> None:
         _log.debug('Dispatching event %s.', event)

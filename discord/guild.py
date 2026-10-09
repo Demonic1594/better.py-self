@@ -512,6 +512,8 @@ class Guild(Hashable):
         '_widget_channel_id',
         '_members',
         '_members_seen',
+        '_evicted_members',
+        '_evicted_threads',
         '_channels',
         '_icon',
         '_banner',
@@ -559,6 +561,8 @@ class Guild(Hashable):
         self._channels: Dict[int, GuildChannel] = {}
         self._members: Dict[int, Member] = {}
         self._members_seen: int = 0
+        self._evicted_members: int = 0
+        self._evicted_threads: int = 0
         self._voice_states: Dict[int, VoiceState] = {}
         self._threads: Dict[int, Thread] = {}
         self._stage_instances: Dict[int, StageInstance] = {}
@@ -637,6 +641,7 @@ class Guild(Hashable):
             state.remove_presence(member_id, self.id)
 
         if victims:
+            self._evicted_members += len(victims)
             _log.debug('Evicted %d members from the cache of guild ID %d (cap: %d).', len(victims), self.id, cap)
 
     def _store_thread(self, payload: ThreadPayload, /) -> Thread:
@@ -689,6 +694,7 @@ class Guild(Hashable):
             del threads[thread_id]
 
         if victims:
+            self._evicted_threads += len(victims)
             _log.debug('Evicted %d threads from the cache of guild ID %d (cap: %d).', len(victims), self.id, cap)
 
     def _remove_thread(self, thread: Snowflake, /) -> None:
@@ -1321,7 +1327,13 @@ class Guild(Hashable):
         Optional[:class:`Member`]
             The member or ``None`` if not found.
         """
-        return self._members.get(user_id)
+        member = self._members.get(user_id)
+        # Cache effectiveness accounting (see ConnectionState.cache_stats)
+        if member is not None:
+            self._state._member_hits += 1
+        else:
+            self._state._member_misses += 1
+        return member
 
     @property
     def premium_tier(self) -> int:
