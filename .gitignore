@@ -20,4 +20,4 @@ backup/
 build/*
 dist/*
 uv.lock*
-pylock*.toml
+pylock*.toml.token
