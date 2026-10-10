@@ -28,7 +28,9 @@ class FakeSocket:
         await asyncio.sleep(self.delay)
         if self.payload is not None:
             return self.payload, CurlWsFlag.TEXT
-        return b'{"t":null,"s":null,"op":1,"d":null}', CurlWsFlag.TEXT
+        # Text frame as a str: bytes frames are treated as transport-compressed
+        # and routed through the decompressor, which differs per environment
+        return '{"t":null,"s":null,"op":1,"d":null}', CurlWsFlag.TEXT
 
     async def send(self, data):
         pass
