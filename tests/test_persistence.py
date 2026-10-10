@@ -9,6 +9,25 @@ import pytest
 
 import discord
 from discord import Client, Guild
+
+
+async def wait_for_snapshot(state, path, timeout=5.0):
+    """Deterministically waits for the post-ready persistence write.
+
+    Sleeping a fixed duration is flaky on slow CI runners (the write goes
+    through asyncio.to_thread with a real fsync), so poll for the tracked
+    write task to drain and the file to appear instead.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        if path.exists() and not getattr(state, '_persistence_tasks', None):
+            return
+        await asyncio.sleep(0.01)
+    assert path.exists(), 'persistence file was not written in time'
+    assert not state._persistence_tasks, 'persistence write task did not finish'
+
+
 from discord.channel import TextChannel
 
 
@@ -105,8 +124,7 @@ async def test_persistence_roundtrip(tmp_path):
     ready = ready_payload()
     ready['guilds'] = [guild_payload(1, 6), guild_payload(2, 3)]
     await drive_ready(c1, ready)
-    await asyncio.sleep(0.05)  # let the post-ready write task finish
-    assert path.exists(), 'persistence file written after ready'
+    await wait_for_snapshot(state1, path)
     assert len(state1._guilds) == 2
     assert state1._get_guild(1).get_member(103) is not None
 
@@ -179,7 +197,7 @@ async def test_persistence_guards(tmp_path):
     ready = ready_payload()
     ready['guilds'] = [guild_payload(7, 2)]
     await drive_ready(c3, ready)
-    await asyncio.sleep(0.05)
+    await wait_for_snapshot(state3, path2)
     c4 = Client(persistence_path=path2)
     await c4._async_setup_hook()
     c4._connection.user = discord.ClientUser(state=c4._connection, data=up(999))
@@ -195,7 +213,7 @@ async def _snapshot_to(path):
     ready = ready_payload()
     ready['guilds'] = [guild_payload(1, 3)]
     await drive_ready(c, ready)
-    await asyncio.sleep(0.05)
+    await wait_for_snapshot(state, path)
     return c
 
 
@@ -229,8 +247,7 @@ async def test_persistence_post_ready_write_task_is_retained_then_released(tmp_p
     ready = ready_payload()
     ready['guilds'] = [guild_payload(1, 2)]
     await drive_ready(c, ready)
-    await asyncio.sleep(0.05)
-    assert path.exists()
+    await wait_for_snapshot(state, path)
     assert not state._persistence_tasks, 'finished write tasks are discarded from the strong-ref set'
 
 
