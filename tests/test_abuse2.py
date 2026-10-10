@@ -179,11 +179,25 @@ async def test_hello_flood_does_not_leak_tasks():
     for _ in range(20):
         await ws.received_message(hello)
         await asyncio.sleep(0.005)
-    alive = await count_bg_tasks()
+
+    async def alive_count():
+        await asyncio.sleep(0.01)
+        return len([t for t in asyncio.all_tasks() if t is not asyncio.current_task()])
+
+    # Stopped tasks may need a scheduler tick to actually exit; converge to 1
+    deadline = loop.time() + 5.0
+    alive = await alive_count()
+    while alive > 1 and loop.time() < deadline:
+        await asyncio.sleep(0.05)
+        alive = await alive_count()
     assert alive == 1, f'HELLO flood leaked heartbeat tasks: {alive} alive'
     ws._keep_alive.stop()
-    await asyncio.sleep(0.02)
-    assert await count_bg_tasks() == 0
+    deadline = loop.time() + 5.0
+    alive = await alive_count()
+    while alive > 0 and loop.time() < deadline:
+        await asyncio.sleep(0.05)
+        alive = await alive_count()
+    assert alive == 0
     print('20 HELLO frames: exactly 1 live keepalive, clean stop')
 
 
