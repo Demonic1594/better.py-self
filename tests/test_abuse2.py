@@ -184,13 +184,16 @@ async def test_hello_flood_does_not_leak_tasks():
         await asyncio.sleep(0.01)
         return len([t for t in asyncio.all_tasks() if t is not asyncio.current_task()])
 
-    # Stopped tasks may need a scheduler tick to actually exit; converge to 1
+    # Stopped tasks may need a scheduler tick to actually exit; converge.
+    # On 3.10/3.11 wait_for wraps the Event.wait coroutine in its own task,
+    # so the live keepalive legitimately counts as 2 there — the invariant
+    # is O(1) survivors (pre-fix this was 20+), converging to 0 on stop.
     deadline = loop.time() + 5.0
     alive = await alive_count()
-    while alive > 1 and loop.time() < deadline:
+    while alive > 2 and loop.time() < deadline:
         await asyncio.sleep(0.05)
         alive = await alive_count()
-    assert alive == 1, f'HELLO flood leaked heartbeat tasks: {alive} alive'
+    assert alive <= 2, f'HELLO flood leaked heartbeat tasks: {alive} alive'
     ws._keep_alive.stop()
     deadline = loop.time() + 5.0
     alive = await alive_count()
@@ -198,7 +201,7 @@ async def test_hello_flood_does_not_leak_tasks():
         await asyncio.sleep(0.05)
         alive = await alive_count()
     assert alive == 0
-    print('20 HELLO frames: exactly 1 live keepalive, clean stop')
+    print(f'20 HELLO frames: <=2 live tasks ({alive} after convergence), clean stop')
 
 
 @pytest.mark.asyncio
