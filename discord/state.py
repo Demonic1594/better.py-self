@@ -31,6 +31,7 @@ import datetime
 import gc
 import logging
 import os
+import tempfile
 import time
 from typing import (
     ClassVar,
@@ -56,6 +57,7 @@ from typing import (
 )
 import warnings
 import weakref
+import zlib
 import inspect
 from math import ceil
 
@@ -160,6 +162,10 @@ if TYPE_CHECKING:
 
 MISSING = utils.MISSING
 _log = logging.getLogger(__name__)
+
+# Cache persistence limits
+PERSISTENCE_DEFAULT_MAX_AGE: float = 14 * 24 * 3600  # seconds
+PERSISTENCE_MAX_BYTES: int = 1 << 30  # maximum decompressed snapshot size (1 GiB)
 ST = TypeVar('ST', bound=StreamProtocol)
 
 
@@ -1207,6 +1213,12 @@ class ConnectionState:
         # and replay them on the next startup for a warm cache without
         # re-scraping. ``None`` (default) disables it entirely.
         self.persistence_path: Optional[Union[str, os.PathLike]] = options.get('persistence_path', None)
+        # Snapshots older than this many seconds are ignored on startup
+        self.persistence_max_age: float = float(options.get('persistence_max_age', PERSISTENCE_DEFAULT_MAX_AGE))
+        # Strong references to in-flight background writes (asyncio only keeps weak refs to tasks)
+        self._persistence_tasks: Set[asyncio.Task] = set()
+        # Serialises writes so an older snapshot can never land over a newer one
+        self._persistence_lock: asyncio.Lock = asyncio.Lock()
         self._persistence_ready: Optional[gw.ReadyEvent] = None
         self._persistence_guild_payloads: Dict[int, GuildPayload] = {}
         self._persistence_loaded: bool = False
@@ -2108,7 +2120,9 @@ class ConnectionState:
             self.dispatch('ready')
             self._schedule_gc_freeze()
             if self.persistence_path is not None:
-                asyncio.create_task(self._write_persistence())
+                task = asyncio.create_task(self._write_persistence())
+                self._persistence_tasks.add(task)
+                task.add_done_callback(self._persistence_tasks.discard)
         finally:
             # Make sure we don't block it forever
             manager.blocked = False
@@ -2317,9 +2331,13 @@ class ConnectionState:
         self._ready_task = asyncio.create_task(self._delay_ready())
 
     async def _write_persistence(self) -> bool:
-        """Atomically writes the captured payloads to ``persistence_path``."""
-        import zlib
+        """Atomically writes the captured payloads to ``persistence_path``.
 
+        The snapshot contains the raw READY payload, so it is treated as a secret:
+        the file is created with owner-only permissions via a uniquely named
+        temporary file in the same directory, flushed to disk, then renamed over
+        the destination.
+        """
         path = self.persistence_path
         if path is None or (self._persistence_ready is None and not self._persistence_guild_payloads):
             return False
@@ -2334,23 +2352,33 @@ class ConnectionState:
 
         def _write() -> None:
             blob = zlib.compress(utils._to_json(payload).encode('utf-8'), 1)
-            tmp = f'{path}.tmp'
-            with open(tmp, 'wb') as fp:
-                fp.write(blob)
-            os.replace(tmp, path)
+            directory = os.path.dirname(os.path.abspath(os.fspath(path)))
+            # mkstemp creates the file with mode 0600 and a unique name
+            fd, tmp = tempfile.mkstemp(dir=directory, prefix='.persist-', suffix='.tmp')
+            try:
+                with os.fdopen(fd, 'wb') as fp:
+                    fp.write(blob)
+                    fp.flush()
+                    os.fsync(fp.fileno())
+                os.replace(tmp, path)
+            except BaseException:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
 
-        try:
-            await asyncio.to_thread(_write)
-        except Exception:
-            _log.warning('Failed to write the cache persistence file.', exc_info=True)
-            return False
+        async with self._persistence_lock:
+            try:
+                await asyncio.to_thread(_write)
+            except Exception:
+                _log.warning('Failed to write the cache persistence file.', exc_info=True)
+                return False
         _log.debug('Wrote cache persistence to %s (%d guilds).', path, len(self._persistence_guild_payloads))
         return True
 
     async def _replay_persistence(self) -> bool:
         """Loads and replays the persisted payloads into the cache."""
-        import zlib
-
         path = self.persistence_path
         if path is None:
             return False
@@ -2365,7 +2393,13 @@ class ConnectionState:
                 _log.warning('Failed to read the cache persistence file.', exc_info=True)
                 return None
             try:
-                return utils._from_json(zlib.decompress(blob))
+                # Bound the decompressed size so a corrupt/hostile file can't exhaust memory
+                decompressor = zlib.decompressobj()
+                raw = decompressor.decompress(blob, PERSISTENCE_MAX_BYTES + 1)
+                if len(raw) > PERSISTENCE_MAX_BYTES or decompressor.unconsumed_tail:
+                    raise ValueError('persistence file exceeds the maximum allowed size')
+                raw += decompressor.flush()
+                return utils._from_json(raw)
             except Exception:
                 _log.warning('Cache persistence file is corrupt; ignoring it.', exc_info=True)
                 return None
@@ -2376,7 +2410,7 @@ class ConnectionState:
 
         # Guard against stale snapshots (older than 14 days) and account mismatches
         saved_at = data.get('saved_at', 0)
-        if isinstance(saved_at, (int, float)) and time.time() - saved_at > 14 * 24 * 3600:
+        if isinstance(saved_at, (int, float)) and time.time() - saved_at > self.persistence_max_age:
             _log.info('Cache persistence file is stale; performing a cold start.')
             return False
         user = data.get('ready', {}).get('user', {})

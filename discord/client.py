@@ -201,6 +201,7 @@ if TYPE_CHECKING:
         max_total_thread_cache: Optional[int]
         gc_freeze: bool
         persistence_path: Optional[Union[str, 'os.PathLike']]
+        persistence_max_age: float
         proxy: Optional[str]
         proxy_auth: Optional[aiohttp.BasicAuth]
         member_cache_flags: Optional[MemberCacheFlags]
@@ -380,13 +381,26 @@ class Client:
         a restart without re-scraping member lists.
 
         The snapshot is written after the client becomes ready and again on a
-        clean :meth:`close`. Snapshots older than 14 days, snapshots from a
-        different account, and corrupt files are ignored automatically.
+        clean :meth:`close`. Snapshots older than ``persistence_max_age``, snapshots
+        from a different account, and corrupt files are ignored automatically.
         Pass ``None`` (the default) to disable persistence entirely.
+
+        .. warning::
+
+            The snapshot contains the raw gateway READY payload (account details
+            and settings). It is written with owner-only permissions, but you
+            should still treat the file as a secret and keep it out of version
+            control and shared directories.
 
         Cached data may be briefly stale after a restart (for example, a
         member who left while the client was offline remains cached until
         Discord sends an update); live events reconcile this within seconds.
+
+        .. versionadded:: 2.2
+    persistence_max_age: :class:`float`
+        The maximum age, in seconds, of a persisted snapshot that will still be
+        replayed on startup. Older snapshots trigger a cold start.
+        This defaults to 14 days (``1209600``).
 
         .. versionadded:: 2.2
     proxy: Optional[:class:`str`]

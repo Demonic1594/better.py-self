@@ -34,6 +34,8 @@ New Features
 - Add :meth:`Client.cache_stats` and :class:`CacheStats` for live cache utilization, effectiveness counters, dispatch backlog, and event loop health
 - Add the :func:`on_dispatch_backlog` event and the ``dispatch_backlog_warning`` option, making slow event handlers visible instead of silently accumulating queued events
 - Add opt-in cache persistence via the ``persistence_path`` option: caches are saved to disk on ready and replayed on the next startup, making restarts effectively instant without re-scraping member lists; see :meth:`Client.write_persistence`
+- Add the ``persistence_max_age`` option to control how old a persisted snapshot may be before it is ignored
+- Harden cache persistence: snapshots are written with owner-only permissions via unique temporary files, writes are serialised, background write tasks are retained, and decompression is size-capped
 
 v2.1.0
 -------

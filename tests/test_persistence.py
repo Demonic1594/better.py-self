@@ -185,3 +185,85 @@ async def test_persistence_guards(tmp_path):
     c4._connection.user = discord.ClientUser(state=c4._connection, data=up(999))
     assert await c4._connection._replay_persistence() is False
     assert not c4._connection._guilds
+
+
+async def _snapshot_to(path):
+    c = Client(persistence_path=path)
+    await c._async_setup_hook()
+    state = c._connection
+    state.user = discord.ClientUser(state=state, data=up(5))
+    ready = ready_payload()
+    ready['guilds'] = [guild_payload(1, 3)]
+    await drive_ready(c, ready)
+    await asyncio.sleep(0.05)
+    return c
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name == 'nt', reason='POSIX file modes')
+async def test_persistence_file_is_private_and_leaves_no_temp_files(tmp_path):
+    path = tmp_path / 'cache.bin'
+    c = await _snapshot_to(path)
+    assert path.exists()
+    assert (path.stat().st_mode & 0o777) == 0o600, 'snapshot holds the raw READY payload; must be owner-only'
+    assert await c.write_persistence() is True  # explicit second write, overwrites in place
+    assert [p.name for p in tmp_path.iterdir()] == ['cache.bin'], 'no leftover temp files'
+
+
+@pytest.mark.asyncio
+async def test_persistence_concurrent_writes_do_not_collide(tmp_path):
+    path = tmp_path / 'cache.bin'
+    c = await _snapshot_to(path)
+    results = await asyncio.gather(*[c.write_persistence() for _ in range(8)])
+    assert all(results)
+    assert [p.name for p in tmp_path.iterdir()] == ['cache.bin']
+
+
+@pytest.mark.asyncio
+async def test_persistence_post_ready_write_task_is_retained_then_released(tmp_path):
+    path = tmp_path / 'cache.bin'
+    c = Client(persistence_path=path)
+    await c._async_setup_hook()
+    state = c._connection
+    state.user = discord.ClientUser(state=state, data=up(5))
+    ready = ready_payload()
+    ready['guilds'] = [guild_payload(1, 2)]
+    await drive_ready(c, ready)
+    await asyncio.sleep(0.05)
+    assert path.exists()
+    assert not state._persistence_tasks, 'finished write tasks are discarded from the strong-ref set'
+
+
+@pytest.mark.asyncio
+async def test_persistence_max_age_option(tmp_path):
+    path = tmp_path / 'cache.bin'
+    await _snapshot_to(path)
+
+    # Default window accepts a fresh snapshot
+    fresh = Client(persistence_path=path)
+    await fresh._async_setup_hook()
+    fresh._connection.user = discord.ClientUser(state=fresh._connection, data=up(5))
+    assert fresh._connection.persistence_max_age == 14 * 24 * 3600
+
+    # A zero-second window treats every snapshot as stale -> cold start
+    stale = Client(persistence_path=path, persistence_max_age=0)
+    await stale._async_setup_hook()
+    stale._connection.user = discord.ClientUser(state=stale._connection, data=up(5))
+    await asyncio.sleep(0.01)
+    assert await stale._connection._replay_persistence() is False
+    assert not stale._connection._guilds
+
+
+@pytest.mark.asyncio
+async def test_persistence_rejects_oversized_snapshot(tmp_path, monkeypatch):
+    import discord.state as state_module
+
+    path = tmp_path / 'cache.bin'
+    await _snapshot_to(path)
+    monkeypatch.setattr(state_module, 'PERSISTENCE_MAX_BYTES', 16)  # absurdly small cap
+
+    c = Client(persistence_path=path)
+    await c._async_setup_hook()
+    c._connection.user = discord.ClientUser(state=c._connection, data=up(5))
+    assert await c._connection._replay_persistence() is False
+    assert not c._connection._guilds

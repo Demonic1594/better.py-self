@@ -1527,10 +1527,7 @@ class ExpiringString(collections.UserString):
         self._timer.start()
 
     def _update(self, data: str, timeout: int) -> None:
-        try:
-            self._timer.cancel()
-        except:
-            pass
+        self._timer.cancel()
         self.data = data
         self._timer: Timer = Timer(timeout, self._destruct)
         self._timer.start()

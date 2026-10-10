@@ -221,13 +221,13 @@ class BotBase(GroupMixin[None]):
             try:
                 await self.unload_extension(extension)
             except Exception:
-                pass
+                _log.debug('Failed to unload extension %r during close.', extension, exc_info=True)
 
         for cog in tuple(self.__cogs):
             try:
                 await self.remove_cog(cog)
             except Exception:
-                pass
+                _log.debug('Failed to remove cog %r during close.', cog, exc_info=True)
 
         await super().close()  # type: ignore
 
@@ -769,7 +769,7 @@ class BotBase(GroupMixin[None]):
             try:
                 await func(self)
             except Exception:
-                pass
+                _log.debug('Extension %r teardown raised an exception.', key, exc_info=True)
         finally:
             self.__extensions.pop(key, None)
             sys.modules.pop(key, None)

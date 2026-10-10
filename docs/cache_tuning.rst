@@ -113,5 +113,10 @@ Startup persistence
 becomes ready (and on a clean :meth:`Client.close`), then replays them on
 the next startup. A restarted process starts with a warm cache and skips
 member list re-scraping entirely — restarts go from seconds to effectively
-instant. Snapshots older than 14 days or belonging to a different account
-are ignored automatically.
+instant. Snapshots older than ``persistence_max_age`` (14 days by default) or
+belonging to a different account are ignored automatically.
+
+The snapshot contains the raw gateway ``READY`` payload, so treat it as a
+secret. It is written atomically with owner-only (``0600``) permissions; keep
+it out of version control and shared directories. Decompression is capped at
+1 GiB, and oversized or corrupt files are ignored in favour of a cold start.
