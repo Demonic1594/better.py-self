@@ -731,6 +731,9 @@ class HTTPClient:
         self._base_headers: Optional[Dict[str, str]] = None
         self._base_headers_src: Optional[HeadersContext] = None
         self._timezone_failed: bool = False
+        # EWMA of request latency per route key — the congestion signal for
+        # accounts whose sends are silently queued instead of 429'd
+        self._route_latencies: Dict[str, float] = {}
 
     def _get_base_headers(self) -> Dict[str, str]:
         # Caches the static per-request headers; rebuilt if the headers context is replaced
@@ -982,7 +985,15 @@ class HTTPClient:
                     headers['X-Failed-Requests'] = str(failed)
 
                 try:
+                    request_started = self.loop.time()
                     response = await self.__session.request(method, url, **kwargs, stream=True, interface=interface)
+                    # Server-side queuing (user accounts) manifests as latency
+                    # inflation rather than 429s; track an EWMA per route so
+                    # hosts can pace on the congestion signal.
+                    latency = self.loop.time() - request_started
+                    route_latencies = self._route_latencies
+                    previous = route_latencies.get(route_key)
+                    route_latencies[route_key] = latency if previous is None else previous * 0.875 + latency * 0.125
                     response.status = response.status_code  # type: ignore
                     try:
                         response.reason = HTTPStatus(response.status_code).phrase
@@ -1073,6 +1084,15 @@ class HTTPClient:
                         else:
                             is_global: bool = data.get('global', False)
                             retry_after: float = data.get('retry_after', float(response.headers.get('Retry-After', 0)))
+                            # User accounts get no rate-limit headers; scope only
+                            # appears on throttle responses. A "shared" scope means
+                            # the limit is account-wide (e.g. reactions across all
+                            # channels share one bucket), so the cooldown must gate
+                            # every route, not just the one that tripped.
+                            scope = response.headers.get('X-RateLimit-Scope')
+                            if scope == 'shared':
+                                is_global = True
+                                _log.debug('Rate limit scope is shared (account-wide); engaging the global lock.')
 
                         # Cloudflare rate limit
                         is_cloudflare = not response.headers.get('Via')

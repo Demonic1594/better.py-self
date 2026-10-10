@@ -1112,6 +1112,21 @@ class Client:
         """
         return await self._connection._write_persistence()
 
+    def http_route_latencies(self) -> Dict[str, float]:
+        """Returns a copy of the per-route exponential moving average of HTTP
+        request latency (in seconds), keyed by route.
+
+        User accounts typically receive no rate-limit headers; Discord instead
+        holds send bursts server-side and releases them at roughly one per
+        second per channel. That shows up as *latency inflation* rather than
+        429 responses, so latency is the usable congestion signal: when a
+        route's EWMA climbs far above its baseline, the account is being
+        queued and should be paced down.
+
+        .. versionadded:: 2.2
+        """
+        return dict(self.http._route_latencies)
+
     def dispatch(self, event: str, /, *args: Any, **kwargs: Any) -> None:
         if self.loop is _loop or self.loop is MISSING:
             # The client is not running (or was closed): dispatching would
