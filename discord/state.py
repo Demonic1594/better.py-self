@@ -3002,8 +3002,9 @@ class ConnectionState:
                 old_all = Session._fake_all(state=self, data=fake)
             self._sessions['all'] = old_all
 
-        # One-time discover our internal state
-        if from_ready and self.ws.status == 'unknown':
+        # One-time discover our internal state (skipped pre-connect, e.g.
+        # during persistence replay where no websocket exists yet)
+        if from_ready and self.ws is not None and self.ws.status == 'unknown':
             our_session = self._sessions.get(self.session_id)  # type: ignore
             if our_session is None:
                 return
