@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 import uuid
 from datetime import datetime
@@ -199,6 +200,7 @@ if TYPE_CHECKING:
         max_thread_cache: Optional[int]
         max_total_thread_cache: Optional[int]
         gc_freeze: bool
+        persistence_path: Optional[Union[str, 'os.PathLike']]
         proxy: Optional[str]
         proxy_auth: Optional[aiohttp.BasicAuth]
         member_cache_flags: Optional[MemberCacheFlags]
@@ -370,6 +372,21 @@ class Client:
         30 seconds). This makes slow event handlers visible instead of
         silently accumulating queued events. Use ``0`` to disable.
         This defaults to ``1000``.
+
+        .. versionadded:: 2.2
+    persistence_path: Optional[Union[:class:`str`, :class:`os.PathLike`]]
+        If given, the client's caches are persisted to this file and replayed
+        on the next startup, giving the client a warm cache immediately after
+        a restart without re-scraping member lists.
+
+        The snapshot is written after the client becomes ready and again on a
+        clean :meth:`close`. Snapshots older than 14 days, snapshots from a
+        different account, and corrupt files are ignored automatically.
+        Pass ``None`` (the default) to disable persistence entirely.
+
+        Cached data may be briefly stale after a restart (for example, a
+        member who left while the client was offline remains cached until
+        Discord sends an update); live events reconcile this within seconds.
 
         .. versionadded:: 2.2
     proxy: Optional[:class:`str`]
@@ -1063,6 +1080,24 @@ class Client:
                 lag = probe.result()
         return state._build_cache_stats(lag)
 
+    async def write_persistence(self) -> bool:
+        """|coro|
+
+        Manually writes the cache persistence file to
+        ``persistence_path``. This happens automatically after the client
+        becomes ready and on a clean :meth:`close`; only call this if you
+        want a snapshot at another time.
+
+        .. versionadded:: 2.2
+
+        Returns
+        --------
+        :class:`bool`
+            Whether a snapshot was written. Always ``False`` when
+            ``persistence_path`` is not configured.
+        """
+        return await self._connection._write_persistence()
+
     def dispatch(self, event: str, /, *args: Any, **kwargs: Any) -> None:
         _log.debug('Dispatching event %s.', event)
         method = 'on_' + event
@@ -1332,6 +1367,8 @@ class Client:
         state.analytics_token = data.get('analytics_token', '')
         state.user = ClientUser(state=state, data=data)
         state._users[state.user.id] = state.user  # type: ignore
+        if state.persistence_path is not None:
+            await state._replay_persistence()
         await self.setup_hook()
 
     async def connect(self, *, reconnect: bool = True) -> None:
@@ -1439,6 +1476,13 @@ class Client:
                 except Exception:
                     # If an error happens during disconnects, disregard it
                     pass
+
+            if self._connection.persistence_path is not None:
+                # Persist the session's caches on clean shutdown
+                try:
+                    await self._connection._write_persistence()
+                except Exception:
+                    _log.warning('Failed to write the cache persistence file on close.', exc_info=True)
 
             if self.ws is not None and self.ws.open:
                 await self.ws.close(code=1000)

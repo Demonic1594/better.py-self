@@ -11,7 +11,29 @@ Changelog
 This page keeps a detailed human friendly rendering of what's new and changed
 in specific versions.
 
-.. _vp2p1p0:
+.. _vp2p2p0:
+
+v2.2.0
+-------
+
+Performance and Memory
+~~~~~~~~~~~~~~~~~~~~~~~
+
+- Massively optimize hot paths across the library: O(1) message cache lookups, no-op suppression for member/thread/presence updates, lazy ``MESSAGE_UPDATE`` parsing, cached HTTP headers and route keys, precompiled regular expressions, and more
+- Add caps to every cache, all configurable — see the new :doc:`cache tuning guide <cache_tuning>`:
+    - ``max_member_cache`` / ``max_total_member_cache`` bound the member caches (LRU eviction; you, voice members, and active members are protected)
+    - ``max_thread_cache`` / ``max_total_thread_cache`` bound the thread caches (joined threads are protected)
+    - ``max_guild_presence_cache`` / ``max_presence_cache`` bound the presence stores
+- Add ``gc_freeze`` (default enabled) to reduce garbage collector pauses on large accounts
+- Importing ``discord`` no longer loads ``aiohttp``; it is loaded on demand for CDN access and webhooks, saving startup time and idle memory
+- Fix several leaks: voice states on call deletion, guild settings and read states on guild removal, orphaned presences, and unbounded interaction caches
+
+New Features
+~~~~~~~~~~~~~
+
+- Add :meth:`Client.cache_stats` and :class:`CacheStats` for live cache utilization, effectiveness counters, dispatch backlog, and event loop health
+- Add the :func:`on_dispatch_backlog` event and the ``dispatch_backlog_warning`` option, making slow event handlers visible instead of silently accumulating queued events
+- Add opt-in cache persistence via the ``persistence_path`` option: caches are saved to disk on ready and replayed on the next startup, making restarts effectively instant without re-scraping member lists; see :meth:`Client.write_persistence`
 
 v2.1.0
 -------

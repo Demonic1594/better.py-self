@@ -30,6 +30,8 @@ import copy
 import datetime
 import gc
 import logging
+import os
+import time
 from typing import (
     ClassVar,
     Dict,
@@ -1201,6 +1203,14 @@ class ConnectionState:
         # garbage collector stops rescanning long-lived objects
         self.gc_freeze: bool = options.get('gc_freeze', True)
         self._gc_freeze_task: Optional[asyncio.Task] = None
+        # Opt-in cache persistence: snapshot the raw gateway payloads to disk
+        # and replay them on the next startup for a warm cache without
+        # re-scraping. ``None`` (default) disables it entirely.
+        self.persistence_path: Optional[Union[str, os.PathLike]] = options.get('persistence_path', None)
+        self._persistence_ready: Optional[gw.ReadyEvent] = None
+        self._persistence_guild_payloads: Dict[int, GuildPayload] = {}
+        self._persistence_loaded: bool = False
+        self._persistence_guild_ids: Set[int] = set()
         # Cache effectiveness accounting (see ConnectionState.cache_stats)
         self._member_hits: int = 0
         self._member_misses: int = 0
@@ -1338,6 +1348,8 @@ class ConnectionState:
         self._member_hits = 0
         self._member_misses = 0
         self._presence_evictions = 0
+        self._persistence_ready = None
+        self._persistence_guild_payloads = {}
         self._sessions: Dict[str, Session] = {}
 
         if self.max_messages is not None:
@@ -2095,6 +2107,8 @@ class ConnectionState:
             self.call_handlers('ready')
             self.dispatch('ready')
             self._schedule_gc_freeze()
+            if self.persistence_path is not None:
+                asyncio.create_task(self._write_persistence())
         finally:
             # Make sure we don't block it forever
             manager.blocked = False
@@ -2121,7 +2135,22 @@ class ConnectionState:
     def parse_ready(self, data: gw.ReadyEvent) -> None:
         if self._ready_task is not None:
             self._ready_task.cancel()
-        self.clear()
+
+        if self._persistence_loaded:
+            # A replayed cache exists: preserve the guild caches (and their
+            # members/presences/threads) across the fresh READY so they don't
+            # need to be re-scraped; everything else is re-parsed fresh below
+            preserved_guilds = self._guilds
+            preserved_guild_presences = self._guild_presences
+            self.clear()
+            self._guilds = preserved_guilds
+            self._guild_presences = preserved_guild_presences
+            self._persistence_loaded = False
+        else:
+            self.clear()
+
+        if self.persistence_path is not None:
+            self._persistence_ready = data
         self._ready_data = data
 
         # Clear the ACK token
@@ -2226,8 +2255,29 @@ class ConnectionState:
                         voice_state['member'] = member
 
         # Guild parsing
+        fresh_guild_ids: Set[int] = set()
         for guild_data in data.get('guilds', []):
-            self._add_guild_from_data(guild_data)
+            guild_id = utils._get_as_snowflake(guild_data, 'id')
+            if guild_id is not None:
+                fresh_guild_ids.add(guild_id)
+            if self.persistence_path is not None and guild_id is not None:
+                self._persistence_guild_payloads[guild_id] = guild_data
+            existing = self._get_guild(guild_id) if guild_id is not None else None
+            if existing is not None and guild_id in self._persistence_guild_ids:
+                # Merge fresh data into the replayed guild, keeping its
+                # cached members/presences/threads (in-place reparse)
+                existing._from_data(guild_data)
+            else:
+                self._add_guild_from_data(guild_data)
+
+        if self._persistence_guild_ids:
+            # Prune replayed guilds the account is no longer a member of
+            for guild_id in self._persistence_guild_ids - fresh_guild_ids:
+                guild = self._guilds.get(guild_id)
+                if guild is not None:
+                    self._remove_guild(guild)
+                    _log.debug('Pruned stale persisted guild ID %d.', guild_id)
+            self._persistence_guild_ids = set()
 
         # Join request parsing
         for request in data.get('guild_join_requests', []):
@@ -2265,6 +2315,111 @@ class ConnectionState:
         self.call_handlers('connect')
         self.dispatch('connect')
         self._ready_task = asyncio.create_task(self._delay_ready())
+
+    async def _write_persistence(self) -> bool:
+        """Atomically writes the captured payloads to ``persistence_path``."""
+        import zlib
+
+        path = self.persistence_path
+        if path is None or (self._persistence_ready is None and not self._persistence_guild_payloads):
+            return False
+
+        payload = {
+            'version': 1,
+            'saved_at': datetime.datetime.now(datetime.timezone.utc).timestamp(),
+            'user_id': self.self_id,
+            'ready': self._persistence_ready,
+            'guilds': list(self._persistence_guild_payloads.values()),
+        }
+
+        def _write() -> None:
+            blob = zlib.compress(utils._to_json(payload).encode('utf-8'), 1)
+            tmp = f'{path}.tmp'
+            with open(tmp, 'wb') as fp:
+                fp.write(blob)
+            os.replace(tmp, path)
+
+        try:
+            await asyncio.to_thread(_write)
+        except Exception:
+            _log.warning('Failed to write the cache persistence file.', exc_info=True)
+            return False
+        _log.debug('Wrote cache persistence to %s (%d guilds).', path, len(self._persistence_guild_payloads))
+        return True
+
+    async def _replay_persistence(self) -> bool:
+        """Loads and replays the persisted payloads into the cache."""
+        import zlib
+
+        path = self.persistence_path
+        if path is None:
+            return False
+
+        def _read() -> Optional[dict]:
+            try:
+                with open(path, 'rb') as fp:
+                    blob = fp.read()
+            except FileNotFoundError:
+                return None
+            except Exception:
+                _log.warning('Failed to read the cache persistence file.', exc_info=True)
+                return None
+            try:
+                return utils._from_json(zlib.decompress(blob))
+            except Exception:
+                _log.warning('Cache persistence file is corrupt; ignoring it.', exc_info=True)
+                return None
+
+        data = await asyncio.to_thread(_read)
+        if not data or data.get('version') != 1:
+            return False
+
+        # Guard against stale snapshots (older than 14 days) and account mismatches
+        saved_at = data.get('saved_at', 0)
+        if isinstance(saved_at, (int, float)) and time.time() - saved_at > 14 * 24 * 3600:
+            _log.info('Cache persistence file is stale; performing a cold start.')
+            return False
+        user = data.get('ready', {}).get('user', {})
+        saved_user_id = user.get('id')
+        if self.user is not None and saved_user_id is not None and int(saved_user_id) != self.user.id:
+            _log.warning('Cache persistence file belongs to a different account; ignoring it.')
+            return False
+
+        ready = data['ready']
+        guild_payloads = data.get('guilds', [])
+
+        # Replay through the normal parsing paths; parse_ready on an empty
+        # state clears nothing of value and dispatches no events
+        self._persistence_ready = None  # not re-capturable; the fresh READY will be
+        self.parse_ready(ready)  # type: ignore
+
+        # Relationships and private channels (normally parsed in the supplemental)
+        temp_users = {int(u['id']): u for u in ready.get('users', [])}
+        temp_users[int(ready['user']['id'])] = ready['user']
+        for relationship in ready.get('relationships', []):
+            try:
+                r_id = int(relationship['id'])
+            except KeyError:
+                continue
+            else:
+                if 'user' not in relationship:
+                    relationship['user'] = temp_users[int(relationship.pop('user_id'))]
+                self._relationships[r_id] = Relationship(state=self, data=relationship)
+        for pm in ready.get('private_channels', []):
+            factory, _ = _private_channel_factory(pm['type'])
+            if 'recipients' not in pm:
+                pm['recipients'] = [temp_users[int(u_id)] for u_id in pm.pop('recipient_ids')]
+            self._add_private_channel(factory(me=self.user, data=pm, state=self))  # type: ignore
+
+        # Guild caches (the merged payloads with members/presences)
+        for guild_data in guild_payloads:
+            guild = self._add_guild_from_data(guild_data)
+            if guild is not None:
+                self._persistence_guild_ids.add(guild.id)
+
+        self._persistence_loaded = True
+        _log.info('Replayed cache persistence: %d guilds loaded.', len(self._persistence_guild_ids))
+        return True
 
     def parse_resumed(self, data: gw.ResumedEvent) -> None:
         self.dispatch('resumed')

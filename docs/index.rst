@@ -24,6 +24,7 @@ Is this your first time using the library? This is the place to get started!
 - **Migrating from discord.py:** :doc:`migrating_from_dpy`
 - **First steps:** :doc:`intro` | :doc:`quickstart` | :doc:`logging`
 - **Working with Discord:** :doc:`authenticating` | :doc:`guild_subscriptions`
+- **Memory and caches:** :doc:`cache_tuning`
 - **Examples:** Many examples are available in the :resource:`repository <examples>`
 
 | **Obligatory note:**
@@ -55,7 +56,7 @@ External extensions:
 - **Native voice:** `discord.ext.native_voice <https://discord-ext-native-voice.readthedocs.io/en/latest/>`_
 
 Manuals
----------
+----------
 
 These pages go into great detail about everything the API can do.
 
@@ -65,6 +66,7 @@ These pages go into great detail about everything the API can do.
   api
   discord.ext.commands API Reference <ext/commands/api.rst>
   discord.ext.tasks API Reference <ext/tasks/index.rst>
+  cache_tuning
 
 Meta
 ------
