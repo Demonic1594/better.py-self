@@ -1322,7 +1322,10 @@ class Client:
             The headers context for the client.
         """
         http = self.http
-        session = http._HTTPClient__asession  # type: ignore
+        # The aiohttp session is created lazily; make sure it exists before
+        # the fingerprint fetches use it (they fail - and the header context
+        # silently falls back to the 9999 placeholder build - otherwise)
+        session = await http._ensure_asession()  # type: ignore
         return await HeadersContext.default(session, http.proxy, http.proxy_auth)
 
     async def _async_setup_hook(self) -> None:
