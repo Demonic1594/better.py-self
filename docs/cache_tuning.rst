@@ -89,8 +89,8 @@ Runtime observability
 :meth:`Client.cache_stats` returns a :class:`CacheStats` snapshot with every
 cache's size, cap, eviction counters, ``get_member`` hit/miss ratio, a
 per-guild breakdown, the event handler backlog, and the event loop lag.
-Poll it periodically (for example from a :mod:`discord.ext.tasks` loop) to
-watch memory behavior and tune caps empirically.
+Poll it periodically (for example from a ``tasks.loop``) to watch memory
+behavior and tune caps empirically.
 
 The ``dispatch_backlog_warning`` option (default ``1000``) dispatches
 :func:`on_dispatch_backlog` when event handlers queue up faster than they
