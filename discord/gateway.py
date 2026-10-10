@@ -1417,6 +1417,11 @@ class DiscordVoiceWebSocket:
         await self._hook(self, msg)
 
     async def received_binary_message(self, msg: bytes) -> None:
+        if len(msg) < 3:
+            # 2 bytes of sequence + 1 opcode is the minimum frame; truncated
+            # frames are discarded rather than crashing the unpack
+            _log.debug('Voice socket binary frame too short (%d bytes). Discarding.', len(msg))
+            return
         self.seq_ack = struct.unpack_from('>H', msg, 0)[0]
         op = msg[2]
         _log.debug('Voice socket binary frame: %d bytes, seq=%s, op=%s.', len(msg), self.seq_ack, op)
