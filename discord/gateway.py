@@ -653,6 +653,9 @@ class DiscordWebSocket:
             if op == self.HELLO:
                 self._hello_trace = data.get('_trace', [])
                 interval = data['heartbeat_interval'] / 1000.0
+                if self._keep_alive is not None:
+                    # A repeated HELLO must not leak the previous heartbeat task
+                    self._keep_alive.stop()
                 self._keep_alive = KeepAliveHandler(ws=self, interval=interval)
                 # Send a heartbeat immediately
                 await self.send_heartbeat(self._keep_alive.get_heartbeat_payload())

@@ -1113,6 +1113,10 @@ class Client:
         return await self._connection._write_persistence()
 
     def dispatch(self, event: str, /, *args: Any, **kwargs: Any) -> None:
+        if self.loop is _loop or self.loop is MISSING:
+            # The client is not running (or was closed): dispatching would
+            # crash on the loop sentinel; treat as a no-op
+            return
         _log.debug('Dispatching event %s.', event)
         method = 'on_' + event
 
@@ -3140,7 +3144,7 @@ class Client:
         timeout: Optional[float] = ...,
     ) -> Coroutine[Any, Any, Tuple[Context[Any], CommandError]]: ...
 
-    def wait_for(
+    async def wait_for(  # type: ignore # Overloads describe the awaited result; the implementation is async
         self,
         event: str,
         /,
@@ -3248,8 +3252,18 @@ class Client:
             listeners = []
             self._listeners[ev] = listeners
 
-        listeners.append((future, check))
-        return asyncio.wait_for(future, timeout)
+        entry = (future, check)
+        listeners.append(entry)
+        try:
+            return await asyncio.wait_for(future, timeout)
+        finally:
+            # Timed-out and cancelled wait_fors must not linger in the
+            # listener list (they would only be pruned on the next dispatch
+            # of the same event)
+            try:
+                listeners.remove(entry)
+            except ValueError:
+                pass
 
     # Event registration
 

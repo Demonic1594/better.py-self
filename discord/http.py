@@ -469,8 +469,9 @@ class Route:
         # Since these can't be handled generically, this is the next best way to do so.
         self.metadata: Optional[str] = metadata
         url = self.BASE + self.path
-        if parameters:
-            url = url.format_map({k: _uriquote(v, safe='') if isinstance(v, str) else v for k, v in parameters.items()})
+        # Always format: a missing parameter must raise here rather than
+        # silently producing a URL containing a literal '{param}' placeholder
+        url = url.format_map({k: _uriquote(v, safe='') if isinstance(v, str) else v for k, v in parameters.items()})
         self.url: str = url
 
         # Major parameters
