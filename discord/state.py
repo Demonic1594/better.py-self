@@ -165,7 +165,9 @@ _log = logging.getLogger(__name__)
 
 # Cache persistence limits
 PERSISTENCE_DEFAULT_MAX_AGE: float = 14 * 24 * 3600  # seconds
-PERSISTENCE_MAX_BYTES: int = 1 << 30  # maximum decompressed snapshot size (1 GiB)
+PERSISTENCE_MAX_BYTES: int = (
+    256 * 1024 * 1024
+)  # maximum decompressed snapshot size (256 MiB; ~100x a realistic large snapshot)
 ST = TypeVar('ST', bound=StreamProtocol)
 
 
@@ -2393,12 +2395,27 @@ class ConnectionState:
                 _log.warning('Failed to read the cache persistence file.', exc_info=True)
                 return None
             try:
-                # Bound the decompressed size so a corrupt/hostile file can't exhaust memory
+                # Bound the decompressed size so a corrupt/hostile file can't
+                # exhaust memory. Decompress in chunks so the peak allocation
+                # stays near the cap instead of ~2x with a single max_length call.
                 decompressor = zlib.decompressobj()
-                raw = decompressor.decompress(blob, PERSISTENCE_MAX_BYTES + 1)
-                if len(raw) > PERSISTENCE_MAX_BYTES or decompressor.unconsumed_tail:
+                chunk_size = 8 * 1024 * 1024
+                pieces = []
+                total = 0
+                data_in = blob
+                while data_in:
+                    out = decompressor.decompress(data_in, chunk_size)
+                    total += len(out)
+                    if total > PERSISTENCE_MAX_BYTES:
+                        raise ValueError('persistence file exceeds the maximum allowed size')
+                    pieces.append(out)
+                    data_in = decompressor.unconsumed_tail
+                    if not out and not data_in:
+                        break
+                pieces.append(decompressor.flush())
+                raw = b''.join(pieces)
+                if len(raw) > PERSISTENCE_MAX_BYTES:
                     raise ValueError('persistence file exceeds the maximum allowed size')
-                raw += decompressor.flush()
                 return utils._from_json(raw)
             except Exception:
                 _log.warning('Cache persistence file is corrupt; ignoring it.', exc_info=True)
@@ -2425,29 +2442,58 @@ class ConnectionState:
         # Replay through the normal parsing paths; parse_ready on an empty
         # state clears nothing of value and dispatches no events
         self._persistence_ready = None  # not re-capturable; the fresh READY will be
-        self.parse_ready(ready)  # type: ignore
+        try:
+            self.parse_ready(ready)  # type: ignore
+        except Exception:
+            _log.warning('Persistence snapshot failed to replay; performing a cold start.', exc_info=True)
+            self.clear()
+            return False
 
-        # Relationships and private channels (normally parsed in the supplemental)
-        temp_users = {int(u['id']): u for u in ready.get('users', [])}
-        temp_users[int(ready['user']['id'])] = ready['user']
+        # Relationships and private channels (normally parsed in the supplemental).
+        # The snapshot is a file on disk: unlike gateway traffic, it cannot be
+        # trusted, so every conversion is guarded and malformed entries skipped.
+        temp_users: Dict[int, Any] = {}
+        for user_payload in ready.get('users', []):
+            try:
+                temp_users[int(user_payload['id'])] = user_payload
+            except (KeyError, TypeError, ValueError):
+                continue
+        try:
+            temp_users[int(ready['user']['id'])] = ready['user']
+        except (KeyError, TypeError, ValueError):
+            return False
         for relationship in ready.get('relationships', []):
             try:
                 r_id = int(relationship['id'])
-            except KeyError:
+            except (KeyError, TypeError, ValueError):
                 continue
             else:
                 if 'user' not in relationship:
-                    relationship['user'] = temp_users[int(relationship.pop('user_id'))]
-                self._relationships[r_id] = Relationship(state=self, data=relationship)
+                    try:
+                        relationship['user'] = temp_users[int(relationship.pop('user_id'))]
+                    except (KeyError, TypeError, ValueError, IndexError):
+                        continue
+                try:
+                    self._relationships[r_id] = Relationship(state=self, data=relationship)
+                except Exception:
+                    continue
         for pm in ready.get('private_channels', []):
-            factory, _ = _private_channel_factory(pm['type'])
-            if 'recipients' not in pm:
-                pm['recipients'] = [temp_users[int(u_id)] for u_id in pm.pop('recipient_ids')]
-            self._add_private_channel(factory(me=self.user, data=pm, state=self))  # type: ignore
+            try:
+                factory, _ = _private_channel_factory(pm['type'])
+                if 'recipients' not in pm:
+                    pm['recipients'] = [temp_users[int(u_id)] for u_id in pm.pop('recipient_ids')]
+                self._add_private_channel(factory(me=self.user, data=pm, state=self))  # type: ignore
+            except Exception:
+                continue
 
-        # Guild caches (the merged payloads with members/presences)
+        # Guild caches (the merged payloads with members/presences); malformed
+        # guild entries are skipped individually
         for guild_data in guild_payloads:
-            guild = self._add_guild_from_data(guild_data)
+            try:
+                guild = self._add_guild_from_data(guild_data)
+            except Exception:
+                _log.debug('Skipping malformed guild payload in the persistence snapshot.', exc_info=True)
+                continue
             if guild is not None:
                 self._persistence_guild_ids.add(guild.id)
 

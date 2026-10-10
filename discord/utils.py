@@ -1097,11 +1097,13 @@ def resolve_gift(code: Union[Gift, str]) -> str:
 
 _MARKDOWN_ESCAPE_SUBREGEX = '|'.join(r'\{0}(?=([\s\S]*((?<!\{0})\{0})))'.format(c) for c in ('*', '`', '_', '~', '|'))
 
-_MARKDOWN_ESCAPE_COMMON = r'^>(?:>>)?\s|\[.+\]\(.+\)|^#{1,3}|^\s*-'
+_MARKDOWN_ESCAPE_COMMON = r'^>(?:>>)?\s|\[[^\[\]]+\]\([^)]*\)|^#{1,3}|^\s*-'
 
 _MARKDOWN_ESCAPE_REGEX = re.compile(rf'(?P<markdown>{_MARKDOWN_ESCAPE_SUBREGEX}|{_MARKDOWN_ESCAPE_COMMON})', re.MULTILINE)
 
-_URL_REGEX = r'(?P<url><[^: >]+:\/[^ >]+>|(?:https?|steam):\/\/[^\s<]+[^<.,:;\"\'\]\s])'
+# The angle-bracket alternative requires a letter-initial scheme: without it,
+# '<'*n input backtracks quadratically hunting for ':' (ReDoS-class slowdown).
+_URL_REGEX = r'(?P<url><[a-zA-Z][^: >]*:\/[^ >]+>|(?:https?|steam):\/\/[^\s<]+[^<.,:;\"\'\]\s])'
 
 _MARKDOWN_STOCK_REGEX = re.compile(rf'(?P<markdown>[_\\~|\*`]|{_MARKDOWN_ESCAPE_COMMON})', re.MULTILINE)
 
