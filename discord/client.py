@@ -1127,6 +1127,38 @@ class Client:
         """
         return dict(self.http._route_latencies)
 
+    def http_throttle_events(self) -> Dict[str, Dict[str, float]]:
+        """Returns a summary of wire-level HTTP 429 throttles, keyed by route.
+
+        The library absorbs throttles internally — it sleeps ``retry-after``
+        and retries, so a request that was throttled on the wire can look
+        like a plain success to the application. Real throttle pressure is
+        invisible without instrumenting the HTTP session, which this
+        replaces. Each route maps to a dict with ``count`` (recent throttles
+        recorded, bounded), ``last_after_s`` (seconds since the most recent
+        throttle) and ``last_retry_after`` (its retry-after, in seconds).
+        An empty dict means no throttles have been absorbed.
+
+        Pacing guidance derived from live sessions: sustained send rates past
+        roughly 0.6/s trip a shared account bucket, so any nonzero ``count``
+        on a send route means the account is being throttled for real even
+        though no error surfaced.
+
+        .. versionadded:: 2.2
+        """
+        now = self.http.loop.time()
+        summary: Dict[str, Dict[str, float]] = {}
+        for route, events in self.http._throttle_events.items():
+            if not events:
+                continue
+            at, retry_after = events[-1]
+            summary[route] = {
+                'count': len(events),
+                'last_after_s': now - at,
+                'last_retry_after': retry_after,
+            }
+        return summary
+
     def dispatch(self, event: str, /, *args: Any, **kwargs: Any) -> None:
         if self.loop is _loop or self.loop is MISSING:
             # The client is not running (or was closed): dispatching would

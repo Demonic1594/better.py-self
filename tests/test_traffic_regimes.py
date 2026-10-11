@@ -1,17 +1,22 @@
 """
 Traffic-regime tests: a stateful mock Discord server replaying the exact
-behaviors measured in the live-session study (findings), with the real
-HTTPClient driven across the full spectrum — conservative pacing, sub-gate
-bursts, exploit probes of the send ceiling, reaction storms that trip the
-shared bucket, hostile 429 shapes, and Cloudflare challenges — asserting
+behaviors measured in the live-session study (findings.md, consolidated in
+TIMING.md), with the real HTTPClient driven across the full spectrum —
+conservative pacing, sub-gate bursts, exploit probes of the send ceiling,
+reaction storms that trip the shared bucket, hostile 429 shapes, Cloudflare
+challenges, sustained over-rate sends, and lane independence — asserting
 the client's telemetry and recovery at each step.
 
-Server model (findings.md, scaled to milliseconds):
+Server model (findings.md + TIMING.md, scaled to milliseconds):
   * successes NEVER carry X-RateLimit headers (metadata only on throttles)
-  * sends: per-channel bucket enforced as QUEUING DELAY (hold + drip at the
-    refill rate), never a 429 — the ceiling manifests as latency inflation
-  * reactions: one SHARED account bucket; concurrency above the refill rate
-    trips a 429 carrying retry-after + x-ratelimit-scope: shared
+  * sends, burst: per-channel bucket enforced as QUEUING DELAY (hold + drip
+    at the refill rate), never a 429 — the ceiling manifests as latency
+  * sends, sustained: an ACCOUNT-GLOBAL shared lane — sustained intervals
+    below ~2/3 of the lane trip a 429 with retry-after + scope=shared
+  * reactions: one SHARED account bucket; CONCURRENCY above the refill
+    rate trips it (findings addendum 1)
+  * component clicks: an INDEPENDENT bucket — never trips alongside the
+    send/react lanes (TIMING.md)
   * permission-403s and edge-403 challenges are injectable on demand
 """
 
@@ -52,11 +57,22 @@ REACTION_ROUTE = Route(
 class MockDiscord:
     """Stateful fake implementing the live-observed server semantics."""
 
-    def __init__(self, *, send_drip: float = 0.06, base_latency: float = 0.005, reaction_refill: float = 0.05):
+    def __init__(
+        self,
+        *,
+        send_drip: float = 0.06,
+        base_latency: float = 0.005,
+        reaction_refill: float = 0.05,
+        send_lane: float | None = None,
+    ):
         self.send_drip = send_drip
         self.base_latency = base_latency
         self.reaction_refill = reaction_refill
+        # TIMING.md: sends are also an account-global shared bucket. Sustained
+        # intervals >= send_lane are clean; below ~2/3 of it, throttles begin.
+        self.send_lane = send_lane
         self._next_send_release: dict[str, float] = {}
+        self._send_completions: list[float] = []
         self._next_reaction_release: float = 0.0
         self._reaction_active: int = 0
         self.stats: Counter[str] = Counter()
@@ -67,6 +83,13 @@ class MockDiscord:
 
     def _now(self) -> float:
         return time.monotonic() - self._t0
+
+    def _shared_429(self, retry_after: float) -> FakeResponse:
+        return FakeResponse(
+            429,
+            body=json.dumps({'retry_after': retry_after, 'global': False}).encode(),
+            headers={'content-type': 'application/json', 'X-RateLimit-Scope': 'shared'},
+        )
 
     def _ok(self, body: dict | None = None) -> FakeResponse:
         # Findings #1: zero rate-limit headers on any success response.
@@ -84,12 +107,30 @@ class MockDiscord:
 
         now = self._now()
 
+        if method == 'POST' and url.endswith('/interactions'):
+            # TIMING.md: independent bucket — clicks never trip with the
+            # send/react lanes, only (potentially) with each other.
+            await asyncio.sleep(self.base_latency)
+            self.stats['click_204'] += 1
+            return FakeResponse(204)
+
         if method == 'POST' and url.endswith('/messages'):
+            # Sustained account-global lane: more than 2 completions inside
+            # a 2x-lane window means the sender is outrunning the refill.
+            if self.send_lane is not None:
+                window = self._now() - 2 * self.send_lane
+                recent = sum(1 for t in self._send_completions if t >= window)
+                if recent >= 3:
+                    self.stats['send_429_shared'] += 1
+                    return self._shared_429(0.06)
+
             # Server-side queuing: hold until the per-channel refill slot.
             channel = url.split('/channels/')[1].split('/')[0]
             release = max(self._next_send_release.get(channel, 0.0), now + self.base_latency)
             self._next_send_release[channel] = release + self.send_drip
             await asyncio.sleep(release - now)
+            if self.send_lane is not None:
+                self._send_completions.append(self._now())
             self.send_holds.append(release - now)
             self.stats[f'send_200:{channel}'] += 1
             return self._ok({'id': '1'})
@@ -99,11 +140,7 @@ class MockDiscord:
             # anything concurrent trips the shared-scope throttle.
             if self._reaction_active >= 1:
                 self.stats['reaction_429_shared'] += 1
-                return FakeResponse(
-                    429,
-                    body=b'{"retry_after": 0.08, "global": false}',
-                    headers={'content-type': 'application/json', 'X-RateLimit-Scope': 'shared'},
-                )
+                return self._shared_429(0.08)
             self._reaction_active += 1
             try:
                 await asyncio.sleep(self.base_latency)
@@ -150,6 +187,10 @@ async def send(http: HTTPClient, channel: int) -> None:
 
 async def react(http: HTTPClient, channel: int) -> None:
     await http.add_reaction(channel, 1, '\N{THUMBS UP SIGN}')
+
+
+async def click(http: HTTPClient) -> None:
+    await http.request(Route('POST', '/interactions'), json={'session_id': 'x' * 32, 'message_flags': 0})
 
 
 @pytest.mark.asyncio
@@ -208,7 +249,7 @@ async def test_send_ceiling_is_queuing_not_429():
         ewmas.append(send_ewma(http))
         await asyncio.sleep(0.02)
 
-    assert 'send_429' not in mock.stats  # the mock never 429s sends — like live
+    assert 'send_429_shared' not in mock.stats  # bursts queue; only sustained over-rate 429s (TIMING.md)
     assert mock.stats['send_200:30'] == 21
     assert ewmas[-1] > 5 * ewmas[0], ewmas  # congestion visible without any 429
     assert all(b >= a for a, b in itertools.pairwise(ewmas)), ewmas  # monotone under sustained queuing
@@ -342,3 +383,116 @@ async def test_hostile_throttle_shapes_and_challenge():
     await send(http, 50)  # immediately fine after the challenge
     assert mock.challenge_count == 1
     print(f'hostile shapes: ms-429 corrected ({elapsed * 1000:.0f}ms total), challenge raised + recovered')
+
+
+@pytest.mark.asyncio
+async def test_timing_lane_recipe_is_clean():
+    """TIMING.md operating rates, scaled: three serialized account-global
+    lanes (send 2.6s -> send_lane, react 3.0s -> 1.15x, click 3.0s -> 1.15x),
+    round-robin. Zero throttles on any lane, zero telemetry recorded."""
+    lane = 0.2
+    mock = MockDiscord(send_drip=0.01, send_lane=lane)
+    http = make_http(mock)
+
+    for _ in range(8):
+        await send(http, 60)
+        await asyncio.sleep(lane)
+        await react(http, 60)
+        await asyncio.sleep(lane * 0.15)
+        await click(http)
+        await asyncio.sleep(lane * 0.15)
+
+    assert mock.stats['send_200:60'] == 8
+    assert mock.stats['reaction_204'] == 8
+    assert mock.stats['click_204'] == 8
+    assert 'send_429_shared' not in mock.stats
+    assert 'reaction_429_shared' not in mock.stats
+    assert http._throttle_events == {}
+    print('lane recipe: 8x(send+react+click) round-robin, zero throttles, zero telemetry')
+
+
+@pytest.mark.asyncio
+async def test_sustained_overrate_sends_trip_shared_lane():
+    """TIMING.md send table: sustained ~0.6x of the safe interval is the
+    hard edge — regular shared-bucket 429s. The client must absorb them
+    (retry to success) AND record every wire-level throttle."""
+    lane = 0.2
+    mock = MockDiscord(send_drip=0.01, send_lane=lane)
+    http = make_http(mock)
+
+    for _ in range(10):
+        await send(http, 61)
+        await asyncio.sleep(lane * 0.4)  # ~2.5x the safe sustained rate
+
+    assert mock.stats['send_200:61'] == 10  # every send eventually landed
+    trips = mock.stats['send_429_shared']
+    assert trips >= 2, 'sustained over-rate must trip the shared send bucket'
+    recorded = http._throttle_events.get(SEND_ROUTE.key)
+    assert recorded is not None and len(recorded) == trips
+    assert all(ra == 0.06 for _, ra in recorded)
+    print(f'over-rate: 10 sends at 2.5x safe rate -> {trips} shared 429s, all absorbed + recorded')
+
+
+@pytest.mark.asyncio
+async def test_click_lane_independent():
+    """TIMING.md: component clicks are an independent bucket. While the
+    send lane trips its shared bucket and reactions storm theirs, clicks
+    keep succeeding (delayed only by the account-wide cooldown, which
+    scope=shared correctly imposes on every route)."""
+    lane = 0.2
+    mock = MockDiscord(send_drip=0.01, send_lane=lane)
+    http = make_http(mock)
+
+    async def send_stream() -> None:
+        for _ in range(8):
+            await send(http, 62)
+            await asyncio.sleep(lane * 0.4)
+
+    async def reaction_storm() -> None:
+        await asyncio.gather(*(react(http, ch) for ch in (62, 63, 64, 65)))
+
+    async def click_lane() -> None:
+        for _ in range(5):
+            await click(http)
+            await asyncio.sleep(lane * 1.25)
+
+    await asyncio.gather(send_stream(), reaction_storm(), click_lane())
+
+    assert mock.stats['click_204'] == 5  # clicks themselves never throttled
+    assert mock.stats['send_429_shared'] >= 1
+    assert mock.stats['reaction_429_shared'] >= 1
+    assert http._throttle_events.keys() == {SEND_ROUTE.key, REACTION_ROUTE.key}
+    print(
+        f'independence: 5/5 clicks clean while {mock.stats["send_429_shared"]} send + '
+        f'{mock.stats["reaction_429_shared"]} reaction throttles tripped around them'
+    )
+
+
+@pytest.mark.asyncio
+async def test_wire_throttle_observability():
+    """TIMING.md: 'discord.py-self hides throttles — observe at the session
+    layer to know real throttle pressure.' With the telemetry record, no
+    session instrumentation is needed: absorbed 429s are visible via
+    Client.http_throttle_events(), matching the wire exactly."""
+    mock = MockDiscord()
+    http = make_http(mock)
+
+    client = discord.Client()
+    client.http = http
+    assert client.http_throttle_events() == {}
+
+    await asyncio.gather(*(react(http, ch) for ch in (70, 71, 72, 73)))
+    summary = client.http_throttle_events()
+    entry = summary[REACTION_ROUTE.key]
+    assert entry['count'] == mock.stats['reaction_429_shared']
+    assert entry['count'] >= 1
+    assert entry['last_retry_after'] == 0.08
+    assert 0 <= entry['last_after_s'] < 5
+
+    # A clean run after cooldown does not clear the record (it is a log,
+    # not a state flag) — and adding traffic keeps it bounded per route.
+    for _ in range(80):
+        await react(http, 74)
+        await asyncio.sleep(0.02)
+    assert len(http._throttle_events[REACTION_ROUTE.key]) <= 64
+    print(f'observability: {entry["count"]} hidden throttles visible without session instrumentation')

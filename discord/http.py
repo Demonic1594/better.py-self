@@ -734,6 +734,11 @@ class HTTPClient:
         # EWMA of request latency per route key — the congestion signal for
         # accounts whose sends are silently queued instead of 429'd
         self._route_latencies: Dict[str, float] = {}
+        # Wire-level throttle (429) events per route key, as (loop time,
+        # retry_after) pairs. Throttles are absorbed internally (sleep +
+        # retry), so without this record hosts cannot see real throttle
+        # pressure without instrumenting the session. Bounded per route.
+        self._throttle_events: Dict[str, deque] = {}
 
     def _get_base_headers(self) -> Dict[str, str]:
         # Caches the static per-request headers; rebuilt if the headers context is replaced
@@ -1126,6 +1131,13 @@ class HTTPClient:
 
                         fmt = 'We are being rate limited. %s %s responded with 429. Retrying in %.2f seconds.'
                         _log.warning(fmt, method, url, retry_after)
+
+                        # Wire-level throttle telemetry: the sleep + retry
+                        # below is invisible to callers, so record the event
+                        events = self._throttle_events.get(route_key)
+                        if events is None:
+                            events = self._throttle_events[route_key] = deque(maxlen=64)
+                        events.append((self.loop.time(), retry_after))
 
                         _log.debug(
                             'Rate limit is being handled by bucket hash %s with %r major parameters.',
