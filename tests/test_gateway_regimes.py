@@ -145,18 +145,21 @@ async def test_repeated_hello_swaps_keepalive_without_leak():
 
     assert ws._keep_alive is not None
     assert ws._keep_alive.interval == 30.0  # the LAST hello won
-    # stop() only sets the event; the replaced keepalives unwind on later
-    # loop passes (and their wait_for helper tasks need a few extra passes
-    # on older Pythons), so settle with a bounded wait instead of a fixed
-    # sleep.
+    # The live keepalive holds one task (its run loop) on 3.12+, plus the
+    # wait_for-wrapped Event.wait helper task on <=3.11 (wait_for gained a
+    # direct-await implementation in 3.12). The replaced keepalives must be
+    # gone entirely — a leak would show up as several extra run tasks.
+    import sys
+
+    expected = 1 if sys.version_info >= (3, 12) else 2
     loop = asyncio.get_running_loop()
     deadline = loop.time() + 1.0
     while True:
         background = [t for t in asyncio.all_tasks() if t is not asyncio.current_task() and not t.done()]
-        if len(background) <= 1 or loop.time() > deadline:
+        if len(background) <= expected or loop.time() > deadline:
             break
         await asyncio.sleep(0.005)
-    assert len(background) <= 1, background  # only the latest keepalive survives
+    assert len(background) <= expected, background
     await ws._keep_alive._join()
     await asyncio.sleep(0.01)
-    print('gateway: 3x HELLO -> single live keepalive at the latest interval, no task leak')
+    print(f'gateway: 3x HELLO -> single live keepalive ({expected} task(s) on this Python), no leak')
