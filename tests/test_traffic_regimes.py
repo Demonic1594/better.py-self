@@ -1,196 +1,30 @@
-"""
-Traffic-regime tests: a stateful mock Discord server replaying the exact
-behaviors measured in the live-session study (findings.md, consolidated in
-TIMING.md), with the real HTTPClient driven across the full spectrum —
-conservative pacing, sub-gate bursts, exploit probes of the send ceiling,
-reaction storms that trip the shared bucket, hostile 429 shapes, Cloudflare
-challenges, sustained over-rate sends, and lane independence — asserting
-the client's telemetry and recovery at each step.
-
-Server model (findings.md + TIMING.md, scaled to milliseconds):
-  * successes NEVER carry X-RateLimit headers (metadata only on throttles)
-  * sends, burst: per-channel bucket enforced as QUEUING DELAY (hold + drip
-    at the refill rate), never a 429 — the ceiling manifests as latency
-  * sends, sustained: an ACCOUNT-GLOBAL shared lane — sustained intervals
-    below ~2/3 of the lane trip a 429 with retry-after + scope=shared
-  * reactions: one SHARED account bucket; CONCURRENCY above the refill
-    rate trips it (findings addendum 1)
-  * component clicks: an INDEPENDENT bucket — never trips alongside the
-    send/react lanes (TIMING.md)
-  * permission-403s and edge-403 challenges are injectable on demand
-"""
+"""Traffic-regime tests against the findings/TIMING-calibrated mock
+server in traffic_harness — see that module for the server model."""
 
 from __future__ import annotations
 
 import asyncio
 import itertools
-import json
 import time
-from collections import Counter
-from types import SimpleNamespace
 
 import pytest
 
 import discord
-from discord.http import HTTPClient, Route
+from discord.http import Route
 
-
-class FakeResponse:
-    def __init__(self, status_code, body=b'{}', headers=None):
-        self.status_code = status_code
-        self.status = status_code
-        self.reason = 'OK'
-        self._body = body
-        self.headers = headers or {'content-type': 'application/json'}
-        self.acontent = self._read
-
-    async def _read(self):
-        return self._body
-
-
-SEND_ROUTE = Route('POST', '/channels/{channel_id}/messages', channel_id=0)
-REACTION_ROUTE = Route(
-    'PUT', '/channels/{channel_id}/messages/{message_id}/reactions/{emoji}/@me', channel_id=0, message_id=0, emoji='x'
+from traffic_harness import (
+    CLICK_ROUTE,
+    REACTION_ROUTE,
+    SEND_ROUTE,
+    FakeResponse,
+    MockDiscord,
+    button_click,
+    click,
+    make_http,
+    react,
+    send,
+    send_ewma,
 )
-
-
-class MockDiscord:
-    """Stateful fake implementing the live-observed server semantics."""
-
-    def __init__(
-        self,
-        *,
-        send_drip: float = 0.06,
-        base_latency: float = 0.005,
-        reaction_refill: float = 0.05,
-        send_lane: float | None = None,
-    ):
-        self.send_drip = send_drip
-        self.base_latency = base_latency
-        self.reaction_refill = reaction_refill
-        # TIMING.md: sends are also an account-global shared bucket. Sustained
-        # intervals >= send_lane are clean; below ~2/3 of it, throttles begin.
-        self.send_lane = send_lane
-        self._next_send_release: dict[str, float] = {}
-        self._send_completions: list[float] = []
-        self._next_reaction_release: float = 0.0
-        self._reaction_active: int = 0
-        self.stats: Counter[str] = Counter()
-        self.send_holds: list[float] = []
-        self.challenge_next: bool = False
-        self.challenge_count: int = 0
-        self._t0 = time.monotonic()
-
-    def _now(self) -> float:
-        return time.monotonic() - self._t0
-
-    def _shared_429(self, retry_after: float) -> FakeResponse:
-        return FakeResponse(
-            429,
-            body=json.dumps({'retry_after': retry_after, 'global': False}).encode(),
-            headers={'content-type': 'application/json', 'X-RateLimit-Scope': 'shared'},
-        )
-
-    def _ok(self, body: dict | None = None) -> FakeResponse:
-        # Findings #1: zero rate-limit headers on any success response.
-        self.stats['ok_no_ratelimit_headers'] += 1
-        return FakeResponse(200, body=json.dumps(body or {}).encode(), headers={'content-type': 'application/json'})
-
-    async def request(self, method: str, url: str, **kwargs) -> FakeResponse:
-        if self.challenge_next:
-            self.challenge_next = False
-            self.challenge_count += 1
-            self.stats['edge_403'] += 1
-            return FakeResponse(
-                403, body=b'<html><title>Just a moment...</title></html>', headers={'content-type': 'text/html'}
-            )
-
-        now = self._now()
-
-        if method == 'POST' and url.endswith('/interactions'):
-            # TIMING.md: independent bucket — clicks never trip with the
-            # send/react lanes, only (potentially) with each other.
-            await asyncio.sleep(self.base_latency)
-            self.stats['click_204'] += 1
-            return FakeResponse(204)
-
-        if method == 'POST' and url.endswith('/messages'):
-            # Sustained account-global lane: more than 2 completions inside
-            # a 2x-lane window means the sender is outrunning the refill.
-            if self.send_lane is not None:
-                window = self._now() - 2 * self.send_lane
-                recent = sum(1 for t in self._send_completions if t >= window)
-                if recent >= 3:
-                    self.stats['send_429_shared'] += 1
-                    return self._shared_429(0.06)
-
-            # Server-side queuing: hold until the per-channel refill slot.
-            channel = url.split('/channels/')[1].split('/')[0]
-            release = max(self._next_send_release.get(channel, 0.0), now + self.base_latency)
-            self._next_send_release[channel] = release + self.send_drip
-            await asyncio.sleep(release - now)
-            if self.send_lane is not None:
-                self._send_completions.append(self._now())
-            self.send_holds.append(release - now)
-            self.stats[f'send_200:{channel}'] += 1
-            return self._ok({'id': '1'})
-
-        if method == 'PUT' and '/reactions/' in url:
-            # Shared account bucket: at most one in-flight per refill slot;
-            # anything concurrent trips the shared-scope throttle.
-            if self._reaction_active >= 1:
-                self.stats['reaction_429_shared'] += 1
-                return self._shared_429(0.08)
-            self._reaction_active += 1
-            try:
-                await asyncio.sleep(self.base_latency)
-                self.stats['reaction_204'] += 1
-                return FakeResponse(204)
-            finally:
-                self._reaction_active -= 1
-
-        # Reads and everything else: plain fast success, no headers.
-        await asyncio.sleep(self.base_latency)
-        return self._ok()
-
-
-def make_http(mock: MockDiscord, **kwargs) -> HTTPClient:
-    http = HTTPClient(
-        headers_context=SimpleNamespace(
-            client_hints={},
-            BASE_DOMAIN='discord.com',
-            user_agent='ua',
-            encoded_super_properties='x',
-            super_properties={'browser_user_agent': 'ua'},
-        ),
-        loop=asyncio.get_running_loop(),
-        **kwargs,
-    )
-    http._started = True
-    http._global_over = asyncio.Event()
-    http._global_over.set()
-    http.token = 'tok'
-    http._HTTPClient__session = mock
-    return http
-
-
-def send_ewma(http: HTTPClient) -> float:
-    return http._route_latencies[SEND_ROUTE.key]
-
-
-async def send(http: HTTPClient, channel: int) -> None:
-    from discord.http import MultipartParameters
-
-    params = MultipartParameters({'content': 'x'}, None, None)
-    await http.send_message(channel, params=params)
-
-
-async def react(http: HTTPClient, channel: int) -> None:
-    await http.add_reaction(channel, 1, '\N{THUMBS UP SIGN}')
-
-
-async def click(http: HTTPClient) -> None:
-    await http.request(Route('POST', '/interactions'), json={'session_id': 'x' * 32, 'message_flags': 0})
 
 
 @pytest.mark.asyncio

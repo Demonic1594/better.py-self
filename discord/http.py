@@ -28,6 +28,7 @@ import asyncio
 import datetime
 import io
 import logging
+import math
 import re
 import ssl
 import string
@@ -1066,6 +1067,10 @@ class HTTPClient:
 
                         # Sometimes retry_after is 0, but that's undesirable
                         retry_after: float = data['retry_after'] or 5
+                        # Hostile bodies can carry NaN (JSON parsers accept
+                        # it); sleeping on NaN breaks the event loop
+                        if not math.isfinite(retry_after):
+                            retry_after = 5
                         _log.debug('%s %s received a 202. Retrying in %s seconds...', method, url, retry_after)
                         await asyncio.sleep(retry_after)
                         continue
@@ -1115,6 +1120,18 @@ class HTTPClient:
                                 ratelimit.remaining,
                             )
 
+                        # Coerce hostile shapes (strings, None) and reject
+                        # non-finite values (NaN/Infinity parse fine in JSON);
+                        # sleeping on NaN breaks the event loop and Infinity
+                        # would sleep forever, so surface those instead.
+                        try:
+                            retry_after = float(retry_after)
+                        except (TypeError, ValueError):
+                            retry_after = 0.0
+                        if not math.isfinite(retry_after):
+                            raise RateLimited(retry_after, cloudflare=is_cloudflare)
+                        retry_after = max(0.0, retry_after)
+
                         if 'Retry-After' in response.headers:
                             # Sometimes Cloudflare rate limits will have their retry_after field in milliseconds
                             if float(response.headers['Retry-After']) == retry_after / 1000:  # type: ignore
@@ -1153,13 +1170,17 @@ class HTTPClient:
                         if is_cloudflare:
                             _log.warning('Cloudflare rate limit has been hit. Retrying in %.2f seconds.', retry_after)
 
-                        await asyncio.sleep(retry_after)
+                        try:
+                            await asyncio.sleep(retry_after)
+                        finally:
+                            # Release the global lock now that the rate limit passed.
+                            # This must also run on cancellation: a request cancelled
+                            # mid-cooldown would otherwise leave the lock cleared
+                            # forever, deadlocking every subsequent request.
+                            if is_global:
+                                self._global_over.set()
+                                _log.debug('Global rate limit is now over.')
                         _log.debug('Done sleeping for the rate limit. Retrying...')
-
-                        # Release the global lock now that the rate limit passed
-                        if is_global:
-                            self._global_over.set()
-                            _log.debug('Global rate limit is now over.')
 
                         continue
 
