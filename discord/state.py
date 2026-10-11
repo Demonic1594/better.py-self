@@ -34,6 +34,7 @@ import os
 import tempfile
 import time
 from typing import (
+    cast,
     ClassVar,
     Dict,
     Final,
@@ -759,8 +760,9 @@ class GuildSubscriptions:
         EMPTY: Any = {}
         new_payload = self._pending.copy()
         for guild_id, subscriptions in changes.items():
-            old = new_payload.get(guild_id, EMPTY)
-            new_payload[guild_id] = {**old, **subscriptions}
+            old = cast(Dict[Any, Any], new_payload.get(guild_id, EMPTY))
+            updates = cast(Dict[Any, Any], subscriptions)
+            new_payload[guild_id] = cast(Any, {**old, **updates})
 
         if len(utils._to_json(new_payload)) > self.MAX_PAYLOAD_SIZE:
             if len(utils._to_json(changes)) > self.MAX_PAYLOAD_SIZE:

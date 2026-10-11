@@ -1321,7 +1321,7 @@ async def _actual_conversion(ctx: Context[BotT], converter: Any, argument: str, 
         raise ConversionError(converter, exc) from exc  # type: ignore
 
     try:
-        return converter(argument)
+        return converter(argument)  # pyright: ignore[reportCallIssue]  # narrowed Any; callables take the argument
     except CommandError:
         raise
     except Exception as exc:
