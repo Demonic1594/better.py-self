@@ -54,6 +54,7 @@ from typing import Any, Awaitable, Callable
 
 LANES = ('send', 'react', 'click')
 
+
 # Route classification: which lane does a throttled route belong to?
 def classify_route(route: str) -> str | None:
     """Maps an HTTP route key to its lane, or None if unrecognized."""
@@ -127,7 +128,9 @@ class LaneGovernor:
 
     # -- pacing ------------------------------------------------------------
 
-    async def run(self, factory: Callable[[], Awaitable[Any]], lane: str, *, channel: Any = None, slowmode: float = 0.0) -> Any:
+    async def run(
+        self, factory: Callable[[], Awaitable[Any]], lane: str, *, channel: Any = None, slowmode: float = 0.0
+    ) -> Any:
         """Serializes `factory` through `lane`, waiting for the lane (and
         the channel's slowmode slot) before awaiting it."""
         if lane not in self._locks:
