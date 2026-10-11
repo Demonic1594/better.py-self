@@ -37,6 +37,16 @@ New Features
 - Add the ``persistence_max_age`` option to control how old a persisted snapshot may be before it is ignored
 - Harden cache persistence: snapshots are written with owner-only permissions via unique temporary files, writes are serialised, background write tasks are retained, and decompression is size-capped
 
+Rate-Limit Correctness and Telemetry
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Add :func:`on_http_throttle` and :meth:`Client.http_throttle_events`: throttles are absorbed internally (sleep + retry), so the library now records every wire-level 429 per route and pushes an event the moment one happens — real throttle pressure is visible without instrumenting the HTTP session
+- Shared-scope 429s (``x-ratelimit-scope: shared`` — the account-wide reaction and send buckets) now gate all routes via the global lock
+- Fix a deadlock: a request cancelled while sleeping out a shared-scope cooldown left the global lock cleared forever; the release now runs in a ``finally``
+- Harden hostile 429/202 bodies: ``NaN``/``Infinity`` ``retry_after`` raises :class:`RateLimited` instead of hanging the event loop, string values coerce, negatives clamp to zero
+- Add :meth:`Client.http_route_latencies`: per-route latency EWMA — the congestion signal for accounts whose sends are queued server-side instead of being 429'd
+- Add ``examples/lane_governor.py``: a drop-in pacing governor implementing the validated three-lane recipe (serialized account-global send/react/click lanes, jitter, x2 backoff on throttles, bounded probe-down, shared-scope pauses, EWMA congestion watch)
+
 v2.1.0
 -------
 

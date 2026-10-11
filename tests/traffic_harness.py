@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from collections import Counter
 from pathlib import Path
@@ -56,6 +57,7 @@ class MockDiscord:
         require_interaction_keys: bool = True,
         click_concurrency: int | None = None,
         bucket_hash_flood: bool = False,
+        per_account_buckets: bool = False,
     ):
         self.send_drip = send_drip
         self.base_latency = base_latency
@@ -69,10 +71,14 @@ class MockDiscord:
         self.click_concurrency = click_concurrency
         # Exploit probe: serve a unique bucket hash on every response.
         self.bucket_hash_flood = bucket_hash_flood
+        # TIMING.md: buckets are per-account. When set, the shared reaction
+        # and send lanes key off the Authorization header instead of being
+        # process-global, and the stats carry the account suffix.
+        self.per_account_buckets = per_account_buckets
         self._next_send_release: dict[str, float] = {}
-        self._send_completions: list[float] = []
+        self._send_completions: dict[str, list[float]] = {}
         self._next_reaction_release: float = 0.0
-        self._reaction_active: int = 0
+        self._reaction_active: dict[str, int] = {}
         self._click_active: int = 0
         self._flood_seq = 0
         self.last_click_payload: dict[str, Any] | None = None
@@ -84,6 +90,15 @@ class MockDiscord:
 
     def _now(self) -> float:
         return time.monotonic() - self._t0
+
+    def _acct(self, kwargs: dict) -> str:
+        if not self.per_account_buckets:
+            return '*'
+        headers = kwargs.get('headers') or {}
+        return str(headers.get('Authorization', '*'))
+
+    def _reaction_stat(self, acct: str, name: str) -> str:
+        return f'{name}:{acct}' if self.per_account_buckets else name
 
     def _shared_429(self, retry_after: float) -> FakeResponse:
         return FakeResponse(
@@ -153,11 +168,12 @@ class MockDiscord:
         if method == 'POST' and url.endswith('/messages'):
             # Sustained account-global lane: more than 2 completions inside
             # a 2x-lane window means the sender is outrunning the refill.
+            acct = self._acct(kwargs)
             if self.send_lane is not None:
                 window = self._now() - 2 * self.send_lane
-                recent = sum(1 for t in self._send_completions if t >= window)
+                recent = sum(1 for t in self._send_completions.get(acct, []) if t >= window)
                 if recent >= 3:
-                    self.stats['send_429_shared'] += 1
+                    self.stats[self._reaction_stat(acct, 'send_429_shared')] += 1
                     return self._shared_429(0.06)
 
             # Server-side queuing: hold until the per-channel refill slot.
@@ -166,24 +182,25 @@ class MockDiscord:
             self._next_send_release[channel] = release + self.send_drip
             await asyncio.sleep(release - now)
             if self.send_lane is not None:
-                self._send_completions.append(self._now())
+                self._send_completions.setdefault(acct, []).append(self._now())
             self.send_holds.append(release - now)
-            self.stats[f'send_200:{channel}'] += 1
+            self.stats[f'send_200:{channel}' + (f':{acct}' if self.per_account_buckets else '')] += 1
             return self._ok({'id': '1'})
 
         if method == 'PUT' and '/reactions/' in url:
             # Shared account bucket: at most one in-flight per refill slot;
             # anything concurrent trips the shared-scope throttle.
-            if self._reaction_active >= 1:
-                self.stats['reaction_429_shared'] += 1
+            acct = self._acct(kwargs)
+            if self._reaction_active.get(acct, 0) >= 1:
+                self.stats[self._reaction_stat(acct, 'reaction_429_shared')] += 1
                 return self._shared_429(0.08)
-            self._reaction_active += 1
+            self._reaction_active[acct] = self._reaction_active.get(acct, 0) + 1
             try:
                 await asyncio.sleep(self.base_latency)
-                self.stats['reaction_204'] += 1
+                self.stats[self._reaction_stat(acct, 'reaction_204')] += 1
                 return FakeResponse(204)
             finally:
-                self._reaction_active -= 1
+                self._reaction_active[acct] -= 1
 
         # Reads and everything else: plain fast success, no headers.
         await asyncio.sleep(self.base_latency)
@@ -296,7 +313,7 @@ class ScriptedDiscord:
         return response
 
 
-def make_http(session: Any, **kwargs) -> HTTPClient:
+def make_http(session: Any, *, token: str = 'tok', **kwargs) -> HTTPClient:
     http = HTTPClient(
         headers_context=SimpleNamespace(
             client_hints={},
@@ -311,7 +328,7 @@ def make_http(session: Any, **kwargs) -> HTTPClient:
     http._started = True
     http._global_over = asyncio.Event()
     http._global_over.set()
-    http.token = 'tok'
+    http.token = token
     http._HTTPClient__session = session
     return http
 
@@ -354,3 +371,60 @@ async def button_click(http: HTTPClient) -> None:
     data = {'component_type': 2, 'custom_id': 'button-1'}
     interaction_type = SimpleNamespace(value=2)
     await http.interact(interaction_type, data, channel, message)
+
+
+def fixture_report(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Sanity summary of a recorded fixture: status mix, throttle pressure,
+    latency spread and per-route aggregates. Run `python traffic_harness.py
+    <fixture.jsonl>` from tests/ to print it for a capture before promoting
+    the fixture into a replay regression."""
+    statuses: Counter[str] = Counter(str(e['status']) for e in events)
+    throttles = [e for e in events if e['status'] == 429]
+    latencies = [e['latency'] for e in events if 'latency' in e]
+    routes: Counter[str] = Counter()
+    for e in events:
+        path = re.sub(r'\d+', '{id}', e['url'].split('/api/v', 1)[-1])
+        path = re.sub(r'^\{id\}/', '', path)  # strip the version segment
+        for token in ('/reactions', '/messages', '/interactions'):
+            if token in path:
+                path = path.split(token)[0] + token
+                break
+        routes[f"{e['method']} {path}"] += 1
+    report: dict[str, Any] = {
+        'events': len(events),
+        'duration_s': round(events[-1]['t'] - events[0]['t'], 3) if len(events) > 1 else 0.0,
+        'statuses': dict(statuses),
+        'throttle_ratio': round(len(throttles) / len(events), 4) if events else 0.0,
+        'throttle_scopes': dict(Counter(str(e.get('scope')) for e in throttles)),
+        'routes': dict(routes),
+    }
+    if latencies:
+        latencies.sort()
+        report['latency'] = {
+            'p50_s': round(latencies[len(latencies) // 2], 4),
+            'max_s': round(latencies[-1], 4),
+        }
+    return report
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    import pprint
+    import sys
+
+    parser = argparse.ArgumentParser(description='Sanity-report a recorded traffic fixture (JSONL).')
+    parser.add_argument('paths', nargs='+', help='fixture file(s) produced by SessionRecorder')
+    args = parser.parse_args(argv)
+    for raw in args.paths:
+        path = Path(raw)
+        events = SessionRecorder.load(path)
+        if not events:
+            print(f'{path}: EMPTY', file=sys.stderr)
+            return 1
+        print(f'== {path} ==')
+        pprint.pprint(fixture_report(events))
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -1,0 +1,50 @@
+{"t": 0.024083, "method": "PUT", "url": "https://discord.com/api/v9/channels/901/messages/1/reactions/%F0%9F%91%8D/@me", "status": 429, "latency": 3.3e-05, "retry_after": 0.08, "scope": "shared"}
+{"t": 0.023192, "method": "POST", "url": "https://discord.com/api/v9/channels/900/messages", "status": 200, "latency": 0.005952}
+{"t": 0.023385, "method": "POST", "url": "https://discord.com/api/v9/channels/901/messages", "status": 200, "latency": 0.005855}
+{"t": 0.023519, "method": "POST", "url": "https://discord.com/api/v9/channels/902/messages", "status": 200, "latency": 0.005773}
+{"t": 0.023582, "method": "POST", "url": "https://discord.com/api/v9/channels/903/messages", "status": 200, "latency": 0.005747}
+{"t": 0.024025, "method": "PUT", "url": "https://discord.com/api/v9/channels/900/messages/1/reactions/%F0%9F%91%8D/@me", "status": 204, "latency": 0.005391}
+{"t": 0.0295, "method": "POST", "url": "https://discord.com/api/v9/channels/900/messages", "status": 429, "latency": 2.5e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.029706, "method": "POST", "url": "https://discord.com/api/v9/channels/901/messages", "status": 429, "latency": 1.8e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.029853, "method": "POST", "url": "https://discord.com/api/v9/channels/902/messages", "status": 429, "latency": 1.6e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.029988, "method": "POST", "url": "https://discord.com/api/v9/channels/903/messages", "status": 429, "latency": 1.4e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.090342, "method": "POST", "url": "https://discord.com/api/v9/channels/900/messages", "status": 429, "latency": 5.8e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.090595, "method": "POST", "url": "https://discord.com/api/v9/channels/901/messages", "status": 429, "latency": 1.5e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.09069, "method": "POST", "url": "https://discord.com/api/v9/channels/902/messages", "status": 429, "latency": 1e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.090765, "method": "POST", "url": "https://discord.com/api/v9/channels/903/messages", "status": 429, "latency": 2.1e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.09088, "method": "PUT", "url": "https://discord.com/api/v9/channels/903/messages/1/reactions/%F0%9F%91%8D/@me", "status": 429, "latency": 9e-06, "retry_after": 0.08, "scope": "shared"}
+{"t": 0.090954, "method": "PUT", "url": "https://discord.com/api/v9/channels/904/messages/1/reactions/%F0%9F%91%8D/@me", "status": 429, "latency": 7e-06, "retry_after": 0.08, "scope": "shared"}
+{"t": 0.090863, "method": "PUT", "url": "https://discord.com/api/v9/channels/902/messages/1/reactions/%F0%9F%91%8D/@me", "status": 204, "latency": 0.005397}
+{"t": 0.091022, "method": "POST", "url": "https://discord.com/api/v9/interactions", "status": 204, "latency": 0.005302}
+{"t": 0.091077, "method": "GET", "url": "https://discord.com/api/v9/users/2", "status": 200, "latency": 0.005279}
+{"t": 0.096421, "method": "POST", "url": "https://discord.com/api/v9/interactions", "status": 204, "latency": 0.005171}
+{"t": 0.096452, "method": "GET", "url": "https://discord.com/api/v9/users/2", "status": 200, "latency": 0.00521}
+{"t": 0.101719, "method": "POST", "url": "https://discord.com/api/v9/interactions", "status": 204, "latency": 0.005288}
+{"t": 0.101747, "method": "GET", "url": "https://discord.com/api/v9/users/2", "status": 200, "latency": 0.005329}
+{"t": 0.104869, "method": "PUT", "url": "https://discord.com/api/v9/channels/901/messages/1/reactions/%F0%9F%91%8D/@me", "status": 204, "latency": 0.00554}
+{"t": 0.107126, "method": "GET", "url": "https://discord.com/api/v9/users/2", "status": 200, "latency": 0.005534}
+{"t": 0.15099, "method": "POST", "url": "https://discord.com/api/v9/channels/900/messages", "status": 429, "latency": 0.000144, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.151661, "method": "POST", "url": "https://discord.com/api/v9/channels/901/messages", "status": 429, "latency": 2.4e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.151792, "method": "POST", "url": "https://discord.com/api/v9/channels/902/messages", "status": 429, "latency": 1.3e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.151901, "method": "POST", "url": "https://discord.com/api/v9/channels/903/messages", "status": 429, "latency": 1.4e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.171247, "method": "PUT", "url": "https://discord.com/api/v9/channels/904/messages/1/reactions/%F0%9F%91%8D/@me", "status": 429, "latency": 9e-05, "retry_after": 0.08, "scope": "shared"}
+{"t": 0.171209, "method": "PUT", "url": "https://discord.com/api/v9/channels/903/messages/1/reactions/%F0%9F%91%8D/@me", "status": 204, "latency": 0.005597}
+{"t": 0.212114, "method": "POST", "url": "https://discord.com/api/v9/channels/900/messages", "status": 429, "latency": 6.7e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.21245, "method": "POST", "url": "https://discord.com/api/v9/channels/901/messages", "status": 429, "latency": 2.1e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.212602, "method": "POST", "url": "https://discord.com/api/v9/channels/902/messages", "status": 429, "latency": 1.6e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.212743, "method": "POST", "url": "https://discord.com/api/v9/channels/903/messages", "status": 429, "latency": 1.5e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.252064, "method": "PUT", "url": "https://discord.com/api/v9/channels/904/messages/1/reactions/%F0%9F%91%8D/@me", "status": 204, "latency": 0.005193}
+{"t": 0.273594, "method": "POST", "url": "https://discord.com/api/v9/channels/900/messages", "status": 200, "latency": 0.005906}
+{"t": 0.273809, "method": "POST", "url": "https://discord.com/api/v9/channels/901/messages", "status": 200, "latency": 0.005803}
+{"t": 0.274197, "method": "POST", "url": "https://discord.com/api/v9/channels/902/messages", "status": 200, "latency": 0.005459}
+{"t": 0.27422, "method": "POST", "url": "https://discord.com/api/v9/channels/903/messages", "status": 200, "latency": 0.005471}
+{"t": 0.279801, "method": "POST", "url": "https://discord.com/api/v9/channels/900/messages", "status": 429, "latency": 2.6e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.280036, "method": "POST", "url": "https://discord.com/api/v9/channels/901/messages", "status": 429, "latency": 1.8e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.340396, "method": "POST", "url": "https://discord.com/api/v9/channels/900/messages", "status": 429, "latency": 6.8e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.341134, "method": "POST", "url": "https://discord.com/api/v9/channels/901/messages", "status": 429, "latency": 2.1e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.401478, "method": "POST", "url": "https://discord.com/api/v9/channels/900/messages", "status": 429, "latency": 6e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.401764, "method": "POST", "url": "https://discord.com/api/v9/channels/901/messages", "status": 429, "latency": 3.2e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.462346, "method": "POST", "url": "https://discord.com/api/v9/channels/900/messages", "status": 429, "latency": 6.3e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.462644, "method": "POST", "url": "https://discord.com/api/v9/channels/901/messages", "status": 429, "latency": 1.9e-05, "retry_after": 0.06, "scope": "shared"}
+{"t": 0.523001, "method": "POST", "url": "https://discord.com/api/v9/channels/900/messages", "status": 200, "latency": 0.005236}
+{"t": 0.523061, "method": "POST", "url": "https://discord.com/api/v9/channels/901/messages", "status": 200, "latency": 0.005269}

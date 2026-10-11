@@ -33,6 +33,7 @@ import re
 import ssl
 import string
 import sys
+import time
 from collections import deque
 from http import HTTPStatus
 from random import choice, choices, uniform
@@ -1154,7 +1155,19 @@ class HTTPClient:
                         events = self._throttle_events.get(route_key)
                         if events is None:
                             events = self._throttle_events[route_key] = deque(maxlen=64)
-                        events.append((self.loop.time(), retry_after))
+                        events.append((time.monotonic(), retry_after))
+
+                        # Push signal: hosts pacing an account need throttle
+                        # pressure the moment it happens, not on the next
+                        # http_throttle_events() poll. Guarded so a listener
+                        # can never break the request retry.
+                        if self.client is not None:
+                            try:
+                                self.client.dispatch(
+                                    'http_throttle', route_key, retry_after, response.headers.get('X-RateLimit-Scope')
+                                )
+                            except Exception:
+                                _log.exception('http_throttle dispatch failed; continuing request retry.')
 
                         _log.debug(
                             'Rate limit is being handled by bucket hash %s with %r major parameters.',

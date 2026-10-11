@@ -227,3 +227,36 @@ def test_message_index_o1_lookup():
         assert alloc_delta(state._get_message, 1100) <= noise
 
     asyncio.run(main())
+
+
+def test_throttle_telemetry_allocations():
+    """The throttle record (deque append) and the Client summary build must
+    stay allocation-light: they sit on the 429 path and get polled by
+    pacing hosts."""
+    import asyncio
+    from collections import deque
+
+    async def main():
+        client = discord.Client()
+        http = client.http
+        events = http._throttle_events['PUT x'] = deque(maxlen=64)
+        noise = noise_floor()
+
+        def record() -> None:
+            events.append((0.0, 1.0))
+
+        assert alloc_delta(record) <= noise + 2
+
+        for i in range(10):
+            events.append((float(i), 0.5))
+        http._throttle_events['POST y'] = deque((t, 0.1) for t in range(10))
+
+        def summarize() -> None:
+            http_summary = client.http_throttle_events()
+            assert len(http_summary) == 2
+
+        assert alloc_delta(summarize) <= noise + 16
+
+        await asyncio.sleep(0)
+
+    asyncio.run(main())

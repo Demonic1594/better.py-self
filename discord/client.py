@@ -28,6 +28,7 @@ import asyncio
 import logging
 import os
 import sys
+import time
 import uuid
 from datetime import datetime
 from typing import (
@@ -1146,7 +1147,7 @@ class Client:
 
         .. versionadded:: 2.2
         """
-        now = self.http.loop.time()
+        now = time.monotonic()
         summary: Dict[str, Dict[str, float]] = {}
         for route, events in self.http._throttle_events.items():
             if not events:

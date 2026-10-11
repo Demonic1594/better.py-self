@@ -54,6 +54,14 @@ for the full tuning guide):
 - ``Client.http_route_latencies()`` — per-route latency EWMA, the correct
   congestion signal for user accounts (Discord queues sends server-side
   instead of returning 429s; rate headers are never served)
+- ``Client.http_throttle_events()`` + ``on_http_throttle`` — every
+  wire-level 429 the library absorbed internally (sleep + retry) is
+  recorded per route and pushed as an event, so real throttle pressure is
+  visible without instrumenting the HTTP session
+- ``examples/lane_governor.py`` — a drop-in pacing governor implementing
+  the validated three-lane recipe (serialized account-global
+  send/react/click lanes, x2 backoff, bounded probe-down, shared-scope
+  pauses, EWMA congestion watch)
 
 **Fast restarts**
 

@@ -1132,6 +1132,28 @@ Members
     :param oldest_age: How long the oldest pending handler has been queued, in seconds.
     :type oldest_age: :class:`float`
 
+.. function:: on_http_throttle(route, retry_after, scope)
+
+    Called the moment the library absorbs a wire-level 429 — before it
+    sleeps out the cooldown and retries, which is why throttles are
+    otherwise invisible to the application.
+
+    User accounts receive no rate-limit headers on success responses, so
+    this event (together with :meth:`Client.http_throttle_events`) is the
+    only real-time throttle pressure signal. A ``shared`` scope means the
+    limit is account-wide and every route is gated during the cooldown;
+    see :meth:`Client.http_route_latencies` for the queuing-congestion
+    signal that complements it.
+
+    .. versionadded:: 2.2
+
+    :param route: The route key of the throttled request, e.g. ``POST /channels/{channel_id}/messages``.
+    :type route: :class:`str`
+    :param retry_after: The cooldown the library will honor, in seconds.
+    :type retry_after: :class:`float`
+    :param scope: The ``X-RateLimit-Scope`` of the throttle, if any (``"shared"`` for account-wide buckets).
+    :type scope: Optional[:class:`str`]
+
 .. function:: on_member_join(member)
 
     Called when a :class:`Member` joins a :class:`Guild`.

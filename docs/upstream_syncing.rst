@@ -94,7 +94,16 @@ HTTP (``discord/http.py``)
     ``json_or_text`` duck-types curl/aiohttp responses; route keys are
     precomputed; the static header template is cached
     (``_get_base_headers``); the timezone header is resolved once; retry
-    sleeps have jitter.
+    sleeps have jitter. Telemetry from the live rate studies: per-route
+    latency EWMA (``_route_latencies``, exposed as
+    ``Client.http_route_latencies``), wire-level throttle records
+    (``_throttle_events`` / ``Client.http_throttle_events``) and the
+    ``on_http_throttle`` push event, both fed from the 429 handler.
+    **Conflict points:** the entire 429 handling block — a shared-scope
+    429 engages the global lock (released in a ``finally`` so a cancelled
+    request cannot deadlock the client), ``retry_after`` is sanitized
+    (non-finite raises ``RateLimited``; strings coerce; negatives clamp),
+    and the telemetry + dispatch sit right after the warning log line.
 
 Flags and permissions (``discord/flags.py``, ``discord/permissions.py``)
     Precomputed ``_ITER_FLAGS`` / ``_INVERT_MASK`` (note:
