@@ -199,6 +199,11 @@ async def json_or_text(response: Union[aiohttp.ClientResponse, requests.Response
     except KeyError:
         # Thanks Cloudflare
         pass
+    except ValueError:
+        # Broken or hostile JSON that claims to be JSON — including values
+        # the fast parser refuses that the stdlib accepts (NaN, Infinity,
+        # over-range numbers under orjson): degrade to text, never raise
+        pass
 
     # Prefer the response's declared charset (e.g. Cloudflare error pages)
     encoding = getattr(response, 'charset_encoding', None) or getattr(response, 'charset', None) or 'utf-8'

@@ -395,14 +395,17 @@ async def test_hostile_nonfinite_and_malformed_retry_after():
         replayer = ScriptedDiscord(script)
         http = make_http(replayer)
         if should_raise:
-            await asyncio.wait_for(_expect_rate_limited(http), timeout=2.0)
+            # Non-finite values must surface, never hang: RateLimited when
+            # the parser accepts the body (stdlib JSON), or the text-fallback
+            # Cloudflare-ban path when it refuses it (orjson)
+            await asyncio.wait_for(_expect_surface(http), timeout=2.0)
         else:
             await asyncio.wait_for(react(http, 504), timeout=2.0)
-    print('hostile retry_after: NaN/Infinity -> RateLimited, string -> coerced + retried')
+    print('hostile retry_after: NaN/Infinity -> surfaced, string -> coerced + retried')
 
 
-async def _expect_rate_limited(http) -> None:
-    with pytest.raises(RateLimited):
+async def _expect_surface(http) -> None:
+    with pytest.raises((RateLimited, HTTPException)):
         await react(http, 504)
 
 
