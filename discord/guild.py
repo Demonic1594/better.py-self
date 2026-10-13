@@ -1341,8 +1341,8 @@ class Guild(Hashable):
         Reads do not refresh the member's LRU position: the cache is
         write-recency ordered (gateway events and explicit touches), so a
         member you query often but who generates no events is evicted before
-        an actively-updating one. Call :meth:`Guild._touch_member` (or rely
-        on message activity) to pin a hot member.
+        an actively-updating one. Call ``Guild._touch_member`` (or rely on
+        message activity) to pin a hot member.
 
         .. versionchanged:: 2.0
 

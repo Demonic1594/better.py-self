@@ -47,6 +47,6 @@ jobs:
       - name: Run tests
         shell: bash
         run: |
-          MARKERS="not perf"
-          if [[ "${{ matrix.extras }}" == "test,speed" ]]; then MARKERS="all"; fi
-          PYTHONPATH="$(pwd)" pytest -vs -m "$MARKERS" --cov=discord --cov-report term-missing:skip-covered
+          ARGS=(-vs --cov=discord --cov-report term-missing:skip-covered)
+          if [[ "${{ matrix.extras }}" != "test,speed" ]]; then ARGS+=(-m "not perf"); fi
+          PYTHONPATH="$(pwd)" pytest "${ARGS[@]}"

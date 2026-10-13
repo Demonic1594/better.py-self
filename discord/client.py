@@ -518,9 +518,7 @@ class Client:
         :meth:`Client.http_throttle_events` (and counts toward its
         ``count``). Defaults to ``300.0``. Use ``0`` to keep only events
         from the current instant, or a larger value for long-running
-        pressure monitoring.
-
-        .. versionadded:: 2.2
+        pressure monitoring. (Added in 2.2)
 
     .. versionadded:: 2.0
     preferred_rtc_regions: List[:class:`str`]
