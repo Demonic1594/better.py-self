@@ -515,7 +515,7 @@ class Client:
 
         throttle_window: Optional[:class:`float`]
         How many seconds a wire-level throttle event stays visible in
-        :meth:`Client.http_throttle_events` (and counts toward its
+        ``Client.http_throttle_events`` (and counts toward its
         ``count``). Defaults to ``300.0``. Use ``0`` to keep only events
         from the current instant, or a larger value for long-running
         pressure monitoring. (Added in 2.2)
