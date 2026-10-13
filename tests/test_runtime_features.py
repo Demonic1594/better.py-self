@@ -126,14 +126,16 @@ async def test_cache_stats_snapshot():
 
     stats = await client.cache_stats()
     assert stats.guilds == 1
-    assert stats.members == 5 and stats.evicted_members == 5
+    # Batched eviction (hysteresis to ~95% of cap): 10 adds against cap 5
+    # land at 4 live / 6 evicted
+    assert stats.members == 4 and stats.evicted_members == 6
     assert stats.member_hits == 2 and stats.member_misses == 1
     assert stats.threads == 5 and stats.evicted_threads == 0
     assert stats.guild_presences == 1
     assert stats.member_cache_cap == 5 and stats.thread_cache_cap == 5000
     assert stats.event_loop_lag >= 0
-    assert stats.per_guild[100]['members'] == 5
-    assert stats.per_guild[100]['evicted_members'] == 5
+    assert stats.per_guild[100]['members'] == 4
+    assert stats.per_guild[100]['evicted_members'] == 6
     # NamedTuple conveniences
     assert discord.CacheStats is not None
 

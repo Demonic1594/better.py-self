@@ -484,3 +484,139 @@ async def test_record_replay_round_trip(tmp_path):
     assert replay.consumed == n
     assert replay.served == [event['status'] for event in events]
     print(f'record/replay: {n} wire events ({wire_429s} throttles) captured + replayed deterministically')
+
+
+# --------------------------------------------------------------------------
+# plans.md F-04/F-05/F-08: retry parsing, overlapping cooldowns, 202 path
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_http_date_and_garbage_retry_after_headers():
+    """F-04: Retry-After may be an HTTP-date (Cloudflare style) or garbage;
+    none of them may raise mid-retry. A future HTTP-date is honored as a
+    delay, garbage means immediate retry."""
+    import datetime as dt
+    from email.utils import formatdate
+
+    mock = MockDiscord()
+    http = make_http(mock)
+    original = mock.request
+
+    future = formatdate((dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=2)).timestamp(), usegmt=True)
+    shapes = [
+        ({'Retry-After': future}, True),  # HTTP-date: honored (>= 1s after second-resolution truncation)
+        ({'Retry-After': 'abc'}, False),  # garbage: immediate
+        ({'Retry-After': ''}, False),
+    ]
+    seen: list[float] = []
+
+    async def scripted(method, url, **kwargs):
+        if method == 'PUT' and '/reactions/' in url and shapes:
+            headers, _ = shapes.pop(0)
+            http._HTTPClient__session.request = original  # type: ignore
+            return FakeResponse(429, body=b'{"global": false}', headers={'content-type': 'application/json', **headers})
+        return await original(method, url, **kwargs)
+
+    http._HTTPClient__session.request = scripted  # type: ignore
+    for expected_delay in (True, False, False):
+        t0 = time.monotonic()
+        await react(http, 505)
+        elapsed = time.monotonic() - t0
+        seen.append(elapsed)
+        http._HTTPClient__session.request = scripted  # type: ignore
+        if expected_delay:
+            assert elapsed >= 0.9, elapsed  # +2s date, second resolution -> >= 1s
+        else:
+            assert elapsed < 0.5, elapsed
+    print(f'retry-after shapes: HTTP-date honored ({seen[0] * 1000:.0f}ms), garbage immediate')
+
+
+@pytest.mark.asyncio
+async def test_202_defer_boundaries_hardened():
+    """F-08: a 202 missing code/retry_after is a plain success (no KeyError);
+    code 119999 is inside the 11xxxx group; a numeric-string retry_after
+    parses; NaN falls back to 5s semantics without sleeping forever."""
+    from discord.http import Route
+
+    # 202 without a code: not a defer -> success return
+    snoop: list[dict] = []
+    script = [(0.0, FakeResponse(202, body=b'{}', headers={'content-type': 'application/json'}))]
+
+    class Snoop:
+        async def request(self, method, url, **kwargs):
+            snoop.append({'method': method, 'url': url, **kwargs})
+            delay, response = script.pop(0)
+            await asyncio.sleep(delay)
+            return response
+
+    http = make_http(Snoop())
+    await http.request(Route('GET', '/users/{user_id}', user_id=3))
+    assert len(snoop) == 1, 'no code -> no defer, single request'
+
+    # 119999 (the old range excluded it) + string retry_after -> defers once
+    snoop.clear()
+    script.append((0.0, FakeResponse(202, body=b'{"code": 119999, "retry_after": "0.02"}', headers={'content-type': 'application/json'})))
+    script.append((0.0, FakeResponse(200, body=b'{}')))
+    http2 = make_http(Snoop())
+    await http2.request(Route('GET', '/users/{user_id}', user_id=3))
+    assert snoop[1]['params']['attempts'] == 1
+    print('202 hardening: missing keys tolerated, 119999 deferred, string retry_after parsed')
+
+
+@pytest.mark.asyncio
+async def test_overlapping_global_cooldowns_release_at_longest():
+    """F-05: two shared 429s with different retry-afters clear the global
+    lock together; the gate must stay closed until the LONGEST cooldown
+    expires, not the shortest."""
+    mock = MockDiscord()
+    http = make_http(mock)
+    original = mock.request
+    served: list[float] = []
+
+    async def scripted(method, url, **kwargs):
+        if method == 'PUT' and '/reactions/' in url and len(served) < 2:
+            served.append(0.15 if not served else 0.45)
+            return mock._shared_429(served[-1])
+        return await original(method, url, **kwargs)
+
+    http._HTTPClient__session.request = scripted  # type: ignore
+    t0 = time.monotonic()
+    await asyncio.gather(react(http, 506), react(http, 507))
+    await asyncio.wait_for(read(http), timeout=2.0)
+    elapsed = time.monotonic() - t0
+    # Short cooldown was 0.15s; the read must have waited out the 0.45s one
+    assert elapsed >= 0.40, elapsed
+    assert http._global_over.is_set()
+    print(f'overlap: both 429s absorbed, gate held to the longest cooldown ({elapsed * 1000:.0f}ms)')
+
+
+@pytest.mark.asyncio
+async def test_cancelled_long_cooldown_does_not_hold_the_gate():
+    """F-05 + cancellation: cancelling the long-cooldown request drops its
+    hold; the gate reopens when the remaining short cooldown expires."""
+    mock = MockDiscord()
+    http = make_http(mock)
+    original = mock.request
+    served: list[float] = []
+
+    async def scripted(method, url, **kwargs):
+        if method == 'PUT' and '/reactions/' in url and len(served) < 2:
+            served.append(0.2 if not served else 2.0)
+            return mock._shared_429(served[-1])
+        return await original(method, url, **kwargs)
+
+    http._HTTPClient__session.request = scripted  # type: ignore
+    short = asyncio.create_task(react(http, 508))
+    await asyncio.sleep(0.01)
+    long_task = asyncio.create_task(react(http, 509))
+    await asyncio.sleep(0.02)
+    long_task.cancel()
+    await asyncio.gather(short, long_task, return_exceptions=True)
+
+    t0 = time.monotonic()
+    await asyncio.wait_for(read(http), timeout=1.0)  # would hang ~2s pre-fix
+    assert time.monotonic() - t0 < 0.5
+    assert http._global_over.is_set()
+    assert http._global_holders == 0
+    print('cancel + overlap: long cooldown cancelled, gate released by the short one')

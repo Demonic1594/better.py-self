@@ -60,6 +60,7 @@ from urllib.parse import quote as _uriquote
 
 import curl_cffi
 from curl_cffi import requests, CurlMime
+from email.utils import parsedate_to_datetime
 
 from . import utils
 from .components import ActionRow, Container, LabelComponent, SectionComponent
@@ -459,6 +460,25 @@ def handle_message_parameters(
     return MultipartParameters(payload=payload, multipart=multipart, files=to_upload)
 
 
+def _parse_retry_after(value: Any, *, default: float = 0.0) -> float:
+    """Parses a Retry-After value that may be a number, a numeric string, an
+    HTTP-date (Cloudflare sends those), or garbage. Never raises: garbage and
+    missing values fall back to ``default``. Non-finite results (NaN and
+    Infinity parse fine in JSON bodies) are returned as-is so the caller can
+    surface them instead of sleeping on them."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        pass
+    try:
+        dt = parsedate_to_datetime(str(value))
+        return max(0.0, (dt - datetime.datetime.now(datetime.timezone.utc)).total_seconds())
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
 class Route:
     BASE: ClassVar[str] = f'https://discord.com/api/v{INTERNAL_API_VERSION}'
 
@@ -682,6 +702,7 @@ class HTTPClient:
         unsync_clock: bool = True,
         captcha: Optional[Callable[[CaptchaRequired], Coroutine[Any, Any, str]]] = None,
         max_ratelimit_timeout: Optional[float] = None,
+        throttle_window: float = 300.0,
         default_ratelimit_limit: int = 1,
         extra_headers: Optional[Mapping[str, str]] = None,
         debug_options: Optional[Sequence[str]] = None,
@@ -708,6 +729,12 @@ class HTTPClient:
         # When this reaches 256 elements, it will try to evict based off of expiry
         self._buckets: Dict[str, Ratelimit] = {}
         self._global_over: asyncio.Event = MISSING
+        # Coordinated global-lock release. With overlapping global/shared
+        # cooldowns, the lock must stay cleared until the LONGEST active
+        # cooldown expires (the deadline) and must always be re-set once no
+        # holder remains (the counter) — even if every sleeper is cancelled.
+        self._global_until: float = 0.0
+        self._global_holders: int = 0
         self.user_id: Optional[int] = None
         self.token: Optional[str] = None
         self.ack_token: Optional[str] = None
@@ -736,11 +763,26 @@ class HTTPClient:
         # EWMA of request latency per route key — the congestion signal for
         # accounts whose sends are silently queued instead of 429'd
         self._route_latencies: Dict[str, float] = {}
-        # Wire-level throttle (429) events per route key, as (loop time,
-        # retry_after) pairs. Throttles are absorbed internally (sleep +
-        # retry), so without this record hosts cannot see real throttle
-        # pressure without instrumenting the session. Bounded per route.
+        # Wire-level throttle (429) events per route key, as (monotonic
+        # time, retry_after) pairs. Throttles are absorbed internally (sleep
+        # + retry), so without this record hosts cannot see real throttle
+        # pressure without instrumenting the session. Bounded per route and
+        # pruned to the throttle window.
         self._throttle_events: Dict[str, deque] = {}
+        # How long a throttle event remains visible in telemetry
+        self._throttle_window: float = throttle_window
+
+    def _prune_throttle_events(self) -> None:
+        # Drops throttle events older than the window so counts reflect
+        # recent pressure, not all-time history. Empty routes are left in
+        # place (bounded by the distinct throttled routes) to keep this
+        # allocation-free on the common path.
+        now = time.monotonic()
+        window = self._throttle_window
+        for events in self._throttle_events.values():
+            if events and now - events[0][0] > window:
+                while events and now - events[0][0] > window:
+                    events.popleft()
 
     def _get_base_headers(self) -> Dict[str, str]:
         # Caches the static per-request headers; rebuilt if the headers context is replaced
@@ -784,6 +826,8 @@ class HTTPClient:
 
         self._global_over = asyncio.Event()
         self._global_over.set()
+        self._global_until = 0.0
+        self._global_holders = 0
 
         if self.client is not None:
             self.headers = await self.client.headers_context()
@@ -996,11 +1040,16 @@ class HTTPClient:
                     response = await self.__session.request(method, url, **kwargs, stream=True, interface=interface)
                     # Server-side queuing (user accounts) manifests as latency
                     # inflation rather than 429s; track an EWMA per route so
-                    # hosts can pace on the congestion signal.
+                    # hosts can pace on the congestion signal. Only successes
+                    # feed the signal (429s/5xx have their own semantics) and
+                    # uploads are keyed separately: transfer time is not
+                    # queuing congestion.
                     latency = self.loop.time() - request_started
-                    route_latencies = self._route_latencies
-                    previous = route_latencies.get(route_key)
-                    route_latencies[route_key] = latency if previous is None else previous * 0.875 + latency * 0.125
+                    if 200 <= response.status_code < 300:
+                        key = route_key + '#files' if (files or form) else route_key
+                        route_latencies = self._route_latencies
+                        previous = route_latencies.get(key)
+                        route_latencies[key] = latency if previous is None else previous * 0.875 + latency * 0.125
                     response.status = response.status_code  # type: ignore
                     try:
                         response.reason = HTTPStatus(response.status_code).phrase
@@ -1058,7 +1107,8 @@ class HTTPClient:
                                 )
 
                     # 202s must be retried, we check for error group 11xxxx
-                    if response.status_code == 202 and isinstance(data, dict) and data['code'] in range(110000, 119999):
+                    defer_code = data.get('code') if isinstance(data, dict) else None
+                    if response.status_code == 202 and isinstance(defer_code, int) and 110000 <= defer_code < 120000:
                         # We update the `attempts` query parameter
                         params = kwargs.get('params')
                         if not params:
@@ -1066,12 +1116,12 @@ class HTTPClient:
                         else:
                             params['attempts'] = (params.get('attempts') or 0) + 1
 
-                        # Sometimes retry_after is 0, but that's undesirable
-                        retry_after: float = data['retry_after'] or 5
-                        # Hostile bodies can carry NaN (JSON parsers accept
-                        # it); sleeping on NaN breaks the event loop
+                        # 0/None/garbage/NaN retry_after is undesirable: default to 5s
+                        raw_retry = data.get('retry_after') if isinstance(data, dict) else None
+                        retry_after: float = _parse_retry_after(raw_retry, default=5.0)
                         if not math.isfinite(retry_after):
-                            retry_after = 5
+                            retry_after = 5.0
+                        retry_after = max(0.0, retry_after) or 5.0
                         _log.debug('%s %s received a 202. Retrying in %s seconds...', method, url, retry_after)
                         await asyncio.sleep(retry_after)
                         continue
@@ -1086,7 +1136,7 @@ class HTTPClient:
                         if isinstance(data, str):
                             # Cloudflare ban
                             is_global = False
-                            retry_after = float(response.headers.get('Retry-After', '0'))
+                            retry_after = _parse_retry_after(response.headers.get('Retry-After'))
                             if not retry_after:
                                 # Unhandleable
                                 result = _CLOUDFLARE_REGEX.search(data)
@@ -1094,7 +1144,10 @@ class HTTPClient:
                                 raise HTTPException(response, f'Cloudflare ban (code: {code})')
                         else:
                             is_global: bool = data.get('global', False)
-                            retry_after: float = data.get('retry_after', float(response.headers.get('Retry-After', 0)))
+                            raw_retry_after = data.get('retry_after')
+                            if raw_retry_after is None:
+                                raw_retry_after = response.headers.get('Retry-After')
+                            retry_after: float = _parse_retry_after(raw_retry_after)
                             # User accounts get no rate-limit headers; scope only
                             # appears on throttle responses. A "shared" scope means
                             # the limit is account-wide (e.g. reactions across all
@@ -1121,21 +1174,20 @@ class HTTPClient:
                                 ratelimit.remaining,
                             )
 
-                        # Coerce hostile shapes (strings, None) and reject
-                        # non-finite values (NaN/Infinity parse fine in JSON);
+                        # Non-finite values (NaN/Infinity parse fine in JSON):
                         # sleeping on NaN breaks the event loop and Infinity
-                        # would sleep forever, so surface those instead.
-                        try:
-                            retry_after = float(retry_after)
-                        except (TypeError, ValueError):
-                            retry_after = 0.0
+                        # would sleep forever, so surface them instead.
                         if not math.isfinite(retry_after):
                             raise RateLimited(retry_after, cloudflare=is_cloudflare)
                         retry_after = max(0.0, retry_after)
 
                         if 'Retry-After' in response.headers:
                             # Sometimes Cloudflare rate limits will have their retry_after field in milliseconds
-                            if float(response.headers['Retry-After']) == retry_after / 1000:  # type: ignore
+                            try:
+                                header_seconds = float(response.headers['Retry-After'])  # type: ignore
+                            except (TypeError, ValueError):
+                                header_seconds = None
+                            if header_seconds is not None and header_seconds == retry_after / 1000:
                                 retry_after /= 1000.0
 
                         if self.max_ratelimit_timeout and retry_after > self.max_ratelimit_timeout:
@@ -1156,6 +1208,7 @@ class HTTPClient:
                         if events is None:
                             events = self._throttle_events[route_key] = deque(maxlen=64)
                         events.append((time.monotonic(), retry_after))
+                        self._prune_throttle_events()
 
                         # Push signal: hosts pacing an account need throttle
                         # pressure the moment it happens, not on the next
@@ -1179,6 +1232,8 @@ class HTTPClient:
                         if is_global:
                             _log.warning('Global rate limit has been hit. Retrying in %.2f seconds.', retry_after)
                             self._global_over.clear()
+                            self._global_holders += 1
+                            self._global_until = max(self._global_until, self.loop.time() + retry_after)
 
                         if is_cloudflare:
                             _log.warning('Cloudflare rate limit has been hit. Retrying in %.2f seconds.', retry_after)
@@ -1186,13 +1241,17 @@ class HTTPClient:
                         try:
                             await asyncio.sleep(retry_after)
                         finally:
-                            # Release the global lock now that the rate limit passed.
-                            # This must also run on cancellation: a request cancelled
-                            # mid-cooldown would otherwise leave the lock cleared
-                            # forever, deadlocking every subsequent request.
+                            # Release the global lock once the cooldown passes.
+                            # With overlapping cooldowns, only the expiry of the
+                            # longest one (or the departure of the last holder)
+                            # reopens the gate — and this must also run on
+                            # cancellation, or a cancelled request would leave
+                            # the lock cleared forever, deadlocking the client.
                             if is_global:
-                                self._global_over.set()
-                                _log.debug('Global rate limit is now over.')
+                                self._global_holders -= 1
+                                if self._global_holders <= 0 or self.loop.time() >= self._global_until:
+                                    self._global_over.set()
+                                    _log.debug('Global rate limit is now over.')
                         _log.debug('Done sleeping for the rate limit. Retrying...')
 
                         continue

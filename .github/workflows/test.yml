@@ -18,6 +18,15 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
+        extras: ['test']
+        include:
+          # The speed extras (orjson, mmh3, zstandard, Brotli, aiodns) are
+          # exercised on two versions; the perf-smoke allocation tests run
+          # only in these legs (pytest -m perf)
+          - python-version: '3.12'
+            extras: 'test,speed'
+          - python-version: '3.14'
+            extras: 'test,speed'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -33,9 +42,11 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e .[test]
+          pip install -e ".[${{ matrix.extras }}]"
 
       - name: Run tests
         shell: bash
         run: |
-          PYTHONPATH="$(pwd)" pytest -vs --cov=discord --cov-report term-missing:skip-covered
+          MARKERS="not perf"
+          if [[ "${{ matrix.extras }}" == "test,speed" ]]; then MARKERS="all"; fi
+          PYTHONPATH="$(pwd)" pytest -vs -m "$MARKERS" --cov=discord --cov-report term-missing:skip-covered

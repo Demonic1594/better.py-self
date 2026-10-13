@@ -105,8 +105,10 @@ def test_member_cap_and_lru_order():
     guild = make_guild(state)
     for i in range(15):
         guild._add_member(make_member(state, guild, i))
-    assert len(guild._members) == 10
-    assert set(guild._members) == set(range(5, 15))
+    # Batched eviction (hysteresis): lands within [95% of cap, cap]
+    assert 9 <= len(guild._members) <= 10
+    assert set(guild._members) <= set(range(5, 15))
+    assert len(guild._members) >= 9
     assert list(guild._members)[-1] == 14
 
 
@@ -115,10 +117,12 @@ def test_member_touch_protection():
     guild = make_guild(state)
     for i in range(15):
         guild._add_member(make_member(state, guild, i))
-    guild._touch_member(5)
-    for i in range(100, 105):
+    # Batched eviction (hysteresis) keeps ~95% of the cap; touch a live
+    # member and confirm it survives the next eviction batch
+    guild._touch_member(10)
+    for i in range(100, 106):
         guild._add_member(make_member(state, guild, i))
-    assert 5 in guild._members and 6 not in guild._members
+    assert 10 in guild._members and 8 not in guild._members
 
 
 def test_member_voice_and_self_protection():
@@ -179,11 +183,12 @@ def test_thread_cap_lru_and_join_protection():
     guild = make_guild(state)
     for i in range(25):
         guild._add_thread(discord.Thread(guild=guild, state=state, data=thread_payload(i)))
-    assert len(guild._threads) == 10
-    assert set(guild._threads) == set(range(1015, 1025))
-    guild._touch_thread(1015)
-    guild._add_thread(discord.Thread(guild=guild, state=state, data=thread_payload(100)))
-    assert 1015 in guild._threads and 1016 not in guild._threads
+    assert 9 <= len(guild._threads) <= 10
+    assert set(guild._threads) <= set(range(1015, 1025))
+    guild._touch_thread(1016)
+    guild._add_thread(discord.Thread(guild=guild, state=state, data=thread_payload(1100)))
+    guild._add_thread(discord.Thread(guild=guild, state=state, data=thread_payload(1101)))
+    assert 1016 in guild._threads and 1017 not in guild._threads
     # Joined threads survive
     joined = guild.get_thread(1024)
     joined._members[999] = SimpleNamespace(id=999)
@@ -198,8 +203,8 @@ def test_thread_store_and_eviction_counters():
     guild = make_guild(state)
     for i in range(8):
         guild._store_thread(thread_payload(i))
-    assert len(guild._threads) == 5
-    assert guild._evicted_threads == 3
+    assert 4 <= len(guild._threads) <= 5
+    assert guild._evicted_threads == 4  # two hysteresis batches
 
 
 @pytest.mark.asyncio

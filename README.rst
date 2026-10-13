@@ -68,7 +68,9 @@ for the full tuning guide):
 - Opt-in cache persistence (``persistence_path``): caches are snapshotted
   to disk on ready/close (owner-only permissions, atomic writes,
   size-capped decompression) and replayed on startup — restarts go from
-  seconds of member re-scraping to a ~75 ms warm replay
+  seconds of member re-scraping to a ~75 ms warm replay (the replay covers
+  the READY-time member set; anything that changed while offline is
+  reconciled by the next member-list sync and live traffic)
 
 **Rate-limit correctness for user accounts**
 
@@ -129,12 +131,13 @@ For voice support, add the ``[voice]`` extra:
 
 .. code:: sh
 
-    python3 -m pip install -U "git+https://github.com/Demonic1594/better.py-self.git#egg=better.py-self[voice]"
+    python3 -m pip install -U "discord.py-self[voice] @ git+https://github.com/Demonic1594/better.py-self.git"
 
 Optional Packages
 ~~~~~~~~~~~~~~~~~~
 
-* `PyNaCl <https://pypi.org/project/PyNaCl/>`__ (for voice support)
+* `PyNaCl <https://pypi.org/project/PyNaCl/>`__ and ``davey`` (for voice support, via the ``[voice]`` extra)
+* The ``[speed]`` extra — `orjson <https://pypi.org/project/orjson/>`__, `mmh3 <https://pypi.org/project/mmh3/>`__, `zstandard <https://pypi.org/project/zstandard/>`__, `Brotli <https://pypi.org/project/Brotli/>`__ and `aiodns <https://pypi.org/project/aiodns/>`__ — for the fast JSON/hash/compression/DNS paths exercised by the CI speed legs
 
 Please note that on Linux installing voice you must install the following packages via your favourite package manager (e.g. ``apt``, ``dnf``, etc) before running the above commands:
 

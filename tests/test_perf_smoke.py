@@ -14,12 +14,19 @@ from __future__ import annotations
 
 import gc
 import sys
+import time
+
+import pytest
 
 import discord
 import discord.utils as u
 from discord import Embed, Permissions
 from discord.components import _component_factory
 from discord.http import Route
+
+# Allocation ceilings are interpreter-sensitive; CI runs these only in the
+# speed-extras legs (pytest -m perf / -m "not perf" elsewhere)
+pytestmark = pytest.mark.perf
 
 
 def alloc_delta(func, *args, **kwargs) -> int:
@@ -248,8 +255,8 @@ def test_throttle_telemetry_allocations():
         assert alloc_delta(record) <= noise + 2
 
         for i in range(10):
-            events.append((float(i), 0.5))
-        http._throttle_events['POST y'] = deque((t, 0.1) for t in range(10))
+            events.append((time.monotonic() + i, 0.5))
+        http._throttle_events['POST y'] = deque((time.monotonic() + t, 0.1) for t in range(10))
 
         def summarize() -> None:
             http_summary = client.http_throttle_events()

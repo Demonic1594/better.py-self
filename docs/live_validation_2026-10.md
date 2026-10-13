@@ -1,8 +1,9 @@
 # Live Anti-Detection Validation Report — better.py-self v2.2.0
 
-**Account:** dxddys_girl (1221362476063395852) — throwaway, user token
+**Account:** <redacted throwaway> — user token (identifiers removed; this
+document is linked from a public repository)
 **Date:** 2026-10-10/11, from this device (no proxy)
-**Exclusions honored:** guild 1219341038146162779 never touched; writes only to own DMs
+**Exclusions honored:** guild <redacted> never touched; writes only to own DMs
 
 ## Outcome summary
 

@@ -354,6 +354,12 @@ class UserGuild(Hashable):
         await self._state.http.delete_guild(self.id)
 
 
+def _eviction_target(cap: int, /) -> int:
+    """Batched-eviction target: ~5% below the cap, so eviction runs once per
+    ~5% of the cache size in new insertions instead of on every insert."""
+    return max(1, cap - max(1, cap // 20))
+
+
 class Guild(Hashable):
     """Represents a Discord guild.
 
@@ -513,6 +519,7 @@ class Guild(Hashable):
         '_members',
         '_members_seen',
         '_evicted_members',
+        '_evicted_member_ids',
         '_evicted_threads',
         '_channels',
         '_icon',
@@ -562,6 +569,10 @@ class Guild(Hashable):
         self._members: Dict[int, Member] = {}
         self._members_seen: int = 0
         self._evicted_members: int = 0
+        # Ids of members that were counted as seen and later evicted: keeps
+        # the ever-seen count exact across evict -> re-add (no double count)
+        # and evict -> leave (decrement) cycles
+        self._evicted_member_ids: set = set()
         self._evicted_threads: int = 0
         self._voice_states: Dict[int, VoiceState] = {}
         self._threads: Dict[int, Thread] = {}
@@ -588,6 +599,9 @@ class Guild(Hashable):
         if member_id in members:
             # Move to the end (most recently used) for approximate LRU eviction
             del members[member_id]
+        elif member_id in self._evicted_member_ids:
+            # Seen before and evicted: re-adding must not double-count
+            self._evicted_member_ids.discard(member_id)
         else:
             self._members_seen += 1
         members[member_id] = member
@@ -597,7 +611,9 @@ class Guild(Hashable):
 
         max_member_cache = self._state.max_member_cache
         if max_member_cache is not None and len(members) > max_member_cache:
-            self._evict_members(max_member_cache)
+            # Evict below the cap (hysteresis) so the work amortizes across
+            # many insertions instead of running on every one
+            self._evict_members(_eviction_target(max_member_cache))
 
         # Amortized global cap check (spreads the cost across many insertions)
         self._state._note_member_add()
@@ -615,30 +631,31 @@ class Guild(Hashable):
         return cache_flags.joined or member.id == state.self_id or (cache_flags.voice and member.id in self._voice_states)
 
     def _evict_members(self, cap: int, /) -> None:
-        # Evicts the least recently used members until the cache is within the cap.
-        # The client user and members with active voice states are never evicted.
+        # Evicts the least recently used members until the cache is within
+        # the cap. The client user and members with active voice states are
+        # never evicted. Callers passing an exact target (the global cache
+        # rebalancer) get exactly that target.
         members = self._members
-        state = self._state
-        protected = set(self._voice_states)
-        self_id = state.self_id
-        if self_id is not None:
-            protected.add(self_id)
+        voice_states = self._voice_states
+        self_id = self._state.self_id
 
         excess = len(members) - cap
         victims = []
         for member_id in members:
             if excess <= 0:
                 break
-            if member_id in protected:
+            if member_id in voice_states or member_id == self_id:
                 continue
             victims.append(member_id)
             excess -= 1
 
+        evicted_ids = self._evicted_member_ids
         for member_id in victims:
             del members[member_id]
+            evicted_ids.add(member_id)
             # Keep the presence store in sync; online members are re-stored by
             # their next presence update, offline ones are freed
-            state.remove_presence(member_id, self.id)
+            self._state.remove_presence(member_id, self.id)
 
         if victims:
             self._evicted_members += len(victims)
@@ -652,6 +669,10 @@ class Guild(Hashable):
     def _remove_member(self, member: Snowflake, /) -> None:
         if self._members.pop(member.id, None) is not None:
             self._members_seen = max(0, self._members_seen - 1)
+        elif member.id in self._evicted_member_ids:
+            # The member was evicted earlier but still counted as seen
+            self._evicted_member_ids.discard(member.id)
+            self._members_seen = max(0, self._members_seen - 1)
         self._state.remove_presence(member.id, self.id)
 
     def _add_thread(self, thread: Thread, /) -> None:
@@ -664,7 +685,7 @@ class Guild(Hashable):
 
         max_thread_cache = self._state.max_thread_cache
         if max_thread_cache is not None and len(threads) > max_thread_cache:
-            self._evict_threads(max_thread_cache)
+            self._evict_threads(_eviction_target(max_thread_cache))
 
         # Amortized global cap check (spreads the cost across many insertions)
         self._state._note_thread_add()
@@ -676,8 +697,8 @@ class Guild(Hashable):
             threads[thread_id] = threads.pop(thread_id)
 
     def _evict_threads(self, cap: int, /) -> None:
-        # Evicts the least recently used threads until the cache is within the cap.
-        # Threads the client user has joined are never evicted.
+        # Evicts the least recently used threads until the cache is within
+        # the cap. Threads the client user has joined are never evicted.
         threads = self._threads
         self_id = self._state.self_id
         excess = len(threads) - cap
@@ -859,12 +880,16 @@ class Guild(Hashable):
 
         cache_flags = state.member_cache_flags
         for mdata in guild.get('members', []):
+            # A member payload without a usable inline user (hostile or
+            # unresolvable) is skipped, not crashed on
+            user_data = mdata.get('user')
+            if not isinstance(user_data, dict) or 'id' not in user_data:
+                continue
             if not cache_flags.joined:
                 # Skip constructing the Member if it would be discarded anyway
-                user_data = mdata['user']
                 uid = int(user_data['id'])
                 if uid != state.self_id and not (cache_flags.voice and uid in self._voice_states):
-                    state.store_user(user_data)
+                    state.store_user(user_data)  # type: ignore # payload alias is a plain dict
                     continue
             member = Member(data=mdata, guild=self, state=state)
             self._add_member(member)
@@ -1312,6 +1337,12 @@ class Guild(Hashable):
 
     def get_member(self, user_id: int, /) -> Optional[Member]:
         """Returns a member with the given ID.
+
+        Reads do not refresh the member's LRU position: the cache is
+        write-recency ordered (gateway events and explicit touches), so a
+        member you query often but who generates no events is evicted before
+        an actively-updating one. Call :meth:`Guild._touch_member` (or rely
+        on message activity) to pin a hot member.
 
         .. versionchanged:: 2.0
 

@@ -284,3 +284,97 @@ async def test_persistence_rejects_oversized_snapshot(tmp_path, monkeypatch):
     c._connection.user = discord.ClientUser(state=c._connection, data=up(5))
     assert await c._connection._replay_persistence() is False
     assert not c._connection._guilds
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    'blob',
+    [
+        b'[]',
+        b'[1]',
+        b'42',
+        b'"str"',
+        b'{"version":1}',
+        b'{"version":1,"ready":null}',
+        b'{"version":1,"ready":[]}',
+        b'{"version":1,"ready":{"user":null}}',
+        b'{"version":1,"ready":{"user":{}},"guilds":"nope"}',
+        b'{"version":1,"ready":{"user":{"id":"5"}},"guilds":[7]}',
+    ],
+    ids=['list', 'list1', 'int', 'str', 'no-ready', 'ready-null', 'ready-list', 'user-null', 'guilds-str', 'guild-int'],
+)
+async def test_malformed_snapshots_downgrade_to_cold_start(tmp_path, blob):
+    """F-01: valid-JSON but malformed snapshots must return False and leave
+    the state cold — never raise out of replay (and so never out of login)."""
+    import zlib
+
+    path = tmp_path / 'cache.bin'
+    path.write_bytes(zlib.compress(blob, 1))
+    c = Client(persistence_path=path)
+    await c._async_setup_hook()
+    c._connection.user = discord.ClientUser(state=c._connection, data=up(5))
+    assert await c._connection._replay_persistence() is False
+    assert not c._connection._guilds
+    assert not c._connection._persistence_loaded
+
+
+@pytest.mark.asyncio
+async def test_snapshot_strips_auth_and_account_data(tmp_path):
+    """F-02/F-10: the written snapshot allow-lists its READY keys — no
+    auth_token, settings protos, connected accounts or payment data at
+    rest — and replaying an old snapshot carrying auth_token leaves the
+    live token untouched."""
+    import zlib
+
+    path = tmp_path / 'cache.bin'
+    c = await _snapshot_to(path)
+
+    raw = zlib.decompress(path.read_bytes())
+    payload = __import__('json').loads(raw)
+    assert set(payload['ready']) <= {'user', 'users', 'relationships', 'private_channels'}
+    for forbidden in ('auth_token', 'user_settings_proto', 'user_guild_settings', 'connected_accounts',
+                      'pending_payments', 'analytics_token', 'sessions', 'read_state', 'experiments'):
+        assert forbidden not in payload['ready']
+
+    # An old/hostile snapshot with auth_token inside must not touch the token
+    hostile = dict(payload)
+    hostile['ready'] = dict(payload['ready'], auth_token='stale-token')
+    path2 = tmp_path / 'hostile.bin'
+    path2.write_bytes(zlib.compress(__import__('json').dumps(hostile).encode(), 1))
+
+    c2 = Client(persistence_path=path2)
+    await c2._async_setup_hook()
+    state2 = c2._connection
+    state2.user = discord.ClientUser(state=state2, data=up(5))
+    state2.http = type('H', (), {'token': 'live-token', '_token': lambda self, t: setattr(self, 'token', t)})()
+    from discord.state import GuildSubscriptions
+
+    original = GuildSubscriptions.has_feature
+    GuildSubscriptions.has_feature = lambda self, g, f: True
+    try:
+        assert await state2._replay_persistence() is True
+    finally:
+        GuildSubscriptions.has_feature = original
+    assert state2.http.token == 'live-token', 'replay must never swap the validated login token'
+
+
+@pytest.mark.asyncio
+async def test_replay_failure_never_breaks_login(tmp_path):
+    """F-01: the login wrapper contains every replay error."""
+    c = Client(persistence_path=tmp_path / 'cache.bin')
+    await c._async_setup_hook()
+
+    async def explode():
+        raise RuntimeError('snapshot blew up')
+
+    c._connection._replay_persistence = explode
+    assert await c._replay_persistence_safe() is False  # type: ignore # swallowed
+
+    async def explode2():
+        raise BaseException('nasty')
+
+    c._connection._replay_persistence = explode2
+    try:
+        await c._replay_persistence_safe()  # type: ignore # BaseException still propagates (KeyboardInterrupt-class)
+    except BaseException:
+        pass

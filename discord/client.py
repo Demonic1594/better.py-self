@@ -221,6 +221,7 @@ if TYPE_CHECKING:
         captcha_handler: Optional[Callable[[CaptchaRequired, Client], Awaitable[str]]]
         max_ratelimit_timeout: Optional[float]
         default_ratelimit_limit: Optional[int]
+        throttle_window: Optional[float]
         preferred_rtc_regions: Optional[List[str]]
         canary: bool
         apm_tracing: bool
@@ -512,7 +513,16 @@ class Client:
         In order to prevent misuse and unnecessary bans, the minimum value this can be
         set to is ``30.0`` seconds.
 
-        .. versionadded:: 2.0
+        throttle_window: Optional[:class:`float`]
+        How many seconds a wire-level throttle event stays visible in
+        :meth:`Client.http_throttle_events` (and counts toward its
+        ``count``). Defaults to ``300.0``. Use ``0`` to keep only events
+        from the current instant, or a larger value for long-running
+        pressure monitoring.
+
+        .. versionadded:: 2.2
+
+    .. versionadded:: 2.0
     preferred_rtc_regions: List[:class:`str`]
 
         A list of preferred RTC regions to connect to. This overrides Discord's suggested list.
@@ -573,6 +583,7 @@ class Client:
             unsync_clock=options.pop('assume_unsync_clock', True),
             captcha=self.handle_captcha,
             max_ratelimit_timeout=options.pop('max_ratelimit_timeout', None),
+            throttle_window=options.pop('throttle_window', None) or 300.0,
             default_ratelimit_limit=options.pop('default_ratelimit_limit', None) or 1,
             debug_options=self._get_debug_options(**options),
             rpc_proxy=options.pop('rpc_proxy', None),
@@ -1054,7 +1065,7 @@ class Client:
         oldest_age = 0.0
         if backlog:
             loop = self.loop
-            oldest_age = max(0.0, loop.time() - min(pending.values()))
+            oldest_age = max(0.0, loop.time() - next(iter(pending.values())))  # insertion order: first is oldest
         return backlog, oldest_age, self._dispatch_created, self._dispatch_completed
 
     async def cache_stats(self) -> CacheStats:
@@ -1128,17 +1139,20 @@ class Client:
         """
         return dict(self.http._route_latencies)
 
-    def http_throttle_events(self) -> Dict[str, Dict[str, float]]:
+    def http_throttle_events(self, *, window: Optional[float] = None) -> Dict[str, Dict[str, float]]:
         """Returns a summary of wire-level HTTP 429 throttles, keyed by route.
 
         The library absorbs throttles internally — it sleeps ``retry-after``
         and retries, so a request that was throttled on the wire can look
         like a plain success to the application. Real throttle pressure is
         invisible without instrumenting the HTTP session, which this
-        replaces. Each route maps to a dict with ``count`` (recent throttles
-        recorded, bounded), ``last_after_s`` (seconds since the most recent
-        throttle) and ``last_retry_after`` (its retry-after, in seconds).
-        An empty dict means no throttles have been absorbed.
+        replaces. Each route maps to a dict with ``count`` (throttles inside
+        the visibility window, bounded per route), ``last_after_s`` (seconds
+        since the most recent throttle) and ``last_retry_after`` (its
+        retry-after, in seconds). An empty dict means no recent throttles.
+
+        Events expire from the summary after ``throttle_window`` seconds
+        (300 by default); pass ``window`` to read with a different horizon.
 
         Pacing guidance derived from live sessions: sustained send rates past
         roughly 0.6/s trip a shared account bucket, so any nonzero ``count``
@@ -1147,6 +1161,15 @@ class Client:
 
         .. versionadded:: 2.2
         """
+        if window is not None and window != self.http._throttle_window:
+            previous = self.http._throttle_window
+            self.http._throttle_window = window
+            try:
+                self.http._prune_throttle_events()
+            finally:
+                self.http._throttle_window = previous
+        else:
+            self.http._prune_throttle_events()
         now = time.monotonic()
         summary: Dict[str, Dict[str, float]] = {}
         for route, events in self.http._throttle_events.items():
@@ -1436,9 +1459,22 @@ class Client:
         state.analytics_token = data.get('analytics_token', '')
         state.user = ClientUser(state=state, data=data)
         state._users[state.user.id] = state.user  # type: ignore
-        if state.persistence_path is not None:
-            await state._replay_persistence()
+        await self._replay_persistence_safe()
         await self.setup_hook()
+
+    async def _replay_persistence_safe(self) -> bool:
+        """Replays the cache persistence snapshot, if any.
+
+        Persistence must never fail a login: any error downgrades to a
+        cold start instead of propagating out of :meth:`login`.
+        """
+        if self._connection.persistence_path is None:
+            return False
+        try:
+            return await self._connection._replay_persistence()
+        except Exception:
+            _log.warning('Cache persistence replay failed; performing a cold start.', exc_info=True)
+            return False
 
     async def connect(self, *, reconnect: bool = True) -> None:
         """|coro|

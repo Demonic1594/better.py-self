@@ -8,7 +8,7 @@ description = "A Python wrapper for the Discord user API"
 readme = { file = "README.rst", content-type = "text/x-rst" }
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
-authors = [{ name = "Dolfies", email = "me@dolfi.es" }]
+authors = [{ name = "Demonic1594" }]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "License :: OSI Approved :: MIT License",
@@ -29,10 +29,9 @@ classifiers = [
 dynamic = ["version", "dependencies"]
 
 [project.urls]
-Documentation = "https://discordpy-self.readthedocs.io/en/latest/"
-"Issue tracker" = "https://github.com/dolfies/discord.py-self/issues"
-"Project updates" = "https://t.me/dpy_self"
-"Discussion & support" = "https://t.me/dpy_self_discussions"
+Documentation = "https://github.com/Demonic1594/better.py-self#readme"
+"Issue tracker" = "https://github.com/Demonic1594/better.py-self/issues"
+"Upstream (dolfies/discord.py-self)" = "https://github.com/dolfies/discord.py-self"
 
 [tool.setuptools.dynamic]
 dependencies = { file = "requirements.txt" }
@@ -93,6 +92,24 @@ include-package-data = true
 line-length = 125
 extend-exclude = ["docs", "tests"]
 
+[tool.ruff.lint]
+# Formatting keeps excluding tests, but they are linted: an explicit,
+# version-stable rule set (syntax errors, pyflakes, pycodestyle subsets)
+# that holds across the whole repo including the regression suites.
+# E731/E741/E712 match long-standing upstream style (lambda sinks in the
+# gateway, comparison truthiness in flag-heavy code); star exports in
+# __init__.py are the documented public API surface.
+exclude = ["docs"]
+select = ["E4", "E7", "E9", "F"]
+ignore = [
+    "E402",  # deferred module imports break circular-import cycles by design
+    "E731",  # lambda sinks are long-standing upstream style
+    "E741",  # short loop/lambda variables likewise
+    "E712",  # flag objects overload == deliberately
+    "F403",  # star exports are the documented public API surface
+    "F405",
+]
+
 [tool.ruff.lint.isort]
 combine-as-imports = true
 
@@ -135,3 +152,6 @@ typeCheckingMode = "basic"
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
+markers = [
+    "perf: allocation-count performance smoke tests (run in the speed-extras CI legs)",
+]
