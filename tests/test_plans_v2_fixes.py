@@ -15,8 +15,56 @@ import pytest
 
 import discord.state as state_module
 from discord import Client
+from discord.http import Route
 from discord.ext import commands
 from discord.guild import _EvictedIds
+
+from traffic_harness import FakeResponse, make_http
+
+
+# --------------------------------------------------------------------------
+# N-01: latency bookkeeping must not disturb the rate-limit bucket tables
+# --------------------------------------------------------------------------
+
+
+class HashSession:
+    """Answers 200s carrying a scripted X-Ratelimit-Bucket hash per request."""
+
+    def __init__(self, *hashes: str):
+        self.hashes = list(hashes)
+
+    async def request(self, method: str, url: str, **kwargs) -> FakeResponse:
+        # http.py looks headers up with this exact casing; FakeResponse headers
+        # are a plain (case-sensitive) dict, so match it.
+        return FakeResponse(
+            200,
+            headers={
+                'content-type': 'application/json',
+                'X-Ratelimit-Bucket': self.hashes.pop(0),
+                'X-Ratelimit-Limit': '5',
+                'X-Ratelimit-Remaining': '4',
+                'X-Ratelimit-Reset-After': '10',
+            },
+        )
+
+
+@pytest.mark.asyncio
+async def test_changed_bucket_hash_drops_the_old_bucket_entry():
+    route = Route('GET', '/users/{user_id}', user_id=2)
+    http = make_http(HashSession('hash-one', 'hash-two'))
+    major = route.major_parameters
+
+    await http.request(route)
+    assert http._bucket_hashes[route.key] == 'hash-one'
+    assert f'hash-one:{major}' in http._buckets
+
+    await http.request(route)  # Discord now reports a different hash for the route
+    assert http._bucket_hashes[route.key] == 'hash-two'
+    assert f'hash-two:{major}' in http._buckets
+    assert f'hash-one:{major}' not in http._buckets, 'the stale bucket entry must be removed'
+    # The latency EWMA is keyed separately and is still recorded
+    assert route.key in http._route_latencies
+    assert route.key not in http._buckets
 
 
 # --------------------------------------------------------------------------

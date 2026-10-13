@@ -1275,7 +1275,8 @@ class GuildChannel:
             if len(permissions) > 0:
                 raise TypeError('Cannot mix overwrite and keyword arguments.')
 
-        # TODO: wait for event
+        # Known limitation: this returns once the HTTP call succeeds and does not
+        # wait for the matching gateway event, so the cached overwrites can lag briefly.
 
         if overwrite is None:
             await http.delete_channel_permissions(self.id, target.id, reason=reason)

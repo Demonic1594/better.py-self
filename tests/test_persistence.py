@@ -221,8 +221,7 @@ async def test_persistence_file_is_private_and_leaves_no_temp_files(tmp_path):
     c = await _snapshot_to(path)
     assert path.exists()
     assert (path.stat().st_mode & 0o777) == 0o600, 'snapshot holds the raw READY payload; must be owner-only'
-    # The capture is consumed by the ready-time write (it would otherwise
-    # pin a second copy of every guild's members); a redundant explicit
+    # The capture is consumed by the ready-time write; a redundant explicit
     # write is a no-op that leaves the file untouched
     before = path.read_bytes()
     assert await c.write_persistence() is False
@@ -319,7 +318,10 @@ async def test_malformed_snapshots_downgrade_to_cold_start(tmp_path, blob):
 
     path = tmp_path / 'cache.bin'
     path.write_bytes(zlib.compress(blob, 1))
-    c = Client(persistence_path=path)
+    # These blobs carry no saved_at, which reads as epoch 0 and would be rejected
+    # as stale before shape validation ever ran; an unbounded window makes the
+    # test exercise the shape checks it is named for.
+    c = Client(persistence_path=path, persistence_max_age=float('inf'))
     await c._async_setup_hook()
     c._connection.user = discord.ClientUser(state=c._connection, data=up(5))
     assert await c._connection._replay_persistence() is False
@@ -394,3 +396,69 @@ async def test_replay_failure_never_breaks_login(tmp_path):
     c._connection._replay_persistence = explode2
     with pytest.raises(BaseException, match='nasty'):
         await c._replay_persistence_safe()  # type: ignore # BaseException still propagates (KeyboardInterrupt-class)
+
+
+def _write_snapshot(path, ready, *, saved_at=None):
+    import json
+    import time
+    import zlib
+
+    blob = {'version': 1, 'saved_at': time.time() if saved_at is None else saved_at, 'ready': ready, 'guilds': []}
+    path.write_bytes(zlib.compress(json.dumps(blob).encode(), 1))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('saved_id', ['not-a-number', {'x': 1}, [5]], ids=['text', 'dict', 'list'])
+async def test_non_numeric_saved_user_id_is_a_quiet_cold_start(tmp_path, caplog, saved_id):
+    """N-11: a malformed saved id must downgrade without a stack-trace warning."""
+    import logging
+
+    path = tmp_path / 'cache.bin'
+    ready = {k: v for k, v in ready_payload().items() if k in ('user', 'users', 'relationships', 'private_channels')}
+    ready['user'] = dict(ready['user'], id=saved_id)
+    _write_snapshot(path, ready)
+
+    c = Client(persistence_path=path)
+    await c._async_setup_hook()
+    c._connection.user = discord.ClientUser(state=c._connection, data=up(5))
+    with caplog.at_level(logging.DEBUG, logger='discord.state'):
+        assert await c._connection._replay_persistence() is False
+    assert not [r for r in caplog.records if r.exc_info], 'must not log a traceback for a bad saved id'
+    assert not c._connection._guilds and not c._connection._persistence_loaded
+
+
+@pytest.mark.asyncio
+async def test_failed_replay_leaves_a_clean_cache(tmp_path):
+    """N-11: when replay fails after parse_ready ran, no partial state survives."""
+    path = tmp_path / 'cache.bin'
+    ready = {k: v for k, v in ready_payload().items() if k in ('user', 'users', 'relationships', 'private_channels')}
+    ready['user'] = {k: v for k, v in ready['user'].items() if k != 'id'}  # no id: cannot index users
+    _write_snapshot(path, ready)
+
+    c = Client(persistence_path=path)
+    await c._async_setup_hook()
+    state = c._connection
+    assert await state._replay_persistence() is False
+    assert not state._relationships and not state._guilds
+    assert not state._persistence_loaded
+
+
+@pytest.mark.asyncio
+async def test_raw_payloads_are_released_after_the_snapshot_write(tmp_path):
+    """N-08: no second copy of every guild payload is held after the write."""
+    path = tmp_path / 'cache.bin'
+    c = Client(persistence_path=path)
+    await c._async_setup_hook()
+    state = c._connection
+    state.user = discord.ClientUser(state=state, data=up(5))
+    ready = ready_payload()
+    ready['guilds'] = [guild_payload(1, 6), guild_payload(2, 3)]
+    await drive_ready(c, ready)
+    await wait_for_snapshot(state, path)
+    assert state._persistence_ready is None
+    assert state._persistence_guild_payloads == {}
+    assert len(state._guilds) == 2, 'parsed guilds are unaffected'
+    # The close-time write has nothing pending and must not clobber the file
+    size = path.stat().st_size
+    assert await state._write_persistence() is False
+    assert path.stat().st_size == size

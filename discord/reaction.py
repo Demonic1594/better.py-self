@@ -111,7 +111,8 @@ class Reaction:
         self.normal_count: int = details.get('normal', int(self.me))
         self.burst_count: int = details.get('burst', int(self.me_burst))
 
-    # TODO: typeguard
+    # Possible improvement: annotate the return as a TypeGuard so type checkers
+    # narrow ``emoji`` to ``Union[PartialEmoji, Emoji]`` after a ``True`` result.
     def is_custom_emoji(self) -> bool:
         """:class:`bool`: If this is a custom emoji."""
         return not isinstance(self.emoji, str)

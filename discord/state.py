@@ -564,11 +564,15 @@ class GuildSubscriptions:
 
     Remember that you get presence updates for the overall user presence for all friends and implicit relationships.
 
-    # TODO: there's some weird behavior here that needs to be further investigated:
-    a) joining new guilds
-    b) adding new friends - I believe you are NOT automatically subscribed to them in every guild (however you still get the overall user presence)
-    c) opening new DMs - I'm almost sure this just universally subscribes you
-    d) guilds with 75k+ members behave unexpectedly and need their own investigation
+    .. note::
+
+        The following subscription behaviors are *not* confirmed and may not match the above:
+
+        - Joining a new guild: whether the client is subscribed automatically is not verified.
+        - Adding a new friend: the client is believed **not** to be subscribed to them in every guild,
+          although the overall user presence is still received.
+        - Opening a new DM: this is believed to subscribe the client to the recipient universally.
+        - Guilds with 75k+ members: behavior here differs from smaller guilds and has not been characterized.
     """
 
     # I thought it was 4096 bytes, but this is taken from the client
@@ -2991,10 +2995,11 @@ class ConnectionState:
             self.connections[id] = connection = Connection(state=self, data=data)
             self.dispatch('connection_create', connection)
         else:
-            # TODO: We can also get to this point if the connection has been deleted
-            # We can detect that by checking if the payload is identical to the previous payload
-            # However, certain events can also trigger updates with identical payloads, so we can't rely on that
-            # For now, we assume everything is an update; thanks Discord
+            # Known limitation: a deleted connection can also arrive here, and is
+            # reported as an update. Comparing the payload with the previous one
+            # would detect it, but certain events also send updates with identical
+            # payloads, so that signal is unreliable. Everything is treated as an
+            # update until Discord provides a distinguishing field.
             connection = self.connections[id]
             old_connection = copy.copy(connection)
             connection._update(data)

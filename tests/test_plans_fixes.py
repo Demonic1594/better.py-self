@@ -65,10 +65,9 @@ def test_members_seen_exact_across_evict_cycles():
         guild._add_member(make_member(state, guild, i))
     assert guild._members_seen == 10
 
-    # A member who left while evicted still decrements (F-03): ids 0-6
-    # were evicted by the cap-3 churn above
+    # A member who left while evicted still decrements (F-03)
     cached = next(iter(guild._members))
-    assert 0 in guild._evicted_member_ids
+    assert 0 in guild._evicted_member_ids  # ids 0-6 evicted by the cap-3 churn
     guild._remove_member(SimpleNamespace(id=cached))
     guild._remove_member(SimpleNamespace(id=0))
     assert guild._members_seen == 8

@@ -306,10 +306,22 @@ async def test_embed_and_component_bombs():
 
 @pytest.mark.asyncio
 async def test_member_eviction_storm():
-    """100k members through a capped guild: bounded, fast, protection holds."""
+    """100k members through a capped guild: bounded, amortized, protection holds."""
     client, state, guild, channel = await make_env(max_member_cache=500)
     state.max_member_cache = 500
     state.max_total_member_cache = None
+
+    eviction_calls = 0
+    guild_type = type(guild)
+    original_evict = guild_type._evict_members
+
+    def counting_evict(self, cap, /):
+        nonlocal eviction_calls
+        eviction_calls += 1
+        original_evict(self, cap)
+
+    guild_type._evict_members = counting_evict
+
     tracemalloc.start()
     t0 = time.perf_counter()
     for i in range(100_000):
@@ -323,13 +335,16 @@ async def test_member_eviction_storm():
     dt = time.perf_counter() - t0
     current, _peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
+    guild_type._evict_members = original_evict
     assert len(guild._members) <= 500
+    # Amortization is structural, not timed: eviction runs in ~5%-of-cap
+    # batches (per-insert eviction would be ~99.5k calls and minutes long)
+    max_batches = 100_000 // max(1, 500 // 20) + 4
+    assert eviction_calls <= max_batches, f'eviction ran near per-insert ({eviction_calls} calls)'
     print(
-        f'100k-member storm: {dt:.1f}s, cache={len(guild._members)}, tracemalloc peak growth ok ({current / 1e6:.0f}MB live)'
+        f'100k-member storm: {dt:.1f}s (info only), {eviction_calls} eviction batches, '
+        f'cache={len(guild._members)}, tracemalloc peak growth ok ({current / 1e6:.0f}MB live)'
     )
-    # Smoke bound (not a benchmark): the pre-batching per-insert eviction
-    # pathology runs into minutes; loaded CI runners legitimately take ~60s
-    assert dt < 90
 
 
 @pytest.mark.asyncio

@@ -2303,7 +2303,8 @@ class PaymentFlags(BaseFlags):
         """:class:`bool`: Returns ``True`` if the payment is for a gift."""
         return 1 << 0
 
-    # TODO: Assumption
+    # NOTE: the flag names and bit positions around here are inferred, not
+    # confirmed against Discord's documented behavior.
 
     @flag_value
     def user_refunded(self):
@@ -2318,7 +2319,8 @@ class PaymentFlags(BaseFlags):
         """:class:`bool`: Returns ``True`` if the payment is a preorder."""
         return 1 << 3
 
-    # TODO: The below are assumptions
+    # NOTE: the flags below are inferred, not confirmed against Discord's
+    # documented behavior.
 
     @flag_value
     def pending(self):
@@ -2494,7 +2496,8 @@ class GiftFlags(BaseFlags):
         """:class:`bool`: Returns ``True`` if the gift cannot be redeemed by the gifter."""
         return 1 << 2
 
-    # TODO: The below are assumptions
+    # NOTE: the flags below are inferred, not confirmed against Discord's
+    # documented behavior.
 
     @flag_value
     def promotion(self):
