@@ -255,8 +255,8 @@ def test_throttle_telemetry_allocations():
         assert alloc_delta(record) <= noise + 2
 
         for i in range(10):
-            events.append((time.monotonic() + i, 0.5))
-        http._throttle_events['POST y'] = deque((time.monotonic() + t, 0.1) for t in range(10))
+            events.append((time.monotonic() - i, 0.5))
+        http._throttle_events['POST y'] = deque((time.monotonic() - t, 0.1) for t in range(10))
 
         def summarize() -> None:
             http_summary = client.http_throttle_events()

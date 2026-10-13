@@ -10,7 +10,7 @@ import asyncio
 import pytest
 
 import discord
-from discord import Client, Guild, Message
+from discord import Client, Guild
 from discord.channel import TextChannel
 from discord.threads import Thread
 

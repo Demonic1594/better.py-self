@@ -1222,7 +1222,7 @@ else:
 
             if min is not None and max is not None:
                 # At this point max and min are both not none
-                if not isinstance(min, type(max)):
+                if type(min) is not type(max):
                     raise TypeError('Both min and max in Range must be the same type')
 
             if annotation not in (int, float, str):

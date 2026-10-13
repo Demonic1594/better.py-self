@@ -56,7 +56,15 @@ def test_fixtures_are_sane():
 def test_fixture_report_shape():
     events = [
         {'t': 0.0, 'method': 'POST', 'url': 'https://discord.com/api/v9/channels/1/messages', 'status': 200, 'latency': 0.4},
-        {'t': 1.2, 'method': 'PUT', 'url': 'https://discord.com/api/v9/channels/1/messages/2/reactions/x/@me', 'status': 429, 'latency': 0.1, 'retry_after': 1, 'scope': 'shared'},
+        {
+            't': 1.2,
+            'method': 'PUT',
+            'url': 'https://discord.com/api/v9/channels/1/messages/2/reactions/x/@me',
+            'status': 429,
+            'latency': 0.1,
+            'retry_after': 1,
+            'scope': 'shared',
+        },
         {'t': 3.0, 'method': 'POST', 'url': 'https://discord.com/api/v9/interactions', 'status': 204, 'latency': 0.2},
     ]
     report = fixture_report(events)

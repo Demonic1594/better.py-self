@@ -68,7 +68,12 @@ async def test_ready_then_resume_uses_same_session():
     ws = make_ws(loop)
 
     await ws.received_message(
-        frame(op=0, t='READY', s=5, d={'session_id': '11cdf886deadbeef', 'resume_gateway_url': 'wss://resume.example', '_trace': []})
+        frame(
+            op=0,
+            t='READY',
+            s=5,
+            d={'session_id': '11cdf886deadbeef', 'resume_gateway_url': 'wss://resume.example', '_trace': []},
+        )
     )
     assert ws.session_id == '11cdf886deadbeef'
     assert str(ws.gateway) == 'wss://resume.example'

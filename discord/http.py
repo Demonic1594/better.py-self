@@ -1051,10 +1051,10 @@ class HTTPClient:
                     # queuing congestion.
                     latency = self.loop.time() - request_started
                     if 200 <= response.status_code < 300:
-                        key = route_key + '#files' if (files or form) else route_key
+                        latency_key = route_key + '#files' if (files or form) else route_key
                         route_latencies = self._route_latencies
-                        previous = route_latencies.get(key)
-                        route_latencies[key] = latency if previous is None else previous * 0.875 + latency * 0.125
+                        previous = route_latencies.get(latency_key)
+                        route_latencies[latency_key] = latency if previous is None else previous * 0.875 + latency * 0.125
                     response.status = response.status_code  # type: ignore
                     try:
                         response.reason = HTTPStatus(response.status_code).phrase

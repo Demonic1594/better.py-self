@@ -8,9 +8,7 @@ matter under abuse: no hangs, bounded memory, exceptions stay catchable
 from __future__ import annotations
 
 import asyncio
-import gc
 import random
-import string
 import time
 import tracemalloc
 

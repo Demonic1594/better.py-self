@@ -8,7 +8,7 @@ import os
 import pytest
 
 import discord
-from discord import Client, Guild
+from discord import Client
 
 
 async def wait_for_snapshot(state, path, timeout=5.0):
@@ -26,9 +26,6 @@ async def wait_for_snapshot(state, path, timeout=5.0):
         await asyncio.sleep(0.01)
     assert path.exists(), 'persistence file was not written in time'
     assert not state._persistence_tasks, 'persistence write task did not finish'
-
-
-from discord.channel import TextChannel
 
 
 def up(uid):
@@ -224,7 +221,12 @@ async def test_persistence_file_is_private_and_leaves_no_temp_files(tmp_path):
     c = await _snapshot_to(path)
     assert path.exists()
     assert (path.stat().st_mode & 0o777) == 0o600, 'snapshot holds the raw READY payload; must be owner-only'
-    assert await c.write_persistence() is True  # explicit second write, overwrites in place
+    # The capture is consumed by the ready-time write (it would otherwise
+    # pin a second copy of every guild's members); a redundant explicit
+    # write is a no-op that leaves the file untouched
+    before = path.read_bytes()
+    assert await c.write_persistence() is False
+    assert path.read_bytes() == before
     assert [p.name for p in tmp_path.iterdir()] == ['cache.bin'], 'no leftover temp files'
 
 
@@ -232,9 +234,16 @@ async def test_persistence_file_is_private_and_leaves_no_temp_files(tmp_path):
 async def test_persistence_concurrent_writes_do_not_collide(tmp_path):
     path = tmp_path / 'cache.bin'
     c = await _snapshot_to(path)
+
+    # A fresh capture (as a new READY would produce) + 8 concurrent writes:
+    # the lock serializes them and the consume-on-write semantics mean
+    # exactly one snapshot lands
+    state = c._connection
+    state._persistence_ready = ready_payload()
+    state._persistence_guild_payloads = {1: guild_payload(1, 3)}
     results = await asyncio.gather(*[c.write_persistence() for _ in range(8)])
-    assert all(results)
-    assert [p.name for p in tmp_path.iterdir()] == ['cache.bin']
+    assert results.count(True) == 1, results
+    assert [p.name for p in tmp_path.iterdir()] == ['cache.bin'], 'no leftover temp files'
 
 
 @pytest.mark.asyncio
@@ -327,13 +336,22 @@ async def test_snapshot_strips_auth_and_account_data(tmp_path):
     import zlib
 
     path = tmp_path / 'cache.bin'
-    c = await _snapshot_to(path)
+    await _snapshot_to(path)
 
     raw = zlib.decompress(path.read_bytes())
     payload = __import__('json').loads(raw)
     assert set(payload['ready']) <= {'user', 'users', 'relationships', 'private_channels'}
-    for forbidden in ('auth_token', 'user_settings_proto', 'user_guild_settings', 'connected_accounts',
-                      'pending_payments', 'analytics_token', 'sessions', 'read_state', 'experiments'):
+    for forbidden in (
+        'auth_token',
+        'user_settings_proto',
+        'user_guild_settings',
+        'connected_accounts',
+        'pending_payments',
+        'analytics_token',
+        'sessions',
+        'read_state',
+        'experiments',
+    ):
         assert forbidden not in payload['ready']
 
     # An old/hostile snapshot with auth_token inside must not touch the token
@@ -374,7 +392,5 @@ async def test_replay_failure_never_breaks_login(tmp_path):
         raise BaseException('nasty')
 
     c._connection._replay_persistence = explode2
-    try:
+    with pytest.raises(BaseException, match='nasty'):
         await c._replay_persistence_safe()  # type: ignore # BaseException still propagates (KeyboardInterrupt-class)
-    except BaseException:
-        pass

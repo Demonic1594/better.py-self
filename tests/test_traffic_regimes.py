@@ -10,15 +10,12 @@ import time
 import pytest
 
 import discord
-from discord.http import Route
 
 from traffic_harness import (
-    CLICK_ROUTE,
     REACTION_ROUTE,
     SEND_ROUTE,
     FakeResponse,
     MockDiscord,
-    button_click,
     click,
     make_http,
     react,

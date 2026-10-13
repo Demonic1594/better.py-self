@@ -513,14 +513,15 @@ class Client:
         In order to prevent misuse and unnecessary bans, the minimum value this can be
         set to is ``30.0`` seconds.
 
-        throttle_window: Optional[:class:`float`]
+        .. versionadded:: 2.0
+    throttle_window: Optional[:class:`float`]
         How many seconds a wire-level throttle event stays visible in
-        ``Client.http_throttle_events`` (and counts toward its
-        ``count``). Defaults to ``300.0``. Use ``0`` to keep only events
-        from the current instant, or a larger value for long-running
-        pressure monitoring. (Added in 2.2)
+        :meth:`http_throttle_events` (and counts toward its ``count``).
+        Defaults to ``300.0``. Use ``0`` to keep only events from the
+        current instant, or a larger value for long-running pressure
+        monitoring. Negative values raise :exc:`ValueError`.
 
-    .. versionadded:: 2.0
+        .. versionadded:: 2.2
     preferred_rtc_regions: List[:class:`str`]
 
         A list of preferred RTC regions to connect to. This overrides Discord's suggested list.
@@ -571,6 +572,11 @@ class Client:
         self._last_backlog_warning: float = float('-inf')
         self._dispatch_backlog_warning: int = cast(int, options.pop('dispatch_backlog_warning', 1000))
 
+        throttle_window = options.pop('throttle_window', None)
+        throttle_window = 300.0 if throttle_window is None else float(throttle_window)
+        if throttle_window < 0:
+            raise ValueError('throttle_window must be greater than or equal to 0')
+
         self.captcha_handler: Optional[Callable[[CaptchaRequired, Client], Awaitable[str]]] = options.pop(
             'captcha_handler', None
         )
@@ -581,7 +587,7 @@ class Client:
             unsync_clock=options.pop('assume_unsync_clock', True),
             captcha=self.handle_captcha,
             max_ratelimit_timeout=options.pop('max_ratelimit_timeout', None),
-            throttle_window=options.pop('throttle_window', None) or 300.0,
+            throttle_window=throttle_window,
             default_ratelimit_limit=options.pop('default_ratelimit_limit', None) or 1,
             debug_options=self._get_debug_options(**options),
             rpc_proxy=options.pop('rpc_proxy', None),
@@ -1109,16 +1115,23 @@ class Client:
 
         Manually writes the cache persistence file to
         ``persistence_path``. This happens automatically after the client
-        becomes ready and on a clean :meth:`close`; only call this if you
-        want a snapshot at another time.
+        becomes ready; a clean :meth:`close` also writes when a fresh
+        capture is pending.
+
+        The captured payloads are released once written (they would
+        otherwise pin a second copy of every guild's members for the
+        process lifetime), so writes are once per capture: a later READY
+        re-arms the snapshot. Calling this with nothing new pending is a
+        no-op.
 
         .. versionadded:: 2.2
 
         Returns
         --------
         :class:`bool`
-            Whether a snapshot was written. Always ``False`` when
-            ``persistence_path`` is not configured.
+            Whether a snapshot was written. ``False`` when
+            ``persistence_path`` is not configured or when nothing new has
+            been captured since the last write.
         """
         return await self._connection._write_persistence()
 
@@ -1149,8 +1162,10 @@ class Client:
         since the most recent throttle) and ``last_retry_after`` (its
         retry-after, in seconds). An empty dict means no recent throttles.
 
-        Events expire from the summary after ``throttle_window`` seconds
-        (300 by default); pass ``window`` to read with a different horizon.
+        Events are stored for ``throttle_window`` seconds (300 by default).
+        Pass a smaller ``window`` to read a shorter horizon; the read never
+        removes stored events. A ``window`` larger than ``throttle_window``
+        cannot show events that were already dropped at the configured limit.
 
         Pacing guidance derived from live sessions: sustained send rates past
         roughly 0.6/s trip a shared account bucket, so any nonzero ``count``
@@ -1159,23 +1174,26 @@ class Client:
 
         .. versionadded:: 2.2
         """
-        if window is not None and window != self.http._throttle_window:
-            previous = self.http._throttle_window
-            self.http._throttle_window = window
-            try:
-                self.http._prune_throttle_events()
-            finally:
-                self.http._throttle_window = previous
-        else:
-            self.http._prune_throttle_events()
+        horizon = self.http._throttle_window if window is None else window
+        if horizon < 0:
+            raise ValueError('window must be greater than or equal to 0')
+        # Read-only: filter by age without mutating the stored events, so a
+        # narrow read never discards data a later read would have shown.
+        # Pruning happens on append, using the configured window.
         now = time.monotonic()
         summary: Dict[str, Dict[str, float]] = {}
         for route, events in self.http._throttle_events.items():
-            if not events:
+            count = 0
+            latest = None
+            for event in events:  # chronological: the last match is the newest
+                if now - event[0] <= horizon:
+                    count += 1
+                    latest = event
+            if latest is None:
                 continue
-            at, retry_after = events[-1]
+            at, retry_after = latest
             summary[route] = {
-                'count': len(events),
+                'count': count,
                 'last_after_s': now - at,
                 'last_retry_after': retry_after,
             }
@@ -1591,6 +1609,9 @@ class Client:
                 await self.ws.close(code=1000)
 
             await self.http.close()
+
+            # A closed client must not keep the process-wide GC freeze held
+            self._connection._release_gc_freeze()
 
             if self._ready is not MISSING:
                 self._ready.clear()

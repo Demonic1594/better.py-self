@@ -8,14 +8,12 @@ sends are queued server-side (latency, not 429, is the signal).
 from __future__ import annotations
 
 import asyncio
-import time
 from types import SimpleNamespace
 
 import pytest
 
-import discord
 from discord import Client
-from discord.http import HTTPClient, Route, json_or_text
+from discord.http import HTTPClient, Route
 
 
 class FakeResponse:

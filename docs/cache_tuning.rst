@@ -61,7 +61,7 @@ The member cache is *write-recency* ordered: LRU positions advance on
 gateway events and explicit touches, not on ``get_member`` reads, so the
 hot path stays allocation-free. A member you query constantly but who
 generates no traffic is evicted before an actively-updating one; if that
-matters for your workload, touch members on use (``guild._touch_member``).
+matters for your workload, touch members on use (:meth:`Guild.touch_member`).
 
 Eviction runs in amortized batches: when a cache crosses its cap it is
 trimmed to ~95% of the cap in one pass, so the cost is paid once per ~5%

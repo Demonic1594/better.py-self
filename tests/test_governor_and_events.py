@@ -19,12 +19,13 @@ from traffic_harness import (
     MockDiscord,
     button_click,
     make_http,
-    read,
     react,
     send,
 )
 
-_spec = importlib.util.spec_from_file_location('lane_governor', Path(__file__).parent.parent / 'examples' / 'lane_governor.py')
+_spec = importlib.util.spec_from_file_location(
+    'lane_governor', Path(__file__).parent.parent / 'examples' / 'lane_governor.py'
+)
 lane_governor = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(lane_governor)
 LaneGovernor = lane_governor.LaneGovernor
@@ -244,5 +245,7 @@ async def test_per_account_buckets_isolate_lanes():
     assert mock.stats['reaction_204:acct-b'] == 4
     landed_b = mock.stats['send_200:930:acct-b']
     assert landed_b == 4
-    print(f'isolation: A tripped {mock.stats["reaction_429_shared:acct-a"]} reaction + '
-          f'{mock.stats["send_429_shared:acct-a"]} send throttles; B: zero, 4/4 reactions + {landed_b}/4 sends landed')
+    print(
+        f'isolation: A tripped {mock.stats["reaction_429_shared:acct-a"]} reaction + '
+        f'{mock.stats["send_429_shared:acct-a"]} send throttles; B: zero, 4/4 reactions + {landed_b}/4 sends landed'
+    )

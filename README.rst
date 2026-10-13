@@ -69,8 +69,9 @@ for the full tuning guide):
   to disk on ready/close (owner-only permissions, atomic writes,
   size-capped decompression) and replayed on startup — restarts go from
   seconds of member re-scraping to a ~75 ms warm replay (the replay covers
-  the READY-time member set; anything that changed while offline is
-  reconciled by the next member-list sync and live traffic)
+  the READY-time member set; members who joined or left while offline are
+  not reconciled, so the replayed member set can be stale until live
+  traffic or an explicit fetch refreshes it)
 
 **Rate-limit correctness for user accounts**
 

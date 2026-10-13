@@ -9,7 +9,6 @@ turns a captured session into a deterministic regression scenario.
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 
 import pytest
@@ -23,7 +22,6 @@ from traffic_harness import (
     SessionRecorder,
     ScriptedDiscord,
     button_click,
-    click,
     make_http,
     read,
     react,
@@ -85,9 +83,7 @@ async def test_button_lane_sustained_under_surrounding_storms():
         # Bounded client retries (5 attempts) mean a hopelessly over-rate
         # send surfaces as HTTPException(429) — the spammer's honest outcome.
         for _ in range(10):
-            results = await asyncio.gather(
-                *(send(http, 100 + ch) for ch in range(6)), return_exceptions=True
-            )
+            results = await asyncio.gather(*(send(http, 100 + ch) for ch in range(6)), return_exceptions=True)
             assert all(r is None or _is_throttle(r) for r in results), results
             await asyncio.sleep(0.03)
 
@@ -107,7 +103,9 @@ async def test_button_lane_sustained_under_surrounding_storms():
     assert mock.stats['click_400_50035'] == 0
     assert mock.stats['send_429_shared'] >= 1
     assert mock.stats['reaction_429_shared'] >= 1
-    print(f'button lane: 12/12 clean amid {mock.stats["send_429_shared"]} send + {mock.stats["reaction_429_shared"]} reaction throttles')
+    print(
+        f'button lane: 12/12 clean amid {mock.stats["send_429_shared"]} send + {mock.stats["reaction_429_shared"]} reaction throttles'
+    )
 
 
 def _is_throttle(exc: BaseException) -> bool:
@@ -256,7 +254,11 @@ async def test_parallel_cancellation_storm():
     results = await asyncio.gather(*tasks, return_exceptions=True)
     cancelled = sum(isinstance(r, asyncio.CancelledError) for r in results)
     throttled = sum(_is_throttle(r) for r in results)
-    failed = [r for r in results if isinstance(r, BaseException) and not isinstance(r, asyncio.CancelledError) and not _is_throttle(r)]
+    failed = [
+        r
+        for r in results
+        if isinstance(r, BaseException) and not isinstance(r, asyncio.CancelledError) and not _is_throttle(r)
+    ]
     assert failed == [], failed
 
     await asyncio.sleep(0.05)
@@ -377,9 +379,7 @@ async def test_hostile_nonfinite_and_malformed_retry_after():
     """NaN/Infinity retry_after (valid JSON to Python's parser) must raise
     RateLimited instead of hanging the loop; a string coerces to an
     immediate retry."""
-    nan_429 = FakeResponse(
-        429, body=b'{"retry_after": NaN, "global": false}', headers={'content-type': 'application/json'}
-    )
+    nan_429 = FakeResponse(429, body=b'{"retry_after": NaN, "global": false}', headers={'content-type': 'application/json'})
     inf_429 = FakeResponse(
         429, body=b'{"retry_after": Infinity, "global": false}', headers={'content-type': 'application/json'}
     )
@@ -481,9 +481,7 @@ async def test_record_replay_round_trip(tmp_path):
     # 429s are absorbed internally exactly as they were on the wire, and a
     # request whose recorded fate was 5 consecutive 429s surfaces one here
     # too — the replay is faithful either way.
-    await asyncio.wait_for(
-        asyncio.gather(*(read(http2) for _ in range(n)), return_exceptions=True), timeout=10
-    )
+    await asyncio.wait_for(asyncio.gather(*(read(http2) for _ in range(n)), return_exceptions=True), timeout=10)
     assert replay.consumed == n
     assert replay.served == [event['status'] for event in events]
     print(f'record/replay: {n} wire events ({wire_429s} throttles) captured + replayed deterministically')
@@ -559,7 +557,12 @@ async def test_202_defer_boundaries_hardened():
 
     # 119999 (the old range excluded it) + string retry_after -> defers once
     snoop.clear()
-    script.append((0.0, FakeResponse(202, body=b'{"code": 119999, "retry_after": "0.02"}', headers={'content-type': 'application/json'})))
+    script.append(
+        (
+            0.0,
+            FakeResponse(202, body=b'{"code": 119999, "retry_after": "0.02"}', headers={'content-type': 'application/json'}),
+        )
+    )
     script.append((0.0, FakeResponse(200, body=b'{}')))
     http2 = make_http(Snoop())
     await http2.request(Route('GET', '/users/{user_id}', user_id=3))

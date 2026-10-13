@@ -154,13 +154,6 @@ nitpick_ignore_files = [
     'whats_new',
 ]
 
-# Sphinx 4.4's autodoc occasionally emits a py:class cross-reference whose
-# target is literally '..' (an empty-role artifact from parameter blocks in
-# class docstrings) — never a real reference, flagged only by nitpicky mode.
-nitpick_ignore = [
-    ('py:class', '..'),
-]
-
 
 # Ignore warnings about inconsistent order and/or count of references in translated messages.
 # This makes no sense, different languages can have different word order...

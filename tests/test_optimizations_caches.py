@@ -13,7 +13,6 @@ import pytest
 import discord
 import discord.state as state_mod
 from discord import Client, Guild, Member
-from discord.channel import TextChannel
 from discord.flags import MemberCacheFlags
 
 
@@ -258,7 +257,6 @@ async def test_presence_global_lru():
 
     client = Client()
     await client._async_setup_hook()
-    state = client._connection
     stub = SimpleNamespace(
         self_id=1,
         client_presence=None,

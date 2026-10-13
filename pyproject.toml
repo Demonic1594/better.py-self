@@ -8,7 +8,8 @@ description = "A Python wrapper for the Discord user API"
 readme = { file = "README.rst", content-type = "text/x-rst" }
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
-authors = [{ name = "Demonic1594" }]
+authors = [{ name = "Rapptz" }, { name = "Dolfies" }]
+maintainers = [{ name = "Demonic1594" }]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "License :: OSI Approved :: MIT License",
@@ -90,10 +91,10 @@ include-package-data = true
 
 [tool.ruff]
 line-length = 125
-extend-exclude = ["docs", "tests"]
+extend-exclude = ["docs"]
 
 [tool.ruff.lint]
-# Formatting keeps excluding tests, but they are linted: an explicit,
+# Tests are linted but not reformatted (see [tool.ruff.format]): an explicit,
 # version-stable rule set (syntax errors, pyflakes, pycodestyle subsets)
 # that holds across the whole repo including the regression suites.
 # E731/E741/E712 match long-standing upstream style (lambda sinks in the
@@ -114,6 +115,7 @@ ignore = [
 combine-as-imports = true
 
 [tool.ruff.format]
+exclude = ["tests"]
 line-ending = "auto"
 quote-style = "single"
 

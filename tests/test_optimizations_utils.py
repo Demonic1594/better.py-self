@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import pytest
 
-import discord
 import discord.utils as u
 from discord import Embed, Permissions, PermissionOverwrite, SystemChannelFlags
 from discord.components import _component_factory, SelectDefaultValue

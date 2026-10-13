@@ -568,7 +568,7 @@ class GuildSubscriptions:
     a) joining new guilds
     b) adding new friends - I believe you are NOT automatically subscribed to them in every guild (however you still get the overall user presence)
     c) opening new DMs - I'm almost sure this just universally subscribes you
-    d) 75k member+ guilds are fucking weird
+    d) guilds with 75k+ members behave unexpectedly and need their own investigation
     """
 
     # I thought it was 4096 bytes, but this is taken from the client
@@ -1224,6 +1224,8 @@ class ConnectionState:
         # garbage collector stops rescanning long-lived objects
         self.gc_freeze: bool = options.get('gc_freeze', True)
         self._gc_freeze_task: Optional[asyncio.Task] = None
+        # True only while THIS state contributes to the process-wide freeze count
+        self._holds_gc_freeze: bool = False
         # Opt-in cache persistence: snapshot the raw gateway payloads to disk
         # and replay them on the next startup for a warm cache without
         # re-scraping. ``None`` (default) disables it entirely.
@@ -1318,16 +1320,25 @@ class ConnectionState:
 
         self.clear(full=True)
 
-    def clear(self, *, full: bool = False) -> None:
+    def _release_gc_freeze(self) -> None:
+        # Cancel a pending freeze so it cannot land on a half-built graph,
+        # then give back this state's hold, if it has one. gc.unfreeze() is
+        # process-global, so only the LAST holder actually unfreezes.
         global _gc_freeze_holders
-        if self.gc_freeze and _gc_freeze_holders > 0:
-            # The frozen startup graph is about to be dropped en masse; return
-            # it to the collectable generations so reconnects don't leak it.
-            # Only the LAST freeze holder unfreezes: gc.unfreeze() is
-            # process-global and would thaw every other client's graph.
-            _gc_freeze_holders -= 1
+        task = self._gc_freeze_task
+        if task is not None and not task.done():
+            task.cancel()
+        self._gc_freeze_task = None
+        if self._holds_gc_freeze:
+            self._holds_gc_freeze = False
+            _gc_freeze_holders = max(0, _gc_freeze_holders - 1)
             if _gc_freeze_holders == 0:
                 gc.unfreeze()
+
+    def clear(self, *, full: bool = False) -> None:
+        # The frozen startup graph is about to be dropped en masse; return it
+        # to the collectable generations so reconnects don't leak it.
+        self._release_gc_freeze()
         self.user: Optional[ClientUser] = None
         self._users: weakref.WeakValueDictionary[int, User] = weakref.WeakValueDictionary()
         self.settings: Optional[UserSettings] = None
@@ -2161,11 +2172,14 @@ class ConnectionState:
             # Give ready handlers a moment to finish before freezing the graph
             global _gc_freeze_holders
             await asyncio.sleep(2.0)
+            if self._holds_gc_freeze:
+                return
             t0 = time.perf_counter()
             gc.collect()
             elapsed = time.perf_counter() - t0
             gc.freeze()
             _gc_freeze_holders += 1
+            self._holds_gc_freeze = True
             _log.debug('Froze the startup object graph for the garbage collector (collect took %.1f ms).', elapsed * 1000)
 
         self._gc_freeze_task = asyncio.create_task(freeze_later())
@@ -2379,57 +2393,72 @@ class ConnectionState:
         the destination.
         """
         path = self.persistence_path
-        if path is None or self._persistence_ready is None:
-            # Without the READY section there is nothing replayable: the
-            # guild payloads alone cannot reconstruct the account context
+        if path is None:
             return False
 
-        payload = {
-            'version': 1,
-            'saved_at': datetime.datetime.now(datetime.timezone.utc).timestamp(),
-            'user_id': self.self_id,
-            'ready': {k: v for k, v in self._persistence_ready.items() if k in self._PERSIST_READY_KEYS},
-            'guilds': list(self._persistence_guild_payloads.values()),
-        }
+        # Capture, write and consume under the lock: concurrent writers must
+        # not each snapshot the same capture, or the consume-on-write below
+        # would be defeated and once-per-capture would not hold
+        async with self._persistence_lock:
+            if self._persistence_ready is None:
+                # Without the READY section there is nothing replayable: the
+                # guild payloads alone cannot reconstruct the account context
+                return False
 
-        def _write() -> None:
-            blob = zlib.compress(utils._to_json(payload).encode('utf-8'), 1)
-            directory = os.path.dirname(os.path.abspath(os.fspath(path)))
-            # mkstemp creates the file with mode 0600 and a unique name
-            fd, tmp = tempfile.mkstemp(dir=directory, prefix='.persist-', suffix='.tmp')
-            try:
-                with os.fdopen(fd, 'wb') as fp:
-                    fp.write(blob)
-                    fp.flush()
-                    os.fsync(fp.fileno())
-                os.replace(tmp, path)
-                # fsync the directory so the rename itself is durable
+            payload_ready_source = self._persistence_ready
+            payload = {
+                'version': 1,
+                'saved_at': datetime.datetime.now(datetime.timezone.utc).timestamp(),
+                'user_id': self.self_id,
+                'ready': {k: v for k, v in payload_ready_source.items() if k in self._PERSIST_READY_KEYS},
+                'guilds': list(self._persistence_guild_payloads.values()),
+            }
+
+            def _write() -> None:
+                blob = zlib.compress(utils._to_json(payload).encode('utf-8'), 1)
+                directory = os.path.dirname(os.path.abspath(os.fspath(path)))
+                # mkstemp creates the file with mode 0600 and a unique name
+                fd, tmp = tempfile.mkstemp(dir=directory, prefix='.persist-', suffix='.tmp')
                 try:
-                    dir_fd = os.open(directory, os.O_RDONLY)
-                except OSError:
-                    dir_fd = -1
-                if dir_fd >= 0:
+                    with os.fdopen(fd, 'wb') as fp:
+                        fp.write(blob)
+                        fp.flush()
+                        os.fsync(fp.fileno())
+                    os.replace(tmp, path)
+                    # fsync the directory so the rename itself is durable
                     try:
-                        os.fsync(dir_fd)
+                        dir_fd = os.open(directory, os.O_RDONLY)
+                    except OSError:
+                        dir_fd = -1
+                    if dir_fd >= 0:
+                        try:
+                            os.fsync(dir_fd)
+                        except OSError:
+                            pass
+                        finally:
+                            os.close(dir_fd)
+                except BaseException:
+                    try:
+                        os.unlink(tmp)
                     except OSError:
                         pass
-                    finally:
-                        os.close(dir_fd)
-            except BaseException:
-                try:
-                    os.unlink(tmp)
-                except OSError:
-                    pass
-                raise
+                    raise
 
-        async with self._persistence_lock:
             try:
                 await asyncio.to_thread(_write)
             except Exception:
                 _log.warning('Failed to write the cache persistence file.', exc_info=True)
                 return False
-        _log.debug('Wrote cache persistence to %s (%d guilds).', path, len(self._persistence_guild_payloads))
-        return True
+            _log.debug('Wrote cache persistence to %s (%d guilds).', path, len(payload['guilds']))
+            # The raw READY and guild payloads were only kept to be written. Hold
+            # no second copy of every guild's members/presences for the process
+            # lifetime (eviction could never free it); a later READY re-captures.
+            # The close-time write finds nothing pending and is a no-op: the file
+            # already holds exactly this snapshot.
+            if self._persistence_ready is payload_ready_source:
+                self._persistence_ready = None
+                self._persistence_guild_payloads = {}
+            return True
 
     async def _replay_persistence(self) -> bool:
         """Loads and replays the persisted payloads into the cache."""
@@ -2494,9 +2523,15 @@ class ConnectionState:
         # protos and other account data that must not be replayed.
         ready = {k: v for k, v in ready.items() if k in self._PERSIST_READY_KEYS}
         saved_user_id = ready['user'].get('id')
-        if self.user is not None and saved_user_id is not None and int(saved_user_id) != self.user.id:
-            _log.warning('Cache persistence file belongs to a different account; ignoring it.')
-            return False
+        if self.user is not None and saved_user_id is not None:
+            try:
+                other_account = int(saved_user_id) != self.user.id
+            except (TypeError, ValueError):
+                _log.info('Cache persistence snapshot has an invalid user ID; performing a cold start.')
+                return False
+            if other_account:
+                _log.warning('Cache persistence file belongs to a different account; ignoring it.')
+                return False
 
         guild_payloads = data.get('guilds', [])
         if not isinstance(guild_payloads, list):
@@ -2521,6 +2556,9 @@ class ConnectionState:
             try:
                 temp_users[int(ready['user']['id'])] = ready['user']
             except (KeyError, TypeError, ValueError):
+                # parse_ready already populated state: drop it so the cold
+                # start begins from a clean cache
+                self.clear()
                 return False
             for relationship in ready.get('relationships', []) if isinstance(ready.get('relationships'), list) else ():
                 try:
@@ -4778,6 +4816,7 @@ class ConnectionState:
                     'presences': presence_count,
                     'evicted_members': guild._evicted_members,
                     'evicted_threads': guild._evicted_threads,
+                    'tracked_evicted_ids': len(guild._evicted_member_ids),
                 }
 
         client = self.client

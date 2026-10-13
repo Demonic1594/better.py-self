@@ -65,13 +65,14 @@ def test_members_seen_exact_across_evict_cycles():
         guild._add_member(make_member(state, guild, i))
     assert guild._members_seen == 10
 
-    # A member who left while evicted still decrements (F-03)
+    # A member who left while evicted still decrements (F-03): ids 0-6
+    # were evicted by the cap-3 churn above
     cached = next(iter(guild._members))
-    evicted = next(iter(guild._evicted_member_ids))
+    assert 0 in guild._evicted_member_ids
     guild._remove_member(SimpleNamespace(id=cached))
-    guild._remove_member(SimpleNamespace(id=evicted))
+    guild._remove_member(SimpleNamespace(id=0))
     assert guild._members_seen == 8
-    assert evicted not in guild._evicted_member_ids
+    assert 0 not in guild._evicted_member_ids
     print('members_seen: exact across evict -> re-add and evict -> leave')
 
 
@@ -193,9 +194,7 @@ async def test_voice_merge_is_linear_at_scale():
 
     n_members, n_voice = 5000, 500
     members = [member_payload(i) for i in range(n_members)]
-    voice_states = [
-        {'user_id': str(i % n_members), 'session_id': f's{i}', 'channel_id': '500'} for i in range(n_voice)
-    ]
+    voice_states = [{'user_id': str(i % n_members), 'session_id': f's{i}', 'channel_id': '500'} for i in range(n_voice)]
     ready = {
         'user': up(5),
         'users': [],
@@ -246,9 +245,7 @@ async def test_throttle_events_expire_from_summary():
     http._throttle_events[REACTION_ROUTE.key] = type(events)((stale, ra) for _, ra in events)
     assert client.http_throttle_events() == {}
 
-    # A wider horizon still sees them (re-inject: the default-window read
-    # pruned and dropped the route entirely)
-    http._throttle_events[REACTION_ROUTE.key] = type(events)((stale, ra) for _, ra in events)
+    # Reads are non-destructive: a wider horizon still sees the same events
     assert client.http_throttle_events(window=1000.0)[REACTION_ROUTE.key]['count'] == expected
     print('throttle telemetry: counts expire with the window; window= overrides the horizon')
 
@@ -305,7 +302,12 @@ async def test_latency_ewma_success_only_and_upload_keyed():
     from traffic_harness import SEND_ROUTE, send
 
     await send(http, 30)  # plain send first: feeds the plain-send signal
-    await http.send_message(30, params=__import__('discord.http', fromlist=['MultipartParameters']).MultipartParameters({'content': 'x'}, None, [fake_file]))
+    await http.send_message(
+        30,
+        params=__import__('discord.http', fromlist=['MultipartParameters']).MultipartParameters(
+            {'content': 'x'}, None, [fake_file]
+        ),
+    )
     assert SEND_ROUTE.key in http._route_latencies
     assert SEND_ROUTE.key + '#files' in http._route_latencies
     print('latency EWMA: success-only, 5xx excluded, uploads keyed #files')

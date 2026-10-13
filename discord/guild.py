@@ -25,7 +25,10 @@ DEALINGS IN THE SOFTWARE.
 from __future__ import annotations
 
 import copy
+import heapq
 import logging
+from array import array
+from bisect import bisect_left
 from datetime import datetime, timedelta
 from operator import attrgetter
 from typing import (
@@ -360,6 +363,59 @@ def _eviction_target(cap: int, /) -> int:
     return max(1, cap - max(1, cap // 20))
 
 
+class _EvictedIds:
+    """A compact set of unsigned 64-bit ids.
+
+    Evicted member ids are tracked so the ever-seen member count stays exact.
+    A ``set`` of snowflakes costs ~70 B/id; sorted ``array('Q')`` runs cost
+    8 B/id. Eviction is batched, so each batch becomes one new sorted run and
+    runs are merged once there are more than ``MAX_RUNS`` of them.
+    """
+
+    __slots__ = ('_runs',)
+
+    MAX_RUNS = 8
+
+    def __init__(self) -> None:
+        self._runs: List[array] = []
+
+    def __len__(self) -> int:
+        return sum(len(run) for run in self._runs)
+
+    def __bool__(self) -> bool:
+        return any(self._runs)
+
+    def _find(self, value: int) -> Tuple[Optional[array], int]:
+        for run in self._runs:
+            index = bisect_left(run, value)
+            if index < len(run) and run[index] == value:
+                return run, index
+        return None, -1
+
+    def __contains__(self, value: object) -> bool:
+        if not isinstance(value, int) or value < 0 or value >= 1 << 64:
+            return False
+        return self._find(value)[0] is not None
+
+    def add_many(self, values: Iterable[int]) -> None:
+        fresh = sorted({v for v in values if v not in self})
+        if not fresh:
+            return
+        self._runs.append(array('Q', fresh))
+        if len(self._runs) > self.MAX_RUNS:
+            self._runs = [array('Q', heapq.merge(*self._runs))]
+
+    def add(self, value: int) -> None:
+        self.add_many((value,))
+
+    def discard(self, value: int) -> None:
+        run, index = self._find(value)
+        if run is not None:
+            del run[index]
+            if not run:
+                self._runs = [r for r in self._runs if r]
+
+
 class Guild(Hashable):
     """Represents a Discord guild.
 
@@ -572,7 +628,7 @@ class Guild(Hashable):
         # Ids of members that were counted as seen and later evicted: keeps
         # the ever-seen count exact across evict -> re-add (no double count)
         # and evict -> leave (decrement) cycles
-        self._evicted_member_ids: set = set()
+        self._evicted_member_ids: _EvictedIds = _EvictedIds()
         self._evicted_threads: int = 0
         self._voice_states: Dict[int, VoiceState] = {}
         self._threads: Dict[int, Thread] = {}
@@ -624,6 +680,23 @@ class Guild(Hashable):
         if member_id in members:
             members[member_id] = members.pop(member_id)
 
+    def touch_member(self, user_id: int, /) -> None:
+        """Marks a cached member as recently used.
+
+        The member cache is write-recency ordered: reads such as :meth:`get_member`
+        do not refresh a member's position, so a member you query often but who
+        generates no events can be evicted first. Call this to keep a hot member
+        in the cache. It does nothing if the member is not cached.
+
+        .. versionadded:: 2.2
+
+        Parameters
+        -----------
+        user_id: :class:`int`
+            The ID of the member to touch.
+        """
+        self._touch_member(user_id)
+
     def _should_cache_member(self, member: Member, /) -> bool:
         # Mirrors the gating used when ingesting guild member data
         state = self._state
@@ -649,15 +722,14 @@ class Guild(Hashable):
             victims.append(member_id)
             excess -= 1
 
-        evicted_ids = self._evicted_member_ids
         for member_id in victims:
             del members[member_id]
-            evicted_ids.add(member_id)
             # Keep the presence store in sync; online members are re-stored by
             # their next presence update, offline ones are freed
             self._state.remove_presence(member_id, self.id)
 
         if victims:
+            self._evicted_member_ids.add_many(victims)
             self._evicted_members += len(victims)
             _log.debug('Evicted %d members from the cache of guild ID %d (cap: %d).', len(victims), self.id, cap)
 
@@ -1341,7 +1413,7 @@ class Guild(Hashable):
         Reads do not refresh the member's LRU position: the cache is
         write-recency ordered (gateway events and explicit touches), so a
         member you query often but who generates no events is evicted before
-        an actively-updating one. Call ``Guild._touch_member`` (or rely on
+        an actively-updating one. Call :meth:`touch_member` (or rely on
         message activity) to pin a hot member.
 
         .. versionchanged:: 2.0

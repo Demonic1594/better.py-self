@@ -7,7 +7,6 @@ updates, nested components, repr storms, ext.commands hostile configuration.
 from __future__ import annotations
 
 import asyncio
-import datetime
 import time
 from types import SimpleNamespace
 
@@ -130,7 +129,7 @@ def test_nested_component_recursion():
 async def test_call_participant_bomb():
     client, state, guild, channel = await make_env()
     state.user = discord.ClientUser(state=state, data=up(5))
-    dm = state.add_dm_channel({'id': '77', 'type': 1, 'recipients': [up(9)], 'last_message_id': '1'})
+    state.add_dm_channel({'id': '77', 'type': 1, 'recipients': [up(9)], 'last_message_id': '1'})
     participants = [str(i) for i in range(50_000)]
     payload = msg_payload(
         id='5000',

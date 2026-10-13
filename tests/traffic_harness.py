@@ -389,7 +389,7 @@ def fixture_report(events: list[dict[str, Any]]) -> dict[str, Any]:
             if token in path:
                 path = path.split(token)[0] + token
                 break
-        routes[f"{e['method']} {path}"] += 1
+        routes[f'{e["method"]} {path}'] += 1
     report: dict[str, Any] = {
         'events': len(events),
         'duration_s': round(events[-1]['t'] - events[0]['t'], 3) if len(events) > 1 else 0.0,
