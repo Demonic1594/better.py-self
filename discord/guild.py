@@ -393,6 +393,10 @@ class _EvictedIds:
         return None, -1
 
     def __contains__(self, value: object) -> bool:
+        # Hot path (every member add consults this): empty means no runs
+        # to scan at all, which is the common case for most guilds
+        if not self._runs:
+            return False
         if not isinstance(value, int) or value < 0 or value >= 1 << 64:
             return False
         return self._find(value)[0] is not None

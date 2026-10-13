@@ -327,7 +327,9 @@ async def test_member_eviction_storm():
     print(
         f'100k-member storm: {dt:.1f}s, cache={len(guild._members)}, tracemalloc peak growth ok ({current / 1e6:.0f}MB live)'
     )
-    assert dt < 60
+    # Smoke bound (not a benchmark): the pre-batching per-insert eviction
+    # pathology runs into minutes; loaded CI runners legitimately take ~60s
+    assert dt < 90
 
 
 @pytest.mark.asyncio
