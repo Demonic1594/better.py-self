@@ -7,6 +7,19 @@ library with the same public API, while being more efficient (CPU and memory)
 than upstream. Changes should be backend-only: never remove or rename public
 functionality unless explicitly asked.
 
+## Upstream and refactor policy
+
+- Upstream is dolfies/discord.py-self (`master`). Staying fully in sync is
+  not required: periodically fetch it, review what changed, and merge. On
+  conflicts **our code wins**, but port in meaningful upstream fixes and
+  features. Record the synced commit in `.github/LATEST_UPSTREAM_COMMIT.txt`
+  and keep `docs/upstream_syncing.rst` (the divergence map) current.
+- Backend refactors are welcome anywhere, including code still identical
+  to upstream, when they make it faster, leaner or cleaner. The public API
+  (what users call, its signatures and its behaviour) must stay the same.
+  New optional parameters are fine; invalid input or unexpected states
+  should be logged clearly so issues are diagnosable.
+
 ## Working preferences
 
 - When reading through the whole codebase, or delegating code reading/mapping

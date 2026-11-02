@@ -1238,23 +1238,23 @@ class Client:
                 for idx in reversed(removed):
                     del listeners[idx]
 
+        # getattr with a default: most dispatched events (socket_event_type,
+        # raw_*) have no handler, and a raised-and-caught AttributeError per
+        # dispatch cost ~7x more than the lookup itself
         coro = self._event_handlers.get(method)
         if coro is None:
-            try:
-                coro = getattr(self, method)
-            except AttributeError:
+            coro = getattr(self, method, None)
+            if coro is None:
                 return
-            else:
-                self._event_handlers[method] = coro
-        elif getattr(self, method, None) is not coro:
-            # The handler was replaced/removed by direct attribute assignment
-            try:
-                coro = getattr(self, method)
-            except AttributeError:
-                del self._event_handlers[method]
-                return
-            else:
-                self._event_handlers[method] = coro
+            self._event_handlers[method] = coro
+        else:
+            current = getattr(self, method, None)
+            if current is not coro:
+                # The handler was replaced/removed by direct attribute assignment
+                if current is None:
+                    del self._event_handlers[method]
+                    return
+                self._event_handlers[method] = coro = current
 
         self._schedule_event(coro, method, *args, **kwargs)
 
