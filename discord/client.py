@@ -1762,7 +1762,10 @@ class Client:
         """
         # The private channel pseudo-guild settings have a guild ID of null
         state = self._connection
-        return state.guild_settings.get(None, state.default_guild_settings(None))
+        settings = state.guild_settings.get(None)
+        if settings is None:
+            settings = state.default_guild_settings(None)
+        return settings
 
     @property
     def initial_activity(self) -> Optional[ActivityTypes]:

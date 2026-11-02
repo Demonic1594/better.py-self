@@ -2348,12 +2348,10 @@ class Message(PartialMessage, Hashable):
         channel = self.channel
         settings = guild.notification_settings if guild else state.client.notification_settings
 
-        if (
-            channel.type in (ChannelType.private, ChannelType.group)
-            and not settings.muted
-            and not (getattr(channel, 'notification_settings', None) and channel.notification_settings.muted)  # type: ignore
-        ):
-            return True
+        if channel.type in (ChannelType.private, ChannelType.group) and not settings.muted:
+            channel_settings = getattr(channel, 'notification_settings', None)
+            if not (channel_settings and channel_settings.muted):
+                return True
         if state.user in self.mentions:
             return True
         if self.mention_everyone and not settings.suppress_everyone:

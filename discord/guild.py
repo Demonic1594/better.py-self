@@ -1122,7 +1122,11 @@ class Guild(Hashable):
         .. versionadded:: 2.0
         """
         state = self._state
-        return state.guild_settings.get(self.id, state.default_guild_settings(self.id))
+        # Not dict.get(key, default): that would build a throwaway default every call
+        settings = state.guild_settings.get(self.id)
+        if settings is None:
+            settings = state.default_guild_settings(self.id)
+        return settings
 
     @property
     def text_channels(self) -> List[TextChannel]:

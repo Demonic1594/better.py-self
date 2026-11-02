@@ -182,7 +182,9 @@ if TYPE_CHECKING:
     class _DecompressionContext(Protocol):
         COMPRESSION_TYPE: str
 
-        def decompress(self, data: bytes, /) -> str | None: ...
+        # Returns the raw UTF-8 bytes: both orjson and json.loads parse bytes
+        # directly, which saves decoding every gateway frame into a str copy
+        def decompress(self, data: bytes, /) -> bytes | None: ...
 
     P = ParamSpec('P')
 
@@ -813,6 +815,8 @@ if HAS_ORJSON:
         return orjson.dumps(obj, default=_handle_metadata).decode('utf-8')
 
     _from_json = orjson.loads
+    # orjson parses the raw UTF-8 gateway frame directly, skipping a str copy
+    _from_json_frame = orjson.loads
 
 else:
 
@@ -820,6 +824,13 @@ else:
         return json.dumps(obj, separators=(',', ':'), ensure_ascii=True, default=_handle_metadata)
 
     _from_json = json.loads
+
+    def _json_loads_frame(data: Union[str, bytes]) -> Any:
+        # json.loads(bytes) runs encoding detection first, which is slower
+        # than decoding the (always UTF-8) gateway frame ourselves
+        return json.loads(data.decode('utf-8') if type(data) is bytes else data)
+
+    _from_json_frame = _json_loads_frame
 
 
 def _parse_ratelimit_header(request: Any, *, use_clock: bool = False) -> float:
@@ -1789,9 +1800,9 @@ if _ZSTD_SOURCE is not None:
                 # which dynamically allocates a buffer, matching stdlib module's behavior.
                 self.decompressor = self.decompressor.decompressobj()
 
-        def decompress(self, data: bytes, /) -> str | None:
+        def decompress(self, data: bytes, /) -> bytes | None:
             # Each WS message is a complete gateway message
-            return self.decompressor.decompress(data).decode('utf-8')
+            return self.decompressor.decompress(data)
 
     _ActiveDecompressionContext: Type[_DecompressionContext] = _ZstdDecompressionContext
 else:
@@ -1805,7 +1816,7 @@ else:
             self.buffer: bytearray = bytearray()
             self.context = zlib.decompressobj()
 
-        def decompress(self, data: bytes, /) -> str | None:
+        def decompress(self, data: bytes, /) -> bytes | None:
             buffer = self.buffer
             if buffer:
                 buffer.extend(data)
@@ -1820,7 +1831,7 @@ else:
                     return
                 msg = self.context.decompress(data)
 
-            return msg.decode('utf-8')
+            return msg
 
     _ActiveDecompressionContext: Type[_DecompressionContext] = _ZlibDecompressionContext
 

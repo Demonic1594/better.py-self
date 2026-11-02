@@ -28,6 +28,7 @@ import asyncio
 from collections import deque, OrderedDict
 import copy
 import datetime
+import functools
 import gc
 import logging
 import os
@@ -167,6 +168,32 @@ _log = logging.getLogger(__name__)
 # process, one client's unfreeze must not thaw the others' graphs. This
 # counter tracks how many connection states currently hold a freeze.
 _gc_freeze_holders: int = 0
+
+F = TypeVar('F', bound=Callable[..., Any])
+
+
+def _gc_paused(func: F) -> F:
+    """Pauses the cyclic GC while a bulk payload builds long-lived objects.
+
+    READY and large guild/member payloads allocate tens of thousands of objects
+    that all survive; each generational collection they trigger re-scans the
+    growing graph, which costs ~10-15% of the parse. The parse is synchronous,
+    so collection simply resumes when it returns (or raises). Left alone when
+    the application has disabled the GC itself; nested calls are no-ops.
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        if not gc.isenabled():
+            return func(*args, **kwargs)
+        gc.disable()
+        try:
+            return func(*args, **kwargs)
+        finally:
+            gc.enable()
+
+    return wrapper  # type: ignore
+
 
 # Cache persistence limits
 PERSISTENCE_DEFAULT_MAX_AGE: float = 14 * 24 * 3600  # seconds
@@ -2187,6 +2214,7 @@ class ConnectionState:
 
         self._gc_freeze_task = asyncio.create_task(freeze_later())
 
+    @_gc_paused
     def parse_ready(self, data: gw.ReadyEvent) -> None:
         if self._ready_task is not None:
             self._ready_task.cancel()
@@ -2266,6 +2294,7 @@ class ConnectionState:
         # Before parsing the rest, we wait for READY_SUPPLEMENTAL
         # This has voice state objects as well as an initial member cache
 
+    @_gc_paused
     def parse_ready_supplemental(self, extra_data: gw.ReadySupplementalEvent) -> None:
         data = self._ready_data
 
@@ -3910,6 +3939,7 @@ class ConnectionState:
         else:
             self.dispatch('guild_join', guild)
 
+    @_gc_paused
     def parse_guild_create(self, data: gw.GuildCreateEvent):
         if 'properties' in data:
             data.update(data.pop('properties'))  # type: ignore
@@ -4032,6 +4062,7 @@ class ConnectionState:
         else:
             _log.debug('GUILD_ROLE_UPDATE referencing an unknown guild ID: %s. Discarding.', data['guild_id'])
 
+    @_gc_paused
     def parse_guild_members_chunk(self, data: gw.GuildMembersChunkEvent) -> None:
         guild_id = int(data['guild_id'])
         guild = self._get_guild(guild_id)
