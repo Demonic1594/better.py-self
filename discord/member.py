@@ -500,7 +500,7 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
         return self._user._update_self(user)
 
     def _get_voice_client_key(self) -> Tuple[int, str]:
-        return self._state.self_id, 'self_id'  # type: ignore # self_id is always set at this point
+        return self._state.self_id, 'self_id'  # self_id is always set at this point
 
     def _get_voice_state_pair(self) -> Tuple[int, int]:
         return self._state.self_id, self.dm_channel.id  # type: ignore # self_id is always set at this point

@@ -712,7 +712,32 @@ def get(iterable: _Iter[T], /, **attrs: Any) -> Union[Optional[T], Coro[Optional
 
 
 def _unique(iterable: Iterable[T]) -> List[T]:
-    return [x for x in dict.fromkeys(iterable)]
+    return list(dict.fromkeys(iterable))
+
+
+def _write_bytes(fp: Union[str, bytes, os.PathLike[Any]], data: bytes) -> int:
+    with open(fp, 'wb') as f:
+        return f.write(data)
+
+
+# The event loop only keeps weak references to tasks, so a fire-and-forget
+# task with no other reference can be garbage collected mid-execution.
+# https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
+_background_tasks: Set[asyncio.Task[Any]] = set()
+
+
+def _spawn_background(
+    coro: Coroutine[Any, Any, Any],
+    /,
+    *,
+    loop: Optional[asyncio.AbstractEventLoop] = None,
+    name: Optional[str] = None,
+) -> asyncio.Task[Any]:
+    """Schedules a fire-and-forget coroutine, holding a strong reference until it finishes."""
+    task = (loop or asyncio.get_running_loop()).create_task(coro, name=name)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task
 
 
 def _get_as_snowflake(data: Any, key: str) -> Optional[int]:

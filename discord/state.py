@@ -446,7 +446,7 @@ class MemberSidebar:
             pass
 
     def start(self):
-        self.loop.create_task(self.wrapper())
+        utils._spawn_background(self.wrapper(), loop=self.loop)
 
     async def wrapper(self):
         try:
@@ -522,7 +522,7 @@ class MemberSidebar:
                 self.subscribing = False
                 break
 
-        state.loop.create_task(state.subscriptions.subscribe_to_channels(guild, {}, replace=True))
+        utils._spawn_background(state.subscriptions.subscribe_to_channels(guild, {}, replace=True), loop=state.loop)
 
 
 class GuildSubscriptions:
@@ -2709,7 +2709,7 @@ class ConnectionState:
             self.dispatch('bulk_message_delete', found_messages)
             for msg in found_messages:
                 # self._messages won't be None here
-                self._remove_message_from_cache(msg)  # type: ignore
+                self._remove_message_from_cache(msg)
 
     def _has_listener(self, *events: str) -> bool:
         # Checks whether any wait_for listener or event handler exists for the given events
@@ -3101,7 +3101,7 @@ class ConnectionState:
             # or all sessions are the same state
             # In the case it is "removed", we try to update the old one
             # Else, we create a new one with fake data
-            fake = data.get(self.session_id, list(data.values())[0])  # type: ignore
+            fake = data.get(self.session_id) or next(iter(data.values()))  # type: ignore
             if old_all is not None:
                 old = copy.copy(old_all)
                 old_all._update(fake)
@@ -3923,11 +3923,11 @@ class ConnectionState:
             self.subscriptions._initial_thread_subscription(guild.id)
 
         if self._subscribe_guilds and not guild.unavailable:
-            asyncio.ensure_future(self.subscribe_guild(guild), loop=self.loop)
+            utils._spawn_background(self.subscribe_guild(guild), loop=self.loop)
 
         # Chunk if needed
         needs_chunking = self._guild_needs_chunking(guild)
-        asyncio.ensure_future(self._chunk_and_dispatch(guild, needs_chunking, data.get('unavailable')), loop=self.loop)
+        utils._spawn_background(self._chunk_and_dispatch(guild, needs_chunking, data.get('unavailable')), loop=self.loop)
 
     def parse_guild_update(self, data: gw.GuildUpdateEvent) -> None:
         guild = self._get_guild(int(data['id']))
@@ -4350,7 +4350,7 @@ class ConnectionState:
             voice = self._get_voice_client(guild.id if guild else self_id)
             if voice is not None:
                 coro = voice.on_voice_state_update(data)
-                asyncio.create_task(logging_coroutine(coro, info='Voice Protocol voice state update handler'))
+                utils._spawn_background(logging_coroutine(coro, info='Voice Protocol voice state update handler'))
 
         if guild is not None:
             member, before, after = guild._update_voice_state(data, channel_id)
@@ -4376,13 +4376,13 @@ class ConnectionState:
         vc = self._get_voice_client(key_id)
         if vc is not None:
             coro = vc.on_voice_server_update(data)
-            asyncio.create_task(logging_coroutine(coro, info='Voice Protocol voice server update handler'))
+            utils._spawn_background(logging_coroutine(coro, info='Voice Protocol voice server update handler'))
 
     def _dispatch_stream_protocol_event(self, stream_key: StreamKey, handler: str, *args: Any, info: str) -> None:
         stream = self._get_stream_client(stream_key)
         if stream is not None:
             coro = getattr(stream, handler)(*args)
-            asyncio.create_task(logging_coroutine(coro, info=info))
+            utils._spawn_background(logging_coroutine(coro, info=info))
 
     def parse_stream_create(self, data: gw.StreamCreateEvent) -> None:
         old, stream = self._store_stream(data)

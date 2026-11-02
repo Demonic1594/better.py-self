@@ -345,8 +345,7 @@ class Attachment(Hashable):
                 fp.seek(0)
             return written
         else:
-            with open(fp, 'wb') as f:
-                return f.write(data)
+            return await asyncio.to_thread(utils._write_bytes, fp, data)
 
     async def read(self, *, use_cached: bool = False) -> bytes:
         """|coro|
@@ -1061,7 +1060,7 @@ class PartialMessage(Hashable):
                 except HTTPException:
                     pass
 
-            asyncio.create_task(delete(delay))
+            utils._spawn_background(delete(delay))
         else:
             await self._state.http.delete_message(self.channel.id, self.id)
 

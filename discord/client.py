@@ -680,7 +680,7 @@ class Client:
             _log.debug(
                 'Setting initial presence to (status=%s, activities=%s, afk=%s, since=%s)', status, activities, afk, since
             )
-            self.loop.create_task(
+            utils._spawn_background(
                 self.change_presence(
                     activities=activities, status=status, afk=afk, idle_since=since, edit_settings=self._sync_presences
                 )
@@ -1397,7 +1397,7 @@ class Client:
         # The aiohttp session is created lazily; make sure it exists before
         # the fingerprint fetches use it (they fail - and the header context
         # silently falls back to the 9999 placeholder build - otherwise)
-        session = await http._ensure_asession()  # type: ignore
+        session = await http._ensure_asession()
         return await HeadersContext.default(session, http.proxy, http.proxy_auth)
 
     async def _async_setup_hook(self) -> None:

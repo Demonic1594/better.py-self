@@ -319,7 +319,7 @@ class _HelpCommandImpl(Command):
 
     def update(self, **kwargs: Any) -> None:
         cog = self.cog
-        self.__init__(self._original, **dict(self.__original_kwargs__, **kwargs))  # type: ignore
+        self.__init__(self._original, **dict(self.__original_kwargs__, **kwargs))
         self.cog = cog
 
 
