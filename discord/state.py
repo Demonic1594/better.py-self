@@ -666,19 +666,26 @@ class GuildSubscriptions:
     async def _tick_task(self) -> None:
         try:
             await asyncio.sleep(self.TICK_TIMEOUT)
-            if self._state.ws.open:
-                await self._flush()
-                self._task = None
-            else:
-                self._task = None
-                self._tick()
         except asyncio.CancelledError:
-            pass
+            return
+
+        # Past the delay this task is no longer the pending tick: a concurrent
+        # _tick() (any subscribe call) must schedule a new tick rather than
+        # cancel this one mid-send, which would drop the in-flight payload
+        if self._task is asyncio.current_task():
+            self._task = None
+
+        ws = self._state.ws
+        if ws is not None and ws.open:
+            await self._flush()
+        else:
+            self._tick()
 
     def _tick(self) -> None:
         self._cancel()
         if not self._blocked:
-            self._task = self._state.loop.create_task(self._tick_task())
+            # Strongly referenced until done: once flushing, _task no longer holds it
+            self._task = utils._spawn_background(self._tick_task(), loop=self._state.loop)
 
     @property
     def empty(self) -> bool:
@@ -804,7 +811,10 @@ class GuildSubscriptions:
             if len(utils._to_json(changes)) > self.MAX_PAYLOAD_SIZE:
                 raise ValueError('Guild subscription payload too large to send')
             await self._flush()
-            self._pending = changes
+            # Other subscribe calls may have queued changes during the flush;
+            # merge into them instead of overwriting
+            await self._checked_add(changes)
+            return
         else:
             self._pending = new_payload
 
@@ -1972,6 +1982,22 @@ class ConnectionState:
             del index[message.id]
         self._call_message_cache.pop(message.id, None)
 
+    def _remove_messages_from_cache(self, found: List[Message], ids: Set[int]) -> None:
+        # Bulk form of _remove_message_from_cache: one pass over the deque
+        # instead of one O(n) deque.remove() per deleted message
+        messages = self._messages
+        if messages is not None:
+            kept = [message for message in messages if message.id not in ids]
+            if len(kept) != len(messages):
+                messages.clear()  # in place: the deque object (and maxlen) stays the same
+                messages.extend(kept)
+        index = self._messages_index
+        call_cache = self._call_message_cache
+        for message in found:
+            if index.get(message.id) is message:
+                del index[message.id]
+            call_cache.pop(message.id, None)
+
     def _add_guild_from_data(self, data: GuildPayload) -> Guild:
         guild = self.create_guild(data)
         self._add_guild(guild)
@@ -2735,9 +2761,7 @@ class ConnectionState:
         self.dispatch('raw_bulk_message_delete', raw)
         if found_messages:
             self.dispatch('bulk_message_delete', found_messages)
-            for msg in found_messages:
-                # self._messages won't be None here
-                self._remove_message_from_cache(msg)
+            self._remove_messages_from_cache(found_messages, raw.message_ids)
 
     def _has_listener(self, *events: str) -> bool:
         # Checks whether any wait_for listener or event handler exists for the given events
