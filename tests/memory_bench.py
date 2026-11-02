@@ -168,7 +168,27 @@ def _guild(gid: int) -> dict:
     }
 
 
-def ready_payload(user_id: int = 5) -> dict:
+def _experiments(count: int) -> tuple:
+    """User and guild experiments shaped like a real READY (array-encoded)."""
+    user = [[1_000_000 + e, 3, e % 3, -1, 0, 5000 + e, 0, 0, None, None, None] for e in range(count)]
+    guild = []
+    for e in range(count):
+        populations = [
+            [
+                [[e % 3, [{'s': 0, 'e': 1000 + e}, {'s': 5000, 'e': 6000}]], [-1, [{'s': 1000, 'e': 5000}]]],
+                [
+                    [1604612045, [[1183251248, ['COMMUNITY', 'DISCOVERABLE']]]],
+                    [2918402255, [[3399957344, None], [1238858341, 10000]]],
+                ],
+            ],
+            [[[1, [{'s': 0, 'e': 10000}]]], [[2404720969, [[3399957344, None], [1238858341, 10**18]]]]],
+        ]
+        overrides = [{'b': 1, 'k': [str(10**17 + e * 100 + k) for k in range(e % 20)]}]
+        guild.append([2_000_000 + e, f'2024-0{e % 9 + 1}_experiment_{e}', 2, populations, overrides, [], None, None, 0, 0])
+    return user, guild
+
+
+def ready_payload(user_id: int = 5, *, experiments: int = 0) -> dict:
     friends = [100 + i for i in range(FRIENDS)]
     users = [_user(u) for u in friends]
     guilds = [_guild(g) for g in range(1, GUILDS + 1)]
@@ -211,8 +231,8 @@ def ready_payload(user_id: int = 5) -> dict:
         'auth_token': None,
         'read_state': {'version': 0, 'partial': False, 'entries': read_states},
         'user_guild_settings': {'version': 0, 'partial': False, 'entries': guild_settings},
-        'experiments': [],
-        'guild_experiments': [],
+        'experiments': _experiments(experiments)[0],
+        'guild_experiments': _experiments(experiments)[1],
         'friend_suggestion_count': 0,
         'connected_accounts': [],
         'consents': {},
@@ -272,13 +292,13 @@ def member_payloads(gid: int, count: int) -> list:
     ]
 
 
-async def measure(*, top: int = 0, members: int = 0, **client_kwargs) -> dict:
+async def measure(*, top: int = 0, members: int = 0, experiments: int = 0, **client_kwargs) -> dict:
     """Returns retained bytes after a full READY (the payload itself is freed).
 
     ``members`` additionally caches that many members in the first guild, as
     member-list chunking of a large guild would.
     """
-    payload = ready_payload()
+    payload = ready_payload(experiments=experiments)
     gc.collect()
     tracemalloc.start(1)
     before = tracemalloc.take_snapshot()
@@ -321,8 +341,17 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument('--top', type=int, default=0)
     parser.add_argument('--members', type=int, default=0)
+    parser.add_argument('--experiments', type=int, default=0, help='user + guild experiments each (real READY: ~350)')
     args = parser.parse_args()
-    res = asyncio.run(measure(top=args.top, members=args.members, max_member_cache=None, max_total_member_cache=None))
+    res = asyncio.run(
+        measure(
+            top=args.top,
+            members=args.members,
+            experiments=args.experiments,
+            max_member_cache=None,
+            max_total_member_cache=None,
+        )
+    )
     print(
         f'retained {res["retained_bytes"] / 1024 / 1024:.2f} MiB '
         f'({res["guilds"]} guilds, {res["channels"]} channels, {res["users"]} users, {res["members"]} members)'
