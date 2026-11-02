@@ -225,13 +225,95 @@ class ContextProperties(metaclass=ContextPropertiesMeta):
         return True
 
 
-def _resolve_proxy_auth(proxy_auth: Optional[Union[BasicAuth, Tuple[str, str]]]) -> Optional[BasicAuth]:
+def _resolve_proxy_auth(
+    proxy_auth: Optional[Union[BasicAuth, Tuple[str, str]]], session: Any = None
+) -> Optional[Union[BasicAuth, Tuple[str, str]]]:
     # HACK: Client technically allows tuples as proxy auth
-    if proxy_auth is None:
-        return None
-    if isinstance(proxy_auth, BasicAuth):
+    if proxy_auth is None or isinstance(session, _CurlFetchSession) or type(proxy_auth) is not tuple:
         return proxy_auth
+    # Only an aiohttp session needs a BasicAuth, and it means aiohttp is already imported
+    from aiohttp import BasicAuth
+
     return BasicAuth(proxy_auth[0], proxy_auth[1])
+
+
+class _CurlFetchResponse:
+    """Exposes the slice of the aiohttp response API the fetch helpers use."""
+
+    __slots__ = ('_response',)
+
+    def __init__(self, response: requests.Response) -> None:
+        self._response = response
+
+    @property
+    def status(self) -> int:
+        return self._response.status_code
+
+    @property
+    def reason(self) -> str:
+        return self._response.reason
+
+    @property
+    def ok(self) -> bool:
+        return self._response.ok
+
+    @property
+    def headers(self) -> Any:
+        return self._response.headers
+
+    async def text(self) -> str:
+        return self._response.text
+
+    async def json(self) -> Any:
+        return self._response.json()
+
+
+class _CurlFetchRequest:
+    __slots__ = ('_session', '_method', '_url', '_kwargs')
+
+    def __init__(self, session: requests.AsyncSession, method: str, url: str, kwargs: Dict[str, Any]) -> None:
+        self._session = session
+        self._method = method
+        self._url = url
+        self._kwargs = kwargs
+
+    async def __aenter__(self) -> _CurlFetchResponse:
+        kwargs = self._kwargs
+        proxy_auth = kwargs.pop('proxy_auth', None)
+        if proxy_auth is not None and type(proxy_auth) is not tuple:
+            # An aiohttp.BasicAuth passed through by the caller
+            proxy_auth = (proxy_auth.login, proxy_auth.password)
+        if proxy_auth is not None:
+            kwargs['proxy_auth'] = proxy_auth
+        if kwargs.get('proxy') is None:
+            kwargs.pop('proxy', None)
+        response = await self._session.request(self._method, self._url, **kwargs)  # type: ignore
+        return _CurlFetchResponse(response)
+
+    async def __aexit__(self, *exc: Any) -> None:
+        return None
+
+
+class _CurlFetchSession:
+    """Lets the :class:`HeadersContext` fetch helpers run over curl_cffi.
+
+    The default login path uses this so that it does not have to import
+    aiohttp (roughly 10 MB of resident memory per process) just to look up
+    the client build number; aiohttp is then only loaded if the CDN or cloud
+    upload helpers are actually used. User code may still pass a real
+    :class:`aiohttp.ClientSession` to these helpers.
+    """
+
+    __slots__ = ('_session',)
+
+    def __init__(self, session: requests.AsyncSession) -> None:
+        self._session = session
+
+    def get(self, url: str, **kwargs: Any) -> _CurlFetchRequest:
+        return _CurlFetchRequest(self._session, 'GET', url, kwargs)
+
+    def post(self, url: str, **kwargs: Any) -> _CurlFetchRequest:
+        return _CurlFetchRequest(self._session, 'POST', url, kwargs)
 
 
 class APIProperties(TypedDict):
@@ -554,7 +636,7 @@ class HeadersContext:
         async with session.post(
             f'https://cordapi.dolfi.es/api/v2/properties/{type.lower()}',
             proxy=proxy,
-            proxy_auth=_resolve_proxy_auth(proxy_auth),
+            proxy_auth=_resolve_proxy_auth(proxy_auth, session),
             headers={'User-Agent': f'discord.py-self/{__version__} curl_cffi/{curl_cffi.__version__}'},  # type: ignore
         ) as resp:
             if not resp.ok:
@@ -593,7 +675,9 @@ class HeadersContext:
         :class:`int`
             The client build number.
         """
-        async with session.get('https://discord.com/login', proxy=proxy, proxy_auth=_resolve_proxy_auth(proxy_auth)) as resp:
+        async with session.get(
+            'https://discord.com/login', proxy=proxy, proxy_auth=_resolve_proxy_auth(proxy_auth, session)
+        ) as resp:
             app = await resp.text()
             match = _BUILD_NUMBER_REGEX.search(app)
             if match is None:
@@ -642,7 +726,7 @@ class HeadersContext:
         async with session.get(
             f'https://versionhistory.googleapis.com/v1/chrome/platforms/{api_platform}/channels/stable/versions',
             proxy=proxy,
-            proxy_auth=_resolve_proxy_auth(proxy_auth),
+            proxy_auth=_resolve_proxy_auth(proxy_auth, session),
         ) as response:
             if not response.ok:
                 raise HTTPException(response, 'Failed to fetch Chrome version from API')
@@ -680,7 +764,7 @@ class HeadersContext:
         async with session.get(
             'https://product-details.mozilla.org/1.0/firefox_versions.json',
             proxy=proxy,
-            proxy_auth=_resolve_proxy_auth(proxy_auth),
+            proxy_auth=_resolve_proxy_auth(proxy_auth, session),
         ) as response:
             if not response.ok:
                 raise HTTPException(response, 'Failed to fetch Firefox version from API')
@@ -728,7 +812,7 @@ class HeadersContext:
         async with session.get(
             'https://edgeupdates.microsoft.com/api/products',
             proxy=proxy,
-            proxy_auth=_resolve_proxy_auth(proxy_auth),
+            proxy_auth=_resolve_proxy_auth(proxy_auth, session),
         ) as response:
             if not response.ok:
                 raise HTTPException(response, 'Failed to fetch Edge version from API')
@@ -773,7 +857,7 @@ class HeadersContext:
         async with session.get(
             'https://developer.apple.com/tutorials/data/documentation/safari-release-notes.json',
             proxy=proxy,
-            proxy_auth=_resolve_proxy_auth(proxy_auth),
+            proxy_auth=_resolve_proxy_auth(proxy_auth, session),
         ) as response:
             if not response.ok:
                 raise HTTPException(response, 'Failed to fetch Safari version from API')

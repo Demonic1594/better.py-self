@@ -1010,7 +1010,7 @@ class ClientStatus:
 
 
 class Presence:
-    __slots__ = ('client_status', 'activities', 'hidden_activities', '_raw_activities')
+    __slots__ = ('client_status', 'activities', 'hidden_activities')
 
     _OFFLINE: ClassVar[Self] = MISSING
 
@@ -1022,7 +1022,6 @@ class Presence:
         self.hidden_activities: Tuple[ActivityTypes, ...] = tuple(
             create_activity(d, state, user_id) for d in data.get('hidden_activities', [])
         )
-        self._raw_activities: List[Any] = data.get('activities', [])
 
     def __repr__(self) -> str:
         attrs = [
@@ -1050,8 +1049,9 @@ class Presence:
     def _update(self, data: gw.BasePresenceUpdate, state: ConnectionState, user_id: int, /) -> None:
         self.client_status._update(data['status'], data.get('client_status'))
         raw_activities = data['activities']
-        if raw_activities != self._raw_activities:
-            self._raw_activities = raw_activities
+        # The raw activity dicts are not kept (they would double the memory of
+        # every presence with an activity), so re-parse unless both are empty
+        if raw_activities or self.activities:
             self.activities = tuple(create_activity(d, state, user_id) for d in raw_activities)
 
     @classmethod
@@ -1061,7 +1061,6 @@ class Presence:
             self.client_status = ClientStatus()
             self.activities = ()
             self.hidden_activities = ()
-            self._raw_activities = []
             cls._OFFLINE = self
 
         return cls._OFFLINE
@@ -1072,7 +1071,6 @@ class Presence:
         self.client_status = ClientStatus._copy(presence.client_status)
         self.activities = presence.activities
         self.hidden_activities = presence.hidden_activities
-        self._raw_activities = presence._raw_activities
         return self
 
 
@@ -1789,7 +1787,8 @@ class ConnectionState:
         except KeyError:
             user = User(state=self, data=data)
             if cache:
-                self._users[user_id] = user
+                # Key on the user's own id int so each cached user holds one int, not two
+                self._users[user.id] = user
             return user
 
     def create_user(self, data: Union[UserPayload, PartialUserPayload], cache: bool = False) -> User:

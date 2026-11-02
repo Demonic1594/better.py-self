@@ -218,10 +218,16 @@ async def test_member_update_fast_paths(env):
     # Real change returns the old copy
     old = m._update({'user': base['user'], 'roles': ['1'], 'premium_since': None, 'nick': 'new', 'pending': False})
     assert old is not None and old.nick is None and m.nick == 'new'
-    # Message updates with identical raw fields don't re-parse
-    m._raw_joined_at = 'SAME'
-    m._update_from_message({'roles': ['1'], 'joined_at': 'SAME'})
-    assert m._raw_joined_at == 'SAME'
+    # Message updates with identical fields keep the existing objects
+    joined_at, roles = m.joined_at, m._roles
+    m._update_from_message({'roles': ['1'], 'joined_at': '2023-01-01T00:00:00+00:00'})
+    assert m.joined_at is joined_at and m._roles is roles
+    # Reordered but equal roles are not a change either
+    m._update_from_message({'roles': ['2', '1'], 'joined_at': '2023-01-01T00:00:00+00:00'})
+    assert list(m._roles) == [1, 2]
+    roles = m._roles
+    assert m._update({'user': base['user'], 'roles': ['1', '2'], 'nick': None, 'pending': False}) is None
+    assert m._roles is roles
     # Absent joined_at clears it (upstream overwrite semantics)
     m._update_from_message({'roles': ['1']})
-    assert m._raw_joined_at is None and m.joined_at is None
+    assert m.joined_at is None
