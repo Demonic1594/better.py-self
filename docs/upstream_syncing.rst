@@ -35,7 +35,10 @@ Where our changes live
 -----------------------
 
 Gateway and websocket (``discord/gateway.py``)
-    Decompression contexts return bytes and ``received_message`` parses
+    ``wait_for`` futures remove their listener entry when cancelled (e.g.
+    by an ``asyncio.wait_for`` timeout), and errors raised by a listener's
+    ``result`` callback go to its future instead of out of
+    ``received_message``. Decompression contexts return bytes and ``received_message`` parses
     them with ``utils._from_json_frame`` (``debug_log_receive`` decodes
     for ``on_socket_raw_receive``); ``poll_event`` uses a lazily-resolved ``asyncio.timeout`` context
     (with a ``wait_for`` fallback for Python < 3.11); ``close()`` is
@@ -49,7 +52,13 @@ Connection state (``discord/state.py``)
 
     - O(1) message cache via ``_messages_index`` (helpers
       ``_add_message_to_cache`` / ``_remove_message_from_cache``); all
-      appends must go through them.
+      appends must go through them. Bulk deletes use
+      ``_remove_messages_from_cache`` (one in-place pass over the deque).
+    - ``GuildSubscriptions``: once a tick task is past its delay it clears
+      ``_task`` before flushing, so a concurrent ``_tick()`` schedules a new
+      tick instead of cancelling the in-flight send; tick tasks are held by
+      ``utils._spawn_background``; the ``_checked_add`` overflow path merges
+      into ``_pending`` after the flush instead of overwriting it.
     - Presence updates: ``ClientStatus`` has value equality (no-op
       suppression depends on it); ``Presence`` does not keep the raw
       activity payloads (memory) and only skips re-parsing when both the

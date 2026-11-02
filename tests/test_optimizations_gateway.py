@@ -207,3 +207,23 @@ async def test_compressed_frame_parses_from_bytes_and_raw_event_gets_str(monkeyp
     raw = [a for a in dispatched if a[0] == 'socket_raw_receive']
     assert raw and type(raw[0][1]) is str and raw[0][1] == payload.decode()
     assert ('parsed', {'channel_id': '1', 'user_id': '2', 'emoji': 'é'}) in dispatched
+
+
+@pytest.mark.asyncio
+async def test_listener_result_error_goes_to_waiter_not_receive_loop():
+    ws = make_ws(asyncio.get_running_loop())
+    ws._discord_parsers = {'GUILD_MEMBER_LIST_UPDATE': lambda d: None}
+
+    def boom(data):
+        raise KeyError('missing')
+
+    failing = ws.wait_for('GUILD_MEMBER_LIST_UPDATE', lambda d: True, result=boom)
+    ok = ws.wait_for('GUILD_MEMBER_LIST_UPDATE', lambda d: True)
+
+    # Used to raise out of received_message (ending the poll loop -> reconnect)
+    await ws.received_message('{"t":"GUILD_MEMBER_LIST_UPDATE","s":3,"op":0,"d":{"guild_id":"1"}}')
+
+    with pytest.raises(KeyError):
+        failing.result()
+    assert ok.result() == {'guild_id': '1'}
+    assert ws._dispatch_listeners == []

@@ -551,7 +551,19 @@ class DiscordWebSocket:
         event = event.upper()
         future = self.loop.create_future()
         entry = EventListener(event=event, predicate=predicate, result=result, future=future)
-        self._dispatch_listeners.append(entry)
+        listeners = self._dispatch_listeners
+        listeners.append(entry)
+
+        def _discard_if_cancelled(fut: asyncio.Future[Any], /) -> None:
+            # Callers wrap this in asyncio.wait_for(); on timeout the entry would
+            # otherwise linger until an event of the same name arrives (maybe never)
+            if fut.cancelled():
+                try:
+                    listeners.remove(entry)
+                except ValueError:
+                    pass
+
+        future.add_done_callback(_discard_if_cancelled)
         return future
 
     async def identify(self) -> None:
@@ -731,15 +743,21 @@ class DiscordWebSocket:
                     removed.append(index)
                     continue
 
+                ret: Any = None
                 try:
                     valid = entry.predicate(data)
+                    if valid:
+                        ret = data if entry.result is None else entry.result(data)
                 except Exception as exc:
-                    future.set_exception(exc)
+                    # Deliver errors to the waiter; escaping here would end the
+                    # receive loop and force a reconnect
+                    if not future.done():
+                        future.set_exception(exc)
                     removed.append(index)
                 else:
                     if valid:
-                        ret = data if entry.result is None else entry.result(data)
-                        future.set_result(ret)
+                        if not future.done():
+                            future.set_result(ret)
                         removed.append(index)
 
             for index in reversed(removed):
