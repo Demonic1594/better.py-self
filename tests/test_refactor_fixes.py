@@ -233,3 +233,50 @@ async def test_dispatch_handler_add_replace_remove_and_none():
 
     assert calls == ['first', 'second']
     await client.close()
+
+
+async def _presence_env():
+    import discord
+    from discord import Client, Guild
+
+    client = Client()
+    await client._async_setup_hook()
+    state = client._connection
+    guild = Guild(state=state, data={'id': '1', 'roles': [{'id': '1', 'name': '@everyone'}], 'member_count': 5})
+    state._guilds[1] = guild
+    user = {'id': '7', 'username': 'u', 'discriminator': '0001', 'global_name': None, 'avatar': None}
+    guild._add_member(
+        discord.Member(data={'user': user, 'roles': [], 'joined_at': '2023-01-01T00:00:00+00:00'}, guild=guild, state=state)
+    )
+    return client, state, guild
+
+
+def _presence(status):
+    return {'user': {'id': '7'}, 'status': status, 'activities': [], 'client_status': {'desktop': status}}
+
+
+@pytest.mark.asyncio
+async def test_presence_cache_updates_without_listener():
+    import discord
+
+    client, state, guild = await _presence_env()
+    state._handle_presence_update(guild, _presence('online'))
+    state._handle_presence_update(guild, _presence('dnd'))
+    assert guild.get_member(7).status is discord.Status.dnd
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_presence_wait_for_only_listener_gets_before_and_after():
+    import discord
+
+    client, state, guild = await _presence_env()
+    state._handle_presence_update(guild, _presence('online'))
+
+    waiter = asyncio.ensure_future(client.wait_for('presence_update', timeout=1))
+    await asyncio.sleep(0)
+    state._handle_presence_update(guild, _presence('idle'))
+    before, after = await waiter
+
+    assert before.status is discord.Status.online and after.status is discord.Status.idle
+    await client.close()

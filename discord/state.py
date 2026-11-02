@@ -2795,14 +2795,18 @@ class ConnectionState:
         # Checks whether any wait_for listener or event handler exists for the given events
         client = self.client
         listeners = client._listeners
+        handlers = client._event_handlers
         for event in events:
-            if listeners.get(event):
+            method = 'on_' + event
+            # Handlers seen by dispatch() are cached: the common "yes" is one dict
+            # hit. A stale entry only costs a false positive (some extra work)
+            if method in handlers or listeners.get(event):
                 return True
-            if hasattr(client, 'on_' + event):
+            if hasattr(client, method):
                 return True
             # ext.commands Bot.listen/cog listeners are stored separately
             extra_events = getattr(client, 'extra_events', None)
-            if extra_events and extra_events.get('on_' + event):
+            if extra_events and extra_events.get(method):
                 return True
         return False
 
@@ -2949,16 +2953,22 @@ class ConnectionState:
             return
         user_id = int(user['id'])
 
-        if guild is not None and guild.get_member(user_id) is None:
-            # Drop any stale presence left over from before the member was
-            # evicted; keeping it would leak memory and could serve stale data
-            self.remove_presence(user_id, guild_id)
-            _log.debug('PRESENCE_UPDATE referencing an unknown member ID: %s. Discarding.', user_id)
-            return
+        member = None
+        if guild is not None:
+            member = guild.get_member(user_id)
+            if member is None:
+                # Drop any stale presence left over from before the member was
+                # evicted; keeping it would leak memory and could serve stale data
+                self.remove_presence(user_id, guild_id)
+                _log.debug('PRESENCE_UPDATE referencing an unknown member ID: %s. Discarding.', user_id)
+                return
 
+        # The old/new comparison only feeds on_presence_update: skip the copy
+        # and compare when nothing listens (the cache is updated either way)
+        listening = self._has_listener('presence_update')
         presence = self.get_presence(user_id, guild_id)
         if presence is not None:
-            old_presence = Presence._copy(presence)
+            old_presence = Presence._copy(presence) if listening else presence
             presence._update(data, self, user_id)
         else:
             old_presence = Presence._offline()
@@ -2973,18 +2983,16 @@ class ConnectionState:
                 return
 
             user_update = relationship.user._update_self(user)  # type: ignore
-            if old_presence != presence:
+            if listening and old_presence != presence:
                 old_relationship = Relationship._copy(relationship, old_presence)
                 self.dispatch('presence_update', old_relationship, relationship)
         else:
-            member = guild.get_member(user_id)
-
             # Presence updates keep flowing for online members, so mark them as
             # recently used to protect them from cache eviction
             guild._touch_member(user_id)
 
             user_update = member._user._update_self(user)  # type: ignore
-            if old_presence != presence:
+            if listening and old_presence != presence:
                 old_member = Member._copy(member)  # type: ignore # Member existence was validated above
                 old_member._presence = old_presence
                 self.dispatch('presence_update', old_member, member)
