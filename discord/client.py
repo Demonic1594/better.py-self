@@ -56,7 +56,7 @@ from typing import (
     Union,
 )
 
-from curl_cffi import CurlError
+from curl_cffi import CurlError, requests as curl_requests
 
 from .user import _UserTag, RecentAvatar, User, ClientUser
 from .invite import Invite
@@ -118,7 +118,7 @@ from .settings import UserSettings, LegacyUserSettings, TrackingSettings, EmailS
 from .affinity import *
 from .oauth2 import OAuth2Authorization, OAuth2Token
 from .experiment import ApexExperiment, UserExperiment, GuildExperiment
-from .tracking import HeadersContext
+from .tracking import HeadersContext, _CurlFetchSession
 from .discovery import GuildProfile
 
 if TYPE_CHECKING:
@@ -1394,11 +1394,12 @@ class Client:
             The headers context for the client.
         """
         http = self.http
-        # The aiohttp session is created lazily; make sure it exists before
-        # the fingerprint fetches use it (they fail - and the header context
-        # silently falls back to the 9999 placeholder build - otherwise)
-        session = await http._ensure_asession()
-        return await HeadersContext.default(session, http.proxy, http.proxy_auth)
+        # Run the build-number/browser-version lookups over a short-lived
+        # curl_cffi session (already loaded for REST and the gateway) rather
+        # than aiohttp: importing aiohttp just for these costs ~10 MB of RSS
+        # per process, and curl also gives the lookups a browser TLS fingerprint
+        async with curl_requests.AsyncSession(impersonate='chrome', timeout=10) as session:
+            return await HeadersContext.default(_CurlFetchSession(session), http.proxy, http.proxy_auth)  # type: ignore
 
     async def _async_setup_hook(self) -> None:
         # Called whenever the client needs to initialise asyncio objects with a running loop
