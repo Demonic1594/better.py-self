@@ -65,7 +65,10 @@ Connection state (``discord/state.py``)
       suppression depends on it); ``Presence`` does not keep the raw
       activity payloads (memory) and only skips re-parsing when both the
       old and new activity lists are empty; presences for absent members
-      are dropped.
+      are dropped. ``_handle_presence_update`` looks the member up once and
+      skips the old-presence copy and comparison when ``_has_listener``
+      reports no ``presence_update`` listener (``_has_listener`` checks the
+      dispatch handler cache first).
     - ``store_user`` keys the user cache on the ``User``'s own id int.
     - Bulk parsers (``parse_ready``, ``parse_ready_supplemental``,
       ``parse_guild_create``, ``parse_guild_members_chunk``) are wrapped
