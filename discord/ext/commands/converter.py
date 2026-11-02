@@ -1106,7 +1106,7 @@ class Greedy(List[T]):
         converter = params[0]
 
         args = getattr(converter, '__args__', ())
-        if discord.utils.PY_310 and converter.__class__ is types.UnionType:  # type: ignore
+        if discord.utils.PY_310 and converter.__class__ is types.UnionType:
             converter = Union[args]
 
         origin = getattr(converter, '__origin__', None)

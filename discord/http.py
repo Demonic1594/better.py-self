@@ -845,7 +845,7 @@ class HTTPClient:
         )
         _log.info('Found TLS fingerprint target "%s".', headers.impersonate)
 
-        self.__session = requests.AsyncSession(impersonate=headers.impersonate, default_headers=False)  # pyright: ignore[reportArgumentType]
+        self.__session = requests.AsyncSession(impersonate=headers.impersonate, default_headers=False)
         self._started = True
 
     async def _ensure_asession(self) -> aiohttp.ClientSession:

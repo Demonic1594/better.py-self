@@ -458,7 +458,7 @@ class Team(Hashable):
         HTTPException
             Leaving the team failed.
         """
-        await self._state.http.remove_team_member(self.id, self._state.self_id)  # type: ignore
+        await self._state.http.remove_team_member(self.id, self._state.self_id)
 
     async def delete(self) -> None:
         """|coro|

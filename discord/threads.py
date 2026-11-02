@@ -476,7 +476,7 @@ class Thread(Messageable, Hashable):
         This might not be available.
         """
         self_id = self._state.self_id
-        return self._members.get(self_id)  # type: ignore
+        return self._members.get(self_id)
 
     @me.setter
     def me(self, member) -> None:
@@ -1045,7 +1045,7 @@ class ThreadMember(Hashable):
         try:
             self.id = int(data['user_id'])
         except KeyError:
-            self.id = state.self_id  # type: ignore
+            self.id = state.self_id
 
         self.joined_at = parse_time(data.get('join_timestamp'))
         self.flags = data.get('flags')
