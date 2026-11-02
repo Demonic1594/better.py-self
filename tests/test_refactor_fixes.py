@@ -145,3 +145,91 @@ async def test_bulk_delete_removes_in_one_pass_and_keeps_deque():
     assert [m.id for m in state._messages] == [0, 2, 4, 5, 6, 8, 9]
     assert sorted(state._messages_index) == [0, 2, 4, 5, 6, 8, 9]
     assert 3 not in state._call_message_cache
+
+
+@pytest.mark.parametrize('use_orjson', [False, True])
+def test_incremental_subscription_size_matches_full_encoding(monkeypatch, use_orjson):
+    import json
+    import random
+
+    from discord import utils
+
+    if use_orjson:
+        orjson = pytest.importorskip('orjson')
+        monkeypatch.setattr(utils, '_to_json', lambda obj: orjson.dumps(obj).decode('utf-8'))
+    else:
+        monkeypatch.setattr(utils, '_to_json', lambda obj: json.dumps(obj, separators=(',', ':'), ensure_ascii=True))
+
+    rng = random.Random(7)
+    sizes: dict = {}
+    payload: dict = {}
+    for _ in range(300):
+        key = str(rng.randrange(10**17, 10**17 + 40))
+        value = {
+            'typing': rng.random() < 0.5,
+            'members': [str(rng.randrange(10**17, 10**18)) for _ in range(rng.randrange(0, 6))],
+            'channels': {str(rng.randrange(10**17, 10**18)): [[0, 99]]} if rng.random() < 0.5 else {},
+        }
+        payload[key] = value
+        sizes[key] = GuildSubscriptions._entry_size(key, value)
+        assert GuildSubscriptions._encoded_size(sizes) == len(utils._to_json(payload))
+    assert GuildSubscriptions._encoded_size({}) == len(utils._to_json({}))
+
+
+@pytest.mark.asyncio
+async def test_bucket_sweep_is_throttled_but_still_evicts(monkeypatch):
+    import discord.http as http_module
+    from traffic_harness import make_http
+
+    http = make_http(None)
+    clock = [1000.0]
+    monkeypatch.setattr(http_module.time, 'monotonic', lambda: clock[0])
+    scans = []
+    real_inactive = http_module.Ratelimit.is_inactive
+
+    def counting_inactive(self):
+        scans.append(1)
+        return real_inactive(self)
+
+    monkeypatch.setattr(http_module.Ratelimit, 'is_inactive', counting_inactive)
+
+    for i in range(400):
+        http.get_ratelimit(f'route:{i}')
+    # One sweep when the table reached 256, then none until the interval passes
+    assert len(scans) == 256, len(scans)
+
+    # Age every bucket past the 300s idle threshold, then pass the interval
+    for bucket in http._buckets.values():
+        bucket._last_request -= 301
+    clock[0] += http.BUCKET_SWEEP_INTERVAL
+    http.get_ratelimit('route:new')
+    assert list(http._buckets) == ['route:new'], 'idle buckets are still evicted'
+
+
+@pytest.mark.asyncio
+async def test_dispatch_handler_add_replace_remove_and_none():
+    import discord
+
+    client = discord.Client()
+    await client._async_setup_hook()
+    calls = []
+
+    async def first(*args):
+        calls.append('first')
+
+    async def second(*args):
+        calls.append('second')
+
+    client.dispatch('thing')  # no handler yet: a no-op
+    client.on_thing = first  # type: ignore[attr-defined]
+    client.dispatch('thing')
+    client.on_thing = second  # type: ignore[attr-defined]
+    client.dispatch('thing')
+    client.on_thing = None  # type: ignore[attr-defined]
+    client.dispatch('thing')  # used to cache None and crash scheduling it
+    del client.on_thing  # type: ignore[attr-defined]
+    client.dispatch('thing')
+    await asyncio.sleep(0.05)
+
+    assert calls == ['first', 'second']
+    await client.close()

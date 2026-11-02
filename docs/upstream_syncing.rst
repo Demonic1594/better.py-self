@@ -58,7 +58,9 @@ Connection state (``discord/state.py``)
       ``_task`` before flushing, so a concurrent ``_tick()`` schedules a new
       tick instead of cancelling the in-flight send; tick tasks are held by
       ``utils._spawn_background``; the ``_checked_add`` overflow path merges
-      into ``_pending`` after the flush instead of overwriting it.
+      into ``_pending`` after the flush instead of overwriting it. The
+      15 KiB batch-size check is incremental (``_entry_sizes`` /
+      ``_encoded_size``): only the changed entry is re-encoded.
     - Presence updates: ``ClientStatus`` has value equality (no-op
       suppression depends on it); ``Presence`` does not keep the raw
       activity payloads (memory) and only skips re-parsing when both the
@@ -80,7 +82,8 @@ Connection state (``discord/state.py``)
       soft-clear + merge in ``parse_ready`` / the supplemental guild loop,
       ``_write_persistence`` / ``_replay_persistence``, and the
       ``Client.login`` / ``Client.close`` hooks.
-    - ``Client.dispatch`` handler cache and re-entrancy guards, dispatch
+    - ``Client.dispatch`` handler cache (handler lookup uses ``getattr``
+      with a default, never a raised ``AttributeError``) and re-entrancy guards, dispatch
       backlog tracking (``_track_dispatch``), ``_schedule_gc_freeze``,
       and ``CacheStats`` / ``_build_cache_stats``.
 
@@ -116,7 +119,9 @@ HTTP (``discord/http.py``, ``discord/tracking.py``, ``discord/client.py``)
     ``json_or_text`` duck-types curl/aiohttp responses; route keys are
     precomputed; the static header template is cached
     (``_get_base_headers``); the timezone header is resolved once; retry
-    sleeps have jitter. Telemetry from the live rate studies: per-route
+    sleeps have jitter. The idle-bucket sweep in
+    ``_try_clear_expired_ratelimits`` runs at most every
+    ``BUCKET_SWEEP_INTERVAL`` seconds instead of on every new bucket. Telemetry from the live rate studies: per-route
     latency EWMA (``_route_latencies``, exposed as
     ``Client.http_route_latencies``), wire-level throttle records
     (``_throttle_events`` / ``Client.http_throttle_events``) and the

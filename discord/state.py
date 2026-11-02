@@ -609,6 +609,8 @@ class GuildSubscriptions:
     __slots__ = (
         '_state',
         '_pending',
+        '_entry_sizes',
+        '_sized_payload',
         '_task',
         '_blocked',
         '_subscribed',
@@ -624,6 +626,9 @@ class GuildSubscriptions:
     def __init__(self, state: ConnectionState, /) -> None:
         self._state = state
         self._pending: gw.BulkGuildSubscribePayload = {}
+        # Encoded size of each pending entry, valid for the dict in _sized_payload
+        self._entry_sizes: Dict[str, int] = {}
+        self._sized_payload: Any = None
         self._task: Optional[asyncio.Task[None]] = None
         self._blocked: bool = False
         self.clear()
@@ -801,13 +806,17 @@ class GuildSubscriptions:
         # If it is, we need to flush the old payload and start a new one
         # If there isn't an old payload and the new payload is larger, this is impossible
         EMPTY: Any = {}
-        new_payload = self._pending.copy()
+        pending = self._pending
+        new_payload = pending.copy()
+        new_sizes = self._sizes_for(pending).copy()
         for guild_id, subscriptions in changes.items():
             old = cast(Dict[Any, Any], new_payload.get(guild_id, EMPTY))
             updates = cast(Dict[Any, Any], subscriptions)
-            new_payload[guild_id] = cast(Any, {**old, **updates})
+            new_payload[guild_id] = merged = cast(Any, {**old, **updates})
+            # Only the changed entry is re-encoded, not the whole batch
+            new_sizes[guild_id] = self._entry_size(guild_id, merged)
 
-        if len(utils._to_json(new_payload)) > self.MAX_PAYLOAD_SIZE:
+        if self._encoded_size(new_sizes) > self.MAX_PAYLOAD_SIZE:
             if len(utils._to_json(changes)) > self.MAX_PAYLOAD_SIZE:
                 raise ValueError('Guild subscription payload too large to send')
             await self._flush()
@@ -817,8 +826,27 @@ class GuildSubscriptions:
             return
         else:
             self._pending = new_payload
+            self._entry_sizes = new_sizes
+            self._sized_payload = new_payload
 
         self._tick()
+
+    @staticmethod
+    def _entry_size(key: str, value: Any) -> int:
+        # Length of '"key":value' inside the compact JSON object
+        return len(utils._to_json({key: value})) - 2
+
+    @staticmethod
+    def _encoded_size(sizes: Dict[str, int]) -> int:
+        # len(_to_json(payload)) == braces + entries + commas between them
+        return 2 + sum(sizes.values()) + max(len(sizes) - 1, 0)
+
+    def _sizes_for(self, payload: Any) -> Dict[str, int]:
+        if self._sized_payload is not payload:
+            # _pending was replaced elsewhere (flush, requeue): re-measure once
+            self._entry_sizes = {key: self._entry_size(key, value) for key, value in payload.items()}
+            self._sized_payload = payload
+        return self._entry_sizes
 
     async def _flush(self) -> None:
         payload = self._pending

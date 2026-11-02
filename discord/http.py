@@ -733,6 +733,7 @@ class HTTPClient:
         # one shot requests that don't have a bucket hash
         # When this reaches 256 elements, it will try to evict based off of expiry
         self._buckets: Dict[str, Ratelimit] = {}
+        self._next_bucket_sweep: float = 0.0
         self._global_over: asyncio.Event = MISSING
         # Coordinated global-lock release. With overlapping global/shared
         # cooldowns, the lock must stay cleared until the LONGEST active
@@ -895,9 +896,19 @@ class HTTPClient:
     def user_agent(self) -> str:
         return self.headers.user_agent
 
+    # Buckets only become evictable after 300s idle (Ratelimit.is_inactive),
+    # so rescanning the whole table on every new bucket mostly frees nothing.
+    # Sweep at most this often; the table stays bounded by ~330s of activity.
+    BUCKET_SWEEP_INTERVAL: ClassVar[float] = 30.0
+
     def _try_clear_expired_ratelimits(self) -> None:
         if len(self._buckets) < 256:
             return
+
+        now = time.monotonic()
+        if now < self._next_bucket_sweep:
+            return
+        self._next_bucket_sweep = now + self.BUCKET_SWEEP_INTERVAL
 
         keys = [key for key, bucket in self._buckets.items() if bucket.is_inactive()]
         for key in keys:
