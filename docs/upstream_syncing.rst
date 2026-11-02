@@ -35,7 +35,9 @@ Where our changes live
 -----------------------
 
 Gateway and websocket (``discord/gateway.py``)
-    ``poll_event`` uses a lazily-resolved ``asyncio.timeout`` context
+    Decompression contexts return bytes and ``received_message`` parses
+    them with ``utils._from_json_frame`` (``debug_log_receive`` decodes
+    for ``on_socket_raw_receive``); ``poll_event`` uses a lazily-resolved ``asyncio.timeout`` context
     (with a ``wait_for`` fallback for Python < 3.11); ``close()`` is
     idempotent and joins (with a timeout) the keepalive task, which is
     kept referenced; the keepalive handlers and rate limiter use
@@ -49,8 +51,14 @@ Connection state (``discord/state.py``)
       ``_add_message_to_cache`` / ``_remove_message_from_cache``); all
       appends must go through them.
     - Presence updates: ``ClientStatus`` has value equality (no-op
-      suppression depends on it); ``Presence`` compares raw activity
-      payloads before reparsing; presences for absent members are dropped.
+      suppression depends on it); ``Presence`` does not keep the raw
+      activity payloads (memory) and only skips re-parsing when both the
+      old and new activity lists are empty; presences for absent members
+      are dropped.
+    - ``store_user`` keys the user cache on the ``User``'s own id int.
+    - Bulk parsers (``parse_ready``, ``parse_ready_supplemental``,
+      ``parse_guild_create``, ``parse_guild_members_chunk``) are wrapped
+      in ``_gc_paused``; keep the decorator if upstream rewrites them.
     - ``parse_message_update`` only constructs a ``Message`` when
       ``_has_listener`` (which also checks ``Bot.extra_events``) says
       someone is listening.
@@ -78,8 +86,10 @@ Guild (``discord/guild.py``)
     by ``cache_stats``. ``chunked`` is ``count <= _members_seen and ...``.
 
 Member / user (``discord/member.py``, ``discord/user.py``)
-    ``_update`` compares raw payload fields before parsing and only copies
-    on change; raw fields are cached in ``_raw_*`` slots;
+    ``_update`` only copies on change. Only the usually-``None``
+    ``premium_since`` / ``timed_out_until`` keep ``_raw_*`` slots; roles
+    and ``joined_at`` are compared parsed (their raw copies cost ~300 B
+    per cached member);
     ``guild_permissions`` ORs raw role permission ints;
     ``display_name``/``colour`` avoid building sorted role lists.
 
@@ -89,8 +99,11 @@ Message (``discord/message.py``)
     ``_handle_member`` re-warms evicted authors; ``_handle_mentions``
     re-warms mentioned members.
 
-HTTP (``discord/http.py``)
-    aiohttp is imported lazily (``_load_aiohttp``, ``_ensure_asession``);
+HTTP (``discord/http.py``, ``discord/tracking.py``, ``discord/client.py``)
+    aiohttp is imported lazily (``_load_aiohttp``, ``_ensure_asession``) and
+    is not used at login: ``Client.headers_context`` runs the build-number
+    lookups over curl_cffi through ``tracking._CurlFetchSession``;
+    fire-and-forget tasks go through ``utils._spawn_background``;
     ``json_or_text`` duck-types curl/aiohttp responses; route keys are
     precomputed; the static header template is cached
     (``_get_base_headers``); the timezone header is resolved once; retry
