@@ -118,3 +118,46 @@ def test_resolve_proxy_auth_tuple_forms():
     auth = _resolve_proxy_auth(('u', 'p'))
     assert isinstance(auth, aiohttp.BasicAuth) and auth.login == 'u'
     assert _resolve_proxy_auth(auth) is auth
+
+
+def test_gc_paused_restores_state_and_respects_user_choice():
+    import gc
+
+    from discord.state import _gc_paused
+
+    seen = []
+
+    @_gc_paused
+    def bulk(fail=False):
+        seen.append(gc.isenabled())
+        if fail:
+            raise ValueError('boom')
+        return 'ok'
+
+    @_gc_paused
+    def outer():
+        return bulk()
+
+    assert gc.isenabled()
+    assert bulk() == 'ok' and seen[-1] is False and gc.isenabled()
+
+    with pytest.raises(ValueError):
+        bulk(fail=True)
+    assert gc.isenabled(), 'GC must be re-enabled when the parser raises'
+
+    assert outer() == 'ok' and gc.isenabled(), 'nested pauses must not re-enable early or leak'
+
+    gc.disable()
+    try:
+        bulk()
+        assert not gc.isenabled(), 'an application that disabled GC must stay disabled'
+    finally:
+        gc.enable()
+
+
+def test_bulk_parsers_are_gc_paused():
+    from discord.state import ConnectionState
+
+    for name in ('parse_ready', 'parse_ready_supplemental', 'parse_guild_create', 'parse_guild_members_chunk'):
+        func = getattr(ConnectionState, name)
+        assert func.__wrapped__.__name__ == name

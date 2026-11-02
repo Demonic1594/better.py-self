@@ -32,7 +32,7 @@ import time
 import threading
 import traceback
 
-from typing import Any, Callable, Coroutine, Dict, List, Literal, TYPE_CHECKING, NamedTuple, Optional, Sequence, Tuple
+from typing import Any, Callable, Coroutine, Dict, List, Literal, TYPE_CHECKING, NamedTuple, Optional, Sequence, Tuple, Union
 
 from curl_cffi import CurlError, WebSocketError
 from curl_cffi.requests import AsyncWebSocket
@@ -441,10 +441,14 @@ class DiscordWebSocket:
     def is_ratelimited(self) -> bool:
         return self._rate_limiter.is_ratelimited()
 
-    def debug_log_receive(self, data: Dict[str, Any], /) -> None:
+    def debug_log_receive(self, data: Union[str, bytes], /) -> None:
+        # Decompressed frames stay bytes for parsing; on_socket_raw_receive
+        # is documented to receive a str
+        if type(data) is bytes:
+            data = data.decode('utf-8')
         self._dispatch('socket_raw_receive', data)
 
-    def log_receive(self, _: Dict[str, Any], /) -> None:
+    def log_receive(self, _: Union[str, bytes], /) -> None:
         pass
 
     @classmethod
@@ -614,7 +618,7 @@ class DiscordWebSocket:
                 return
 
         self.log_receive(msg)
-        msg = utils._from_json(msg)
+        msg = utils._from_json_frame(msg)
 
         _log.debug('Gateway event: %s.', msg)
         event = msg.get('t')

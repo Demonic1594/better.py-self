@@ -3697,9 +3697,10 @@ class DMChannel(discord.abc.Messageable, discord.abc.Connectable, discord.abc.Pr
         .. versionadded:: 2.0
         """
         state = self._state
-        return state.client.notification_settings._channel_overrides.get(
-            self.id, state.default_channel_settings(None, self.id)
-        )
+        settings = state.client.notification_settings._channel_overrides.get(self.id)
+        if settings is None:
+            settings = state.default_channel_settings(None, self.id)
+        return settings
 
     @property
     def call(self) -> Optional[PrivateCall]:
@@ -4209,9 +4210,10 @@ class GroupChannel(discord.abc.Messageable, discord.abc.Connectable, discord.abc
         .. versionadded:: 2.0
         """
         state = self._state
-        return state.client.notification_settings._channel_overrides.get(
-            self.id, state.default_channel_settings(None, self.id)
-        )
+        settings = state.client.notification_settings._channel_overrides.get(self.id)
+        if settings is None:
+            settings = state.default_channel_settings(None, self.id)
+        return settings
 
     @property
     def owner(self) -> Optional[User]:
