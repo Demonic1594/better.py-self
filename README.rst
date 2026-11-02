@@ -134,6 +134,22 @@ For voice support, add the ``[voice]`` extra:
 
     python3 -m pip install -U "discord.py-self[voice] @ git+https://github.com/Demonic1594/better.py-self.git"
 
+**Recommended:** add the ``[speed]`` extra. With orjson installed, gateway
+events are handled about 20% faster overall (up to ~40% for small events
+such as typing and reactions), and login and member-chunk payloads parse
+faster:
+
+.. code:: sh
+
+    python3 -m pip install -U "discord.py-self[speed] @ git+https://github.com/Demonic1594/better.py-self.git"
+
+    # Both extras
+    python3 -m pip install -U "discord.py-self[voice,speed] @ git+https://github.com/Demonic1594/better.py-self.git"
+
+The extra is optional because some of its packages have no prebuilt wheels on
+a few platforms (e.g. Termux/Android, 32-bit ARM, PyPy) and would need a
+compiler toolchain to build there. The library works the same without it.
+
 Optional Packages
 ~~~~~~~~~~~~~~~~~~
 
@@ -226,8 +242,35 @@ Monitoring Example
     client = MyClient()
     client.run('token')
 
+Running Multiple Accounts
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Each Python process pays a fixed ~55-60 MB for the interpreter and the
+library's imports before any account logs in. If you run several accounts,
+run them in **one process**: the fixed cost is paid once, and each extra
+account only costs its own caches (about 16 MB for a 100-guild account with
+10,000 cached members, versus 85-100 MB as a separate process).
+
+.. code:: py
+
+    import asyncio
+    import discord
+
+    async def run_account(token):
+        async with discord.Client() as client:
+            await client.start(token)
+
+    async def main(tokens):
+        # return_exceptions=True keeps the other accounts running if one fails
+        await asyncio.gather(*(run_account(t) for t in tokens), return_exceptions=True)
+
+    asyncio.run(main(['token1', 'token2']))
+
+See ``examples/multiple_accounts.py`` for a complete version.
+
 You can find more examples in the examples directory, including
-``cache_stats_monitor.py`` and ``persistent_client.py``.
+``cache_stats_monitor.py``, ``persistent_client.py`` and
+``multiple_accounts.py``.
 
 Contributing
 -------------
