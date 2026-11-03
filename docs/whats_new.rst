@@ -58,6 +58,9 @@ Behaviour Changes
 Fixes
 ~~~~~
 
+- :meth:`HeadersContext.fetch_api_properties` now sends its ``release_channel``, ``browser`` and ``platform`` filters; they were built but never sent, so every request returned the default properties. :meth:`HeadersContext.default` takes the platform and browser from the returned properties instead of assuming Windows and Chrome, and waits up to 10 seconds (was 3) for the info API before falling back to manual retrieval. (Ported from dolfies/discord.py-self#939.)
+- Member list scraping (:meth:`Guild.fetch_members` without moderation permissions) logs a warning when Discord never sends the member list for the requested ranges, instead of returning an empty list with no explanation (dolfies/discord.py-self#907).
+- The ``sync_presence`` documentation now states that it does not affect :meth:`Client.change_presence`, which updates your settings unless ``edit_settings=False`` is passed (dolfies/discord.py-self#946).
 - Two concurrent chunk or ``query_members`` requests could share a nonce, and the second one hung until its timeout. Nonces are now unique within a millisecond.
 - A subscription sent while an earlier batch was in flight could be dropped.
 - Closing the client before the fresh ``READY`` could overwrite a restored cache snapshot with an empty one.
