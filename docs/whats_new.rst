@@ -40,6 +40,10 @@ Behaviour Changes
 - Connecting to voice (:meth:`abc.Connectable.connect`) raises after its fifth failed handshake instead of reporting success.
 - :meth:`UserSettings.edit` with ``MISSING`` for ``restricted_guilds``-style fields or ``soundboard_volume`` resets the field, instead of raising or setting the volume to 0.
 - Cache snapshots over 256 MiB are no longer written.
+- Calling :meth:`Client.start` (or :meth:`Client.run`) on a closed client logs a warning and returns, instead of making a login request and then doing nothing. Create a new client or call :meth:`Client.clear` to run again.
+- :meth:`Client.login` raises :exc:`LoginFailure` for an empty token without making a request.
+- :meth:`Client.change_presence` raises :exc:`ClientException` with an explanation when called before the gateway is connected (it was an ``AttributeError``).
+- Failures while unloading extensions or running an extension's ``teardown`` are logged as warnings rather than at debug level.
 - Gateway reconnects: a session that stayed up for at least 60 seconds before failing starts a fresh backoff. A connection reset resumes immediately once; if resets keep happening, the client backs off instead of reconnecting in a tight loop. Connection resets are recognised on every platform, not just macOS and Windows.
 - Voice handshake retries use a jittered backoff rather than a fixed linear delay, so accounts recovering from one voice outage don't retry in lockstep.
 - Gateway session invalidation: after an invalid session, the client waits a random 1-5 seconds before resuming (``d`` true) or re-identifying (``d`` false), as Discord asks, instead of reconnecting at once. A re-identify starts at the default gateway rather than the one the dead session used.
@@ -74,6 +78,12 @@ Fixes
 - :attr:`Member.top_role` raised :exc:`TypeError` when the ``@everyone`` role was not cached, and :class:`~ext.commands.Range` accepted ``nan``. The ``Timestamp`` converter raises :exc:`~ext.commands.BadArgument` for timestamps too large to represent.
 - A failure in a :meth:`ext.tasks.Loop.before_loop` coroutine now reaches the loop's error handler instead of being lost.
 - Requests built with a ``None`` ID now log a warning naming the missing parameter.
+- A partial ``MESSAGE_UPDATE`` (such as an embed-only link unfurl) dropped :func:`on_message_edit` and left the cached message stale whenever an edit listener was registered. It now updates the cache and dispatches the event.
+- :attr:`Message.guild_id` was documented but never set for messages in guild channels, so reading it raised :exc:`AttributeError`.
+- Reloading an extension whose old version also fails to set up again could leave half of its cogs registered, so it could be neither loaded nor unloaded until a restart. The leftovers are now removed and the original error is raised.
+- Restarting a client after :meth:`Client.clear`, two requests racing at startup, and a failed login attempt could leave the HTTP client broken, with a leaked session, or with an unverified token set. :meth:`Client.clear` also failed when called before login, and each :meth:`Client.run` added another log handler, doubling every log line.
+- An audio source passed to ``FFmpegPCMAudio(..., pipe=True)`` that raised while being read left playback hanging with no error; ffmpeg now sees end of input. A closed stderr pipe no longer spins a thread at full CPU, probing a stalled input no longer leaves an ffmpeg process running, and waiting for a killed ffmpeg process is bounded.
+- :class:`Thread` objects missing ``message_count`` or ``member_count`` no longer abort the event they arrive in, and timestamps ending in ``Z`` parse on Python 3.10.
 
 .. _vp2p2p0:
 

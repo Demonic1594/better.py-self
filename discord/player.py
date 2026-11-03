@@ -266,7 +266,11 @@ class FFmpegAudio(AudioSource):
         if still_running:
             _log.info('ffmpeg process %s has not terminated. Waiting to terminate...', pid)
             try:
-                proc.communicate()
+                # Bounded: a process that survives SIGKILL (uninterruptible IO, a grandchild
+                # holding the pipe) must not block the audio thread or a GC finalizer forever
+                proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                _log.warning('ffmpeg process %s did not exit within 5 seconds of being killed.', pid)
             except Exception:
                 pass
             _log.info(
@@ -283,7 +287,13 @@ class FFmpegAudio(AudioSource):
 
     def _pipe_writer(self, source: io.BufferedIOBase) -> None:
         while self._process:
-            data = source.read(self.BLOCKSIZE)
+            try:
+                data = source.read(self.BLOCKSIZE)
+            except Exception:
+                # A source that raises used to kill this thread with ffmpeg's stdin still open:
+                # ffmpeg then waited forever and playback hung with no error and no `after`
+                _log.exception('Reading the audio source for %s failed; ending the stream.', self)
+                data = b''
             if not data:
                 if self._stdin is not None:
                     self._stdin.close()
@@ -306,7 +316,8 @@ class FFmpegAudio(AudioSource):
             except Exception:
                 _log.debug('Read error for %s, this is probably not a problem', self, exc_info=True)
                 return
-            if data is None:
+            if not data:
+                # None, or b'' at EOF: the old `is None` check spun at 100% CPU once the pipe closed
                 return
             try:
                 dest.write(data)
@@ -682,9 +693,12 @@ class FFmpegOpusAudio(FFmpegAudio):
     @staticmethod
     def _probe_codec_fallback(source, executable: str = 'ffmpeg') -> Tuple[Optional[str], Optional[int]]:
         args = [executable, '-hide_banner', '-i', source]
-        proc = subprocess.Popen(args, creationflags=CREATE_NO_WINDOW, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        out, _ = proc.communicate(timeout=20)
-        output = out.decode('utf8')
+        # run() kills and reaps the child when the timeout expires; a bare Popen.communicate
+        # left a stalled ffmpeg running (and its pipe open) after raising TimeoutExpired
+        result = subprocess.run(
+            args, creationflags=CREATE_NO_WINDOW, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=20
+        )
+        output = result.stdout.decode('utf8', 'replace')
         codec = bitrate = None
 
         codec_match = re.search(r'Stream #0.*?Audio: (\w+)', output)
