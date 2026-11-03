@@ -21,3 +21,6 @@ build/*
 dist/*
 uv.lock*
 pylock*.toml.token
+
+# Local Claude Code tooling (kept on the claude-review-tools branch)
+.claude/
