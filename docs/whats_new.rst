@@ -42,6 +42,9 @@ Behaviour Changes
 - Cache snapshots over 256 MiB are no longer written.
 - Gateway reconnects: a session that stayed up for at least 60 seconds before failing starts a fresh backoff. A connection reset resumes immediately once; if resets keep happening, the client backs off instead of reconnecting in a tight loop. Connection resets are recognised on every platform, not just macOS and Windows.
 - Voice handshake retries use a jittered backoff rather than a fixed linear delay, so accounts recovering from one voice outage don't retry in lockstep.
+- Gateway session invalidation: after an invalid session, the client waits a random 1-5 seconds before resuming (``d`` true) or re-identifying (``d`` false), as Discord asks, instead of reconnecting at once. A re-identify starts at the default gateway rather than the one the dead session used.
+- Close codes 4007 (invalid sequence) and 4009 (session timed out) re-identify immediately instead of trying a RESUME Discord will reject.
+- A RESUME is only attempted when a session id is known; otherwise the client identifies.
 
 Fixes
 ~~~~~

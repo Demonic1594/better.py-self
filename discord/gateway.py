@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 import logging
+import random
 import struct
 import time
 import threading
@@ -77,11 +78,26 @@ if TYPE_CHECKING:
     from .voice_state import VoiceConnectionState
 
 
-class ReconnectWebSocket(Exception):
-    """Signals to safely reconnect the websocket."""
+# Close codes after which Discord will not accept a RESUME: 4007 (invalid sequence)
+# and 4009 (session timed out). The session must be re-identified straight away.
+_NON_RESUMABLE_CLOSE_CODES = frozenset({4007, 4009})
 
-    def __init__(self, *, resume: bool = True):
+
+def _invalid_session_delay() -> float:
+    # Discord asks clients to wait a random 1-5 seconds after INVALID_SESSION before
+    # resuming or re-identifying; doing it at once risks hitting the identify limit
+    return random.uniform(1.0, 5.0)
+
+
+class ReconnectWebSocket(Exception):
+    """Signals to safely reconnect the websocket.
+
+    ``delay`` is how long to wait before reconnecting (used after INVALID_SESSION).
+    """
+
+    def __init__(self, *, resume: bool = True, delay: float = 0.0):
         self.resume = resume
+        self.delay = delay
         self.op: str = 'RESUME' if resume else 'IDENTIFY'
 
 
@@ -511,7 +527,7 @@ class DiscordWebSocket:
         client._connection._update_references(ws)
         _log.debug('Connected to %s.', gateway)
 
-        if not resume:
+        if not resume or session is None:
             await ws.identify()
             return ws
 
@@ -675,8 +691,9 @@ class DiscordWebSocket:
 
             if op == self.INVALIDATE_SESSION:
                 if data is True:
+                    # The session is still valid: wait, then RESUME it
                     await self.close()
-                    raise ReconnectWebSocket
+                    raise ReconnectWebSocket(delay=_invalid_session_delay())
 
                 self.sequence = None
                 self.session_id = None
@@ -684,7 +701,7 @@ class DiscordWebSocket:
 
                 _log.info('Gateway session has been invalidated.')
                 await self.close(code=1000)
-                raise ReconnectWebSocket(resume=False)
+                raise ReconnectWebSocket(resume=False, delay=_invalid_session_delay())
 
             _log.warning('Unknown OP code %s.', op)
             return
@@ -811,6 +828,14 @@ class DiscordWebSocket:
                 await socket.close(code or 4000, (reason or 'Unknown error').encode('utf-8'))
 
             _log.info('Gateway received close code %s and reason %r.', code, reason)
+
+            if code in _NON_RESUMABLE_CLOSE_CODES:
+                # Forget the dead session now rather than RESUMEing with a stale
+                # sequence and waiting for Discord to answer INVALID_SESSION
+                self.sequence = None
+                self.session_id = None
+                self.gateway = self.DEFAULT_GATEWAY
+                raise ReconnectWebSocket(resume=False)
 
             if self._can_handle_close(code or None):
                 _log.debug('Websocket closed with %s, attempting a reconnect.', code)
