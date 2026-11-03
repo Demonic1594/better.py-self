@@ -270,6 +270,11 @@ class LocationInfo(NamedTuple):
     subdivision_code: Optional[str]
 
 
+# A gateway session that stayed up at least this long before failing is treated as
+# healthy: its failure starts a fresh backoff instead of continuing an old one
+_HEALTHY_SESSION_SECONDS: float = 60.0
+
+
 def _reconnectable_errors() -> Tuple[Type[BaseException], ...]:
     # aiohttp exceptions can only occur once aiohttp is in use;
     # resolve the class lazily so importing it stays optional
@@ -1551,19 +1556,34 @@ class Client:
         ws_params: Dict[str, Any] = {
             'initial': True,
         }
+        # When the current connection was established (None while disconnected).
+        # A session that stayed up long enough counts as healthy: it earns a
+        # fresh backoff and one immediate resume after a connection reset.
+        connected_at: Optional[float] = None
+        immediate_resume_available = True
         while not self.is_closed():
             try:
                 coro = DiscordWebSocket.from_client(self, **ws_params)
                 self.ws = await asyncio.wait_for(coro, timeout=60.0)
+                connected_at = time.monotonic()
                 ws_params['initial'] = False
                 while True:
                     await self.ws.poll_event()
             except ReconnectWebSocket as e:
                 _log.debug('Got a request to %s the websocket.', e.op)
                 self.dispatch('disconnect')
-                ws_params.update(sequence=self.ws.sequence, resume=e.resume, session=self.ws.session_id, old_ws=self.ws)
-                if e.resume:
+                if e.delay:
+                    await asyncio.sleep(e.delay)
+                    if self.is_closed():
+                        return
+                # Without a session id there is nothing to RESUME: identify instead
+                resume = e.resume and self.ws.session_id is not None
+                ws_params.update(sequence=self.ws.sequence, resume=resume, session=self.ws.session_id, old_ws=self.ws)
+                if resume:
                     ws_params['gateway'] = self.ws.gateway
+                else:
+                    # A new session starts at the default gateway, not the one a dead session used
+                    ws_params.pop('gateway', None)
                 continue
             except _reconnectable_errors() as exc:
                 self.dispatch('disconnect')
@@ -1577,8 +1597,23 @@ class Client:
                 if self.is_closed():
                     return
 
-                # If we get connection reset by peer then try to RESUME
-                if isinstance(exc, OSError) and exc.errno in (54, 10054):
+                if connected_at is not None and time.monotonic() - connected_at >= _HEALTHY_SESSION_SECONDS:
+                    # The last session was healthy: forget earlier failures
+                    backoff = ExponentialBackoff()
+                    immediate_resume_available = True
+                connected_at = None
+
+                # A connection reset by the peer is usually a blip: resume at once, once.
+                # If it keeps happening, back off like any other failure rather than
+                # hammering the gateway with immediate reconnects.
+                resumable = self.ws.session_id is not None
+                if (
+                    isinstance(exc, OSError)
+                    and exc.errno in utils._CONNECTION_RESET_ERRNOS
+                    and immediate_resume_available
+                    and resumable
+                ):
+                    immediate_resume_available = False
                     ws_params.update(
                         sequence=self.ws.sequence,
                         gateway=self.ws.gateway,
@@ -1604,10 +1639,11 @@ class Client:
                 # Always try to RESUME the connection
                 # If the connection is not RESUME-able then the gateway will invalidate the session
                 # This is apparently what the official Discord client does
+                # Without a session id there is nothing to RESUME: identify on the default gateway
                 ws_params.update(
                     sequence=self.ws.sequence,
-                    gateway=self.ws.gateway,
-                    resume=True,
+                    gateway=self.ws.gateway if resumable else None,
+                    resume=resumable,
                     session=self.ws.session_id,
                     old_ws=self.ws,
                 )
