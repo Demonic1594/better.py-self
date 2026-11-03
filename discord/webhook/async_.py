@@ -192,7 +192,7 @@ class AsyncWebhookAdapter:
                             'Webhook ID %s with %s %s has returned status code %s.',
                             webhook_id,
                             method,
-                            url,
+                            utils._RedactedLog(url),
                             response.status,
                         )
                         data = await json_or_text(response)

@@ -176,7 +176,7 @@ class WebhookAdapter:
                             'Webhook ID %s with %s %s has returned status code %s.',
                             webhook_id,
                             method,
-                            url,
+                            utils._RedactedLog(url),
                             response.status_code,
                         )
                         response.encoding = 'utf-8'

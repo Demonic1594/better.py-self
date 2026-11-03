@@ -1159,12 +1159,19 @@ class HTTPClient:
                         # Amazing behavior to send a status code of "0"
                         response.reason = 'Illegal Status Code'
 
-                    log_fmt = '%s %s with %s has returned %s.'
-                    log_params = [method, url, kwargs.get('data'), response.status_code]
-                    if trace_id is not None:
-                        log_fmt += '\nTrace URL: https://datadog.discord.tools/apm/traces?query=@http.x_client_trace_id:"%s"&showAllSpans=true'
-                        log_params.append(trace_id)
-                    _log.debug(log_fmt, *log_params)
+                    if _log.isEnabledFor(logging.DEBUG):
+                        # Only build the redacting wrappers when the line will be emitted
+                        log_fmt = '%s %s with %s has returned %s.'
+                        log_params = [
+                            method,
+                            utils._RedactedLog(url),
+                            utils._RedactedLog(kwargs.get('data')),
+                            response.status_code,
+                        ]
+                        if trace_id is not None:
+                            log_fmt += '\nTrace URL: https://datadog.discord.tools/apm/traces?query=@http.x_client_trace_id:"%s"&showAllSpans=true'
+                            log_params.append(trace_id)
+                        _log.debug(log_fmt, *log_params)
 
                     data = await json_or_text(response)
 
@@ -1229,18 +1236,21 @@ class HTTPClient:
                             _log.warning(
                                 '%s %s deferred for %.2fs, over the %.2fs limit; erroring instead.',
                                 method,
-                                url,
+                                utils._RedactedLog(url),
                                 retry_after,
                                 self.max_ratelimit_timeout,
                             )
                             raise RateLimited(retry_after)
-                        _log.debug('%s %s received a 202. Retrying in %s seconds...', method, url, retry_after)
+                        _log.debug(
+                            '%s %s received a 202. Retrying in %s seconds...', method, utils._RedactedLog(url), retry_after
+                        )
                         await asyncio.sleep(retry_after)
                         continue
 
                     # Request was successful so just return the text/json
                     if 300 > response.status_code >= 200:
-                        _log.debug('%s %s has received %s.', method, url, data)
+                        if _log.isEnabledFor(logging.DEBUG):
+                            _log.debug('%s %s has received %s.', method, utils._RedactedLog(url), utils._RedactedLog(data))
                         return data
 
                     # Rate limited
@@ -1285,7 +1295,7 @@ class HTTPClient:
                             _log.debug(
                                 '%s %s received a 429 despite having %s remaining requests. This is a sub-ratelimit.',
                                 method,
-                                url,
+                                utils._RedactedLog(url),
                                 ratelimit.remaining,
                             )
 
@@ -1309,13 +1319,13 @@ class HTTPClient:
                             _log.warning(
                                 'We are being rate limited. %s %s responded with 429. Timeout of %.2f was too long, erroring instead.',
                                 method,
-                                url,
+                                utils._RedactedLog(url),
                                 retry_after,
                             )
                             raise RateLimited(retry_after, cloudflare=is_cloudflare)
 
                         fmt = 'We are being rate limited. %s %s responded with 429. Retrying in %.2f seconds.'
-                        _log.warning(fmt, method, url, retry_after)
+                        _log.warning(fmt, method, utils._RedactedLog(url), retry_after)
 
                         # Wire-level throttle telemetry: the sleep + retry
                         # below is invisible to callers, so record the event
@@ -1340,7 +1350,10 @@ class HTTPClient:
                         _log.debug(
                             'Rate limit is being handled by bucket hash %s with %r major parameters.',
                             bucket_hash,
-                            route.major_parameters,
+                            # The webhook token is part of the major parameters
+                            route.major_parameters.replace(str(route.webhook_token), '[redacted]')
+                            if route.webhook_token
+                            else route.major_parameters,
                         )
 
                         # Check if it's a global rate limit
@@ -1460,12 +1473,13 @@ class HTTPClient:
             try:
                 asession = await self._ensure_asession()
                 async with asession.put(url, data=getattr(file, 'fp', file), headers=headers) as response:
-                    _log.debug('PUT %s with %s has returned %s.', url, file, response.status)
+                    # The upload URL is pre-signed: it works as a credential until it expires
+                    _log.debug('PUT %s with %s has returned %s.', utils._RedactedLog(url), file, response.status)
                     data = await json_or_text(response)
 
                     # Request was successful so just return the text/json
                     if 300 > response.status >= 200:
-                        _log.debug('PUT %s has received %s.', url, data)
+                        _log.debug('PUT %s has received %s.', utils._RedactedLog(url), utils._RedactedLog(data))
                         return data
 
                     # Unconditional retry

@@ -246,6 +246,13 @@ Upstream issue and PR triage (2026-11-03)
     server), and the unmerged feature PRs #896 (frecency settings) and #934
     (profile editing), which are still in review upstream.
 
+Debug-log redaction (2026-11-03)
+    ``utils._redact``/``utils._RedactedLog`` wrap every raw-payload debug log:
+    ``gateway.py`` (``Gateway event``, guarded by ``isEnabledFor``; voice
+    send/receive), ``http.py`` (request/response bodies, URLs, the 429 warning,
+    the bucket major-parameters line) and both webhook adapters. Upstream logs
+    these payloads unredacted.
+
 User-path fixes (2026-11-03)
     Upstream bugs fixed here and not upstream: ``ScheduledEvent.users``
     predicates (top-level user objects, int ids) and the ``user_count`` cap;

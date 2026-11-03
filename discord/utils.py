@@ -38,6 +38,7 @@ from typing import (
     Coroutine,
     Dict,
     ForwardRef,
+    FrozenSet,
     Generic,
     Iterable,
     Iterator,
@@ -748,6 +749,84 @@ def _spawn_background(
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
     return task
+
+
+# Keys whose values must never reach a log: account/session tokens, voice
+# encryption keys, credentials and contact details. Debug logging of raw gateway
+# and HTTP payloads goes through _redact so a DEBUG file sink does not store them.
+_SENSITIVE_KEYS: FrozenSet[str] = frozenset(
+    {
+        'token',
+        'auth_token',
+        'analytics_token',
+        'access_token',
+        'refresh_token',
+        'secret',
+        'secret_key',
+        'backup_codes',
+        'password',
+        'new_password',
+        'email',
+        'phone',
+        'ticket',
+        'captcha_key',
+    }
+)
+_REDACTED = '[redacted]'
+# The same keys inside JSON text (request bodies are logged as encoded strings)
+_SENSITIVE_JSON_RE = re.compile(
+    r'("(?:'
+    + '|'.join(sorted(_SENSITIVE_KEYS))
+    + r')"\s*:\s*)("(?:[^"\\]|\\.)*"|\[[^\]]{0,4096}\]|\{[^{}]{0,4096}\}|-?\d+(?:\.\d+)?)'
+)
+# Webhook and interaction tokens travel in the URL path
+_SENSITIVE_PATH_RE = re.compile(r'(/(?:webhooks|interactions)/\d+/)([^/?\s"\']+)')
+# Pre-signed storage URLs (attachment uploads) carry their credential in the query
+_SENSITIVE_QUERY_RE = re.compile(
+    r'([?&](?:X-Goog-Signature|X-Goog-Credential|X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token|Signature|sig|token)=)'
+    r'([^&#\s"\']+)',
+    re.IGNORECASE,
+)
+
+
+def _redact(obj: Any) -> Any:
+    """Returns a copy of ``obj`` with sensitive values replaced, for logging only.
+
+    Dicts and lists (parsed payloads) are redacted by key at any depth. JSON *text*
+    (request bodies) is redacted with a regex that covers string, number, flat
+    array and flat object values; a sensitive key whose value nests arrays or
+    objects inside a JSON string is only partly masked.
+    """
+    if isinstance(obj, dict):
+        return {
+            key: (_REDACTED if key in _SENSITIVE_KEYS and value is not None else _redact(value))
+            for key, value in obj.items()
+        }
+    if isinstance(obj, (list, tuple)):
+        return [_redact(value) for value in obj]
+    if isinstance(obj, str):
+        if '"' in obj:
+            obj = _SENSITIVE_JSON_RE.sub(r'\1"' + _REDACTED + '"', obj)
+        if '/webhooks/' in obj or '/interactions/' in obj:
+            obj = _SENSITIVE_PATH_RE.sub(r'\1' + _REDACTED, obj)
+        if '?' in obj:
+            obj = _SENSITIVE_QUERY_RE.sub(r'\1' + _REDACTED, obj)
+        return obj
+    return obj
+
+
+class _RedactedLog:
+    """Defers :func:`_redact` until a log record is actually formatted."""
+
+    __slots__ = ('obj',)
+
+    def __init__(self, obj: Any) -> None:
+        self.obj = obj
+
+    def __str__(self) -> str:
+        return str(_redact(self.obj))
+
+    __repr__ = __str__
 
 
 def _get_as_snowflake(data: Any, key: str) -> Optional[int]:

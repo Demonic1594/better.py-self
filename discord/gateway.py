@@ -643,7 +643,9 @@ class DiscordWebSocket:
         self.log_receive(msg)
         msg = utils._from_json_frame(msg)
 
-        _log.debug('Gateway event: %s.', msg)
+        if _log.isEnabledFor(logging.DEBUG):
+            # Raw events carry tokens and PII (READY): never log them unredacted
+            _log.debug('Gateway event: %s.', utils._RedactedLog(msg))
         event = msg.get('t')
         if event:
             self._dispatch('socket_event_type', event)
@@ -1183,7 +1185,8 @@ class DiscordVoiceWebSocket:
                 raise
 
     async def send_as_json(self, data: Any) -> None:
-        _log.debug('Voice socket sending: %s.', data)
+        if _log.isEnabledFor(logging.DEBUG):
+            _log.debug('Voice socket sending: %s.', utils._RedactedLog(data))
         await self._sendstr(utils._to_json(data))
 
     async def send_binary(self, opcode: int, data: bytes) -> None:
@@ -1385,7 +1388,8 @@ class DiscordVoiceWebSocket:
         data['streams'] = streams
 
     async def received_message(self, msg: Dict[str, Any]) -> None:
-        _log.debug('Voice socket event: %s.', msg)
+        if _log.isEnabledFor(logging.DEBUG):
+            _log.debug('Voice socket event: %s.', utils._RedactedLog(msg))
         op = msg['op']
         data = msg['d']
         self.seq_ack = msg.get('seq', self.seq_ack)
