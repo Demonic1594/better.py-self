@@ -213,7 +213,8 @@ async def json_or_text(response: Union[aiohttp.ClientResponse, requests.Response
         content = await response.read()  # type: ignore # duck-typed
 
     try:
-        if response.headers['content-type'] == 'application/json':
+        # Compare the media type only: 'application/json; charset=utf-8' is JSON too
+        if (response.headers['content-type'] or '').split(';', 1)[0].strip().lower() == 'application/json':
             return utils._from_json(content)
     except KeyError:
         # Thanks Cloudflare
@@ -226,7 +227,11 @@ async def json_or_text(response: Union[aiohttp.ClientResponse, requests.Response
 
     # Prefer the response's declared charset (e.g. Cloudflare error pages)
     encoding = getattr(response, 'charset_encoding', None) or getattr(response, 'charset', None) or 'utf-8'
-    return content.decode(encoding, 'replace')
+    try:
+        return content.decode(encoding, 'replace')
+    except LookupError:
+        # A bogus charset in the header must not hide the response (and its status)
+        return content.decode('utf-8', 'replace')
 
 
 async def _gen_session(session: Optional[aiohttp.ClientSession]) -> aiohttp.ClientSession:
@@ -355,6 +360,9 @@ def handle_message_parameters(
 
     if files is not MISSING and len(files) > 10:
         raise ValueError('files has a maximum of 10 elements')
+
+    if attachments is not MISSING and len(attachments) > 10:
+        raise ValueError('attachments has a maximum of 10 elements')
 
     payload: Any = {'tts': tts}
     if embeds is not MISSING:
@@ -523,6 +531,17 @@ class Route:
         # Since these can't be handled generically, this is the next best way to do so.
         self.metadata: Optional[str] = metadata
         url = self.BASE + self.path
+        if None in parameters.values():
+            # Cheap pre-check; only a None that fills a placeholder is a problem
+            used = {name for _, name, _, _ in string.Formatter().parse(path) if name}
+            bad = sorted(k for k in used if k in parameters and parameters[k] is None)
+            if bad:
+                _log.warning(
+                    'Route %s %s was built with None for %s; the request URL will contain "None" and fail.',
+                    method,
+                    path,
+                    ', '.join(bad),
+                )
         # Always format: a missing parameter must raise here rather than
         # silently producing a URL containing a literal '{param}' placeholder
         url = url.format_map({k: _uriquote(v, safe='') if isinstance(v, str) else v for k, v in parameters.items()})
@@ -1172,6 +1191,16 @@ class HTTPClient:
                         if not math.isfinite(retry_after):
                             retry_after = 5.0
                         retry_after = max(0.0, retry_after) or 5.0
+                        if self.max_ratelimit_timeout and retry_after > self.max_ratelimit_timeout:
+                            # Same cap as a 429: a huge server-provided delay must not stall the route
+                            _log.warning(
+                                '%s %s deferred for %.2fs, over the %.2fs limit; erroring instead.',
+                                method,
+                                url,
+                                retry_after,
+                                self.max_ratelimit_timeout,
+                            )
+                            raise RateLimited(retry_after)
                         _log.debug('%s %s received a 202. Retrying in %s seconds...', method, url, retry_after)
                         await asyncio.sleep(retry_after)
                         continue
@@ -1193,6 +1222,9 @@ class HTTPClient:
                                 code = int(result.group(1)) if result else 'Unknown'
                                 raise HTTPException(response, f'Cloudflare ban (code: {code})')
                         else:
+                            if not isinstance(data, dict):
+                                # e.g. a JSON list/number: no usable fields, fall back to the headers
+                                data = {}
                             is_global: bool = data.get('global', False)
                             raw_retry_after = data.get('retry_after')
                             if raw_retry_after is None:
