@@ -418,12 +418,20 @@ def handle_message_parameters(
         files = [a for a in attachments if isinstance(a, _FileBase)]
 
     if attachments is not MISSING:
-        file_index = 0
+        # A local File's id must equal its multipart index (files[N], numbered
+        # over local files only, below); cloud uploads are referenced by their
+        # uploaded filename, so they take the ids after the local ones. Numbering
+        # both together mismatched ids and parts when they were mixed.
+        local_index = 0
+        cloud_index = sum(1 for a in attachments if isinstance(a, File))
         attachments_payload = []
         for attachment in attachments:
-            if isinstance(attachment, _FileBase):
-                attachments_payload.append(attachment.to_dict(file_index))
-                file_index += 1
+            if isinstance(attachment, File):
+                attachments_payload.append(attachment.to_dict(local_index))
+                local_index += 1
+            elif isinstance(attachment, _FileBase):
+                attachments_payload.append(attachment.to_dict(cloud_index))
+                cloud_index += 1
             else:
                 attachments_payload.append(attachment.to_dict())
 

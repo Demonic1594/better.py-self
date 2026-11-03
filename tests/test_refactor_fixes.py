@@ -639,3 +639,56 @@ def test_boolean_option_strings_and_unknown_options(caplog):
         options, _, _ = SlashMixin._parse_kwargs(cmd, {'flag': 'false', 'flgg': True})  # type: ignore[arg-type]
     assert options == [{'type': ApplicationCommandOptionType.boolean.value, 'name': 'flag', 'value': False}]
     assert any("'flgg'" in r.getMessage() for r in caplog.records), 'unknown options must not vanish silently'
+
+
+def test_mixed_cloud_and_local_attachments_match_multipart_parts():
+    import io
+
+    from discord.file import CloudFile, File
+    from discord.http import handle_message_parameters
+
+    cloud = CloudFile('https://up/1', 'cloud.png', 'uploads/cloud.png', state=None)  # type: ignore[arg-type]
+    local = File(io.BytesIO(b'abc'), filename='local.txt')
+    params = handle_message_parameters(content='hi', files=[cloud, local])
+
+    form_names = [part['name'] for part in params.multipart]
+    payload = __import__('json').loads(params.multipart[0]['data'])
+    by_name = {a['filename']: a for a in payload['attachments']}
+    # The local file's id must name its multipart part; ids stay unique
+    assert f'files[{by_name["local.txt"]["id"]}]' in form_names
+    assert by_name['cloud.png']['uploaded_filename'] == 'uploads/cloud.png'
+    assert len({a['id'] for a in payload['attachments']}) == 2
+    params.__exit__(None, None, None)
+
+
+@pytest.mark.asyncio
+async def test_cloud_file_from_file_keeps_spoiler():
+    import io
+
+    from discord.file import CloudFile, File
+
+    uploaded = []
+
+    async def upload_to_cloud(url, file):
+        uploaded.append(url)
+
+    state = SimpleNamespace(http=SimpleNamespace(upload_to_cloud=upload_to_cloud))
+    file = File(io.BytesIO(b'x'), filename='secret.png', spoiler=True)
+    cloud = await CloudFile.from_file(
+        file=file,
+        state=state,  # type: ignore[arg-type]
+        data={'upload_url': 'https://up/2', 'upload_filename': 'uploads/secret.png', 'id': 0},  # type: ignore[typeddict-item]
+    )
+    assert cloud.spoiler is True and cloud.filename == 'SPOILER_secret.png'
+
+
+def test_file_size_counts_from_the_original_position():
+    import io
+
+    from discord.file import File
+
+    buffer = io.BytesIO(b'0123456789')
+    buffer.seek(4)
+    file = File(buffer, filename='tail.bin')
+    assert file.size == 6, 'only bytes 4..10 are uploaded'
+    assert buffer.tell() == 4, 'position restored'
