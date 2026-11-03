@@ -619,18 +619,28 @@ async def test_streamed_replay_holds_one_guild_not_the_whole_snapshot(tmp_path):
     import tracemalloc
 
     path = tmp_path / 'cache.bin'
-    await _write_snapshot_v2(path, guilds=20, members=1500)
+    guilds = 60
+    await _write_snapshot_v2(path, guilds=guilds, members=500)
     peaks = {}
     for version in (2, 1):
         if version == 1:
             _rewrite_as_v1(path)
+        c = Client(persistence_path=path, max_member_cache=100, max_total_member_cache=500)
+        await c._async_setup_hook()
+        c._connection.user = discord.ClientUser(state=c._connection, data=up(5))
+        # Trace replay only: the client's own setup is a fixed cost that would
+        # otherwise dilute the comparison
         tracemalloc.start()
-        c, ok = await _replay(path, max_member_cache=100, max_total_member_cache=500)
-        peaks[version] = tracemalloc.get_traced_memory()[1]
-        tracemalloc.stop()
+        try:
+            ok = await c._connection._replay_persistence()
+            peaks[version] = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
         assert ok
-        assert len(c._connection._guilds) == 20
-    assert peaks[2] < peaks[1] / 3, f'streamed peak {peaks[2] / 1e6:.1f} MB vs whole-document {peaks[1] / 1e6:.1f} MB'
+        assert len(c._connection._guilds) == guilds
+    # Whole-document replay grows with the guild count; streamed replay stays
+    # near one guild payload plus the capped cache (about 10x apart here)
+    assert peaks[2] < peaks[1] / 4, f'streamed peak {peaks[2] / 1e6:.1f} MB vs whole-document {peaks[1] / 1e6:.1f} MB'
 
 
 @pytest.mark.asyncio
