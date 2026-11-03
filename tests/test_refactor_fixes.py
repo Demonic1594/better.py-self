@@ -875,3 +875,37 @@ def test_mp4_is_detected_at_its_real_offset():
     assert utils._get_mime_type_for_image(b'\x00\x00\x00\x1cftypmp42' + b'\x00' * 32, with_video=True) == 'video/mp4'
     with pytest.raises(ValueError):
         utils._get_mime_type_for_image(mp4, with_video=False)
+
+
+@pytest.mark.asyncio
+async def test_voice_connect_fails_after_exhausting_retries(monkeypatch):
+    import discord.voice_state as vs
+    from discord.errors import ConnectionClosed
+    from discord.voice_state import ConnectionFlowState, VoiceConnectionState
+
+    conn = VoiceConnectionState.__new__(VoiceConnectionState)
+    conn._state = ConnectionFlowState.got_both_voice_updates
+    conn.endpoint = 'voice.example'
+    attempts, disconnects = [], []
+
+    async def noop(*args, **kwargs):
+        return None
+
+    async def failing_ws(self, resume):
+        attempts.append(resume)
+        raise ConnectionClosed(4006)
+
+    async def record_disconnect(self, *, force=True, cleanup=True, wait=False):
+        disconnects.append(cleanup)
+
+    monkeypatch.setattr(VoiceConnectionState, '_voice_connect', noop)
+    monkeypatch.setattr(VoiceConnectionState, '_wait_for_state', noop)
+    monkeypatch.setattr(VoiceConnectionState, '_connect_websocket', failing_ws)
+    monkeypatch.setattr(VoiceConnectionState, 'disconnect', record_disconnect)
+    monkeypatch.setattr(vs.asyncio, 'sleep', noop)
+
+    with pytest.raises(ConnectionClosed):
+        await conn._inner_connect(reconnect=True, self_deaf=False, self_mute=False, self_video=False, resume=False)
+
+    assert len(attempts) == 5
+    assert disconnects == [False, False, False, False, True], 'retries soft-disconnect; the final failure cleans up'
