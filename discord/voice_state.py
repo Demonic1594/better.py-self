@@ -563,6 +563,8 @@ class VoiceConnectionState:
     async def _inner_connect(
         self, reconnect: bool, self_deaf: bool, self_mute: bool, self_video: bool, resume: bool
     ) -> None:
+        # Jittered, so many accounts recovering from the same voice outage don't retry in lockstep
+        backoff = ExponentialBackoff()
         for i in range(5):
             _log.info('Starting voice handshake (connection attempt %d)...', i + 1)
 
@@ -581,7 +583,7 @@ class VoiceConnectionState:
                 break
             except ConnectionClosed as exc:
                 if reconnect and i < 4:
-                    wait = 1 + i * 2.0
+                    wait = backoff.delay()
                     _log.exception('Failed to connect to voice... Retrying in %ss...', wait)
                     await self.disconnect(cleanup=False)
                     await asyncio.sleep(wait)
