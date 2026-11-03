@@ -1572,9 +1572,18 @@ class Client:
             except ReconnectWebSocket as e:
                 _log.debug('Got a request to %s the websocket.', e.op)
                 self.dispatch('disconnect')
-                ws_params.update(sequence=self.ws.sequence, resume=e.resume, session=self.ws.session_id, old_ws=self.ws)
-                if e.resume:
+                if e.delay:
+                    await asyncio.sleep(e.delay)
+                    if self.is_closed():
+                        return
+                # Without a session id there is nothing to RESUME: identify instead
+                resume = e.resume and self.ws.session_id is not None
+                ws_params.update(sequence=self.ws.sequence, resume=resume, session=self.ws.session_id, old_ws=self.ws)
+                if resume:
                     ws_params['gateway'] = self.ws.gateway
+                else:
+                    # A new session starts at the default gateway, not the one a dead session used
+                    ws_params.pop('gateway', None)
                 continue
             except _reconnectable_errors() as exc:
                 self.dispatch('disconnect')
@@ -1597,7 +1606,13 @@ class Client:
                 # A connection reset by the peer is usually a blip: resume at once, once.
                 # If it keeps happening, back off like any other failure rather than
                 # hammering the gateway with immediate reconnects.
-                if isinstance(exc, OSError) and exc.errno in utils._CONNECTION_RESET_ERRNOS and immediate_resume_available:
+                resumable = self.ws.session_id is not None
+                if (
+                    isinstance(exc, OSError)
+                    and exc.errno in utils._CONNECTION_RESET_ERRNOS
+                    and immediate_resume_available
+                    and resumable
+                ):
                     immediate_resume_available = False
                     ws_params.update(
                         sequence=self.ws.sequence,
@@ -1624,10 +1639,11 @@ class Client:
                 # Always try to RESUME the connection
                 # If the connection is not RESUME-able then the gateway will invalidate the session
                 # This is apparently what the official Discord client does
+                # Without a session id there is nothing to RESUME: identify on the default gateway
                 ws_params.update(
                     sequence=self.ws.sequence,
-                    gateway=self.ws.gateway,
-                    resume=True,
+                    gateway=self.ws.gateway if resumable else None,
+                    resume=resumable,
                     session=self.ws.session_id,
                     old_ws=self.ws,
                 )
