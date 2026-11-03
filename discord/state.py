@@ -225,8 +225,10 @@ class _SnapshotReader:
 
     __slots__ = ('_fp', '_decompressor', '_buffer', '_scan', '_total', '_eof')
 
-    READ_SIZE = 1024 * 1024
-    OUTPUT_SIZE = 8 * 1024 * 1024
+    # Small windows keep the buffer near one record: decompressing far ahead
+    # would hold that much of the snapshot in memory at once
+    READ_SIZE = 256 * 1024
+    OUTPUT_SIZE = 1024 * 1024
 
     def __init__(self, path: Union[str, os.PathLike]) -> None:
         self._fp = open(path, 'rb')
