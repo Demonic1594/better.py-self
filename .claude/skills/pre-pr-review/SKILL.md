@@ -79,8 +79,10 @@ git fetch origin claude-review-tools && git checkout origin/claude-review-tools 
    - `REQUEST_CHANGES`: **verify each blocker against the code first.** The reviewer runs on a
      small model and can be wrong. Fix every real blocker, re-run the affected gates from
      step 2, then re-run step 3. For a blocker that does not hold, say why in the next review
-     prompt so the reviewer can re-check it. Repeat until `APPROVE`. Never open the PR while a
-     real blocker is outstanding.
+     prompt so the reviewer can re-check it. Repeat until `APPROVE`, for at most **three review
+     rounds**. If blockers remain after the third round, stop and report them to the user with
+     your assessment of each; do not keep looping and do not open the PR. Never open the PR while
+     a real blocker is outstanding.
    - `APPROVE`: proceed. Apply the cheap, safe suggestions. For any you skip, say why in the PR
      body.
 
