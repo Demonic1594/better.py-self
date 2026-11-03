@@ -25,6 +25,15 @@ Fixes
 ~~~~~
 
 - Credentials leaked into DEBUG logs: READY tokens, email and phone, profile-edit passwords, the voice ``secret_key``, webhook and interaction tokens in URLs (also in the 429 WARNING) and the signature of pre-signed upload URLs. They are now redacted (see Behaviour Changes).
+- If the first connection attempt failed before a websocket existed, the reconnect handler raised :exc:`AttributeError` instead of retrying. It now retries with a fresh IDENTIFY.
+- Webhooks created from a client (:meth:`Webhook.from_url` with ``client``, :meth:`Webhook.partial` with ``client``, webhooks fetched through the client and followed channels) failed on their first request if the client had not made a CDN request yet, because the lazily created aiohttp session did not exist. The session is now created on the webhook's first request.
+- A private channel of an unknown type in READY_SUPPLEMENTAL aborted the connection, and one in :meth:`Client.fetch_private_channels` raised. Such channels are now skipped and logged at DEBUG.
+- :meth:`ClientUser.edit` with ``accent_colour`` (or ``accent_color``) raised :exc:`AttributeError`.
+- :meth:`SKU.is_released` raised :exc:`TypeError` when the SKU had a release date.
+- :attr:`SystemChannelFlags.emoji_added` was missing from the flag set: it could not be set, read or iterated.
+- :class:`PrivateUserFlags` did not accept or iterate the flags it inherits from :class:`PublicUserFlags`.
+- :meth:`Guild.vanity_invite` built the :class:`Invite` from the vanity-URL payload instead of the full invite, losing its guild and channel data.
+- The help commands of ``ext.commands`` raised :exc:`RuntimeError` when a single line (a long docstring or signature) was longer than a page. Such lines are now split across pages.
 
 .. _vp2p3p1:
 

@@ -246,6 +246,17 @@ Upstream issue and PR triage (2026-11-03)
     server), and the unmerged feature PRs #896 (frecency settings) and #934
     (profile editing), which are still in review upstream.
 
+Audit fixes, round 2 (2026-11-03)
+    Upstream bugs fixed here: ``Client.connect`` guards ``self.ws`` being
+    ``None`` on a failed first attempt; unknown private channel types are
+    skipped in ``parse_ready_supplemental`` and ``fetch_private_channels``;
+    ``ClientUser.edit`` reads ``colour.value``; ``SKU.is_released`` compares
+    dates; ``SystemChannelFlags.emoji_added`` is a ``flag_value``;
+    ``fill_with_flags`` collects flags along the MRO (``PrivateUserFlags``);
+    ``Guild.vanity_invite`` passes the full invite payload; help commands
+    split over-long lines (``_add_help_line``). Ours only: webhooks bound to a
+    client use ``_ClientSessionProxy`` because our aiohttp session is lazy.
+
 Debug-log redaction (2026-11-03)
     ``utils._redact``/``utils._RedactedLog`` wrap every raw-payload debug log:
     ``gateway.py`` (``Gateway event``, guarded by ``isEnabledFor``; voice

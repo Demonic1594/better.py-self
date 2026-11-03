@@ -770,6 +770,9 @@ _SENSITIVE_KEYS: FrozenSet[str] = frozenset(
         'phone',
         'ticket',
         'captcha_key',
+        'payment_source_token',
+        'purchase_token',
+        'two_way_link_code',
     }
 )
 _REDACTED = '[redacted]'
@@ -794,8 +797,9 @@ def _redact(obj: Any) -> Any:
 
     Dicts and lists (parsed payloads) are redacted by key at any depth. JSON *text*
     (request bodies) is redacted with a regex that covers string, number, flat
-    array and flat object values; a sensitive key whose value nests arrays or
-    objects inside a JSON string is only partly masked.
+    array and flat object values. Inside JSON text, a sensitive key whose value is
+    an object containing nested objects is not masked, and one whose value is an
+    array containing nested arrays leaks the part after the first inner array.
     """
     if isinstance(obj, dict):
         return {
