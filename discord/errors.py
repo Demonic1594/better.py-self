@@ -97,6 +97,13 @@ class GatewayNotFound(DiscordException):
         super().__init__(message)
 
 
+def _error_messages(errors: Any) -> str:
+    # Error lists come straight from the server: tolerate anything that is not a list of {'message': ...}
+    if not isinstance(errors, (list, tuple)):
+        return str(errors) if errors else ''
+    return ' '.join(str(x.get('message', '')) if isinstance(x, dict) else str(x) for x in errors)
+
+
 def _flatten_error_dict(d: FormErrorsPayload, key: str = '', /) -> Dict[str, str]:
     def is_wrapper(x: FormErrorsPayload) -> TypeGuard[FormErrorWrapperPayload]:
         return '_errors' in x
@@ -104,7 +111,7 @@ def _flatten_error_dict(d: FormErrorsPayload, key: str = '', /) -> Dict[str, str
     items: List[Tuple[str, str]] = []
 
     if is_wrapper(d) and not key:
-        items.append(('miscellaneous', ' '.join(x.get('message', '') for x in d['_errors'])))
+        items.append(('miscellaneous', _error_messages(d['_errors'])))
         d.pop('_errors')
 
     for k, v in d.items():
@@ -112,8 +119,7 @@ def _flatten_error_dict(d: FormErrorsPayload, key: str = '', /) -> Dict[str, str
 
         if isinstance(v, dict):
             if is_wrapper(v):
-                _errors = v['_errors']
-                items.append((new_key, ' '.join(x.get('message', '') for x in _errors)))
+                items.append((new_key, _error_messages(v['_errors'])))
             else:
                 items.extend(_flatten_error_dict(v, new_key).items())
         else:
@@ -157,18 +163,28 @@ class HTTPException(DiscordException):
         if isinstance(message, dict):
             self.json = message  # type: ignore
             self.code = message.get('code', 0)
-            base = message.get('message', '')
+            base = message.get('message') or ''
+            if not isinstance(base, str):
+                base = str(base)
             errors = message.get('errors')
             if errors:
-                errors = _flatten_error_dict(errors)
-                helpful = '\n'.join('In %s: %s' % t for t in errors.items())
+                # A malformed error payload must never replace the real HTTP error
+                # with an AttributeError/TypeError raised while describing it
+                try:
+                    flat = _flatten_error_dict(errors)
+                    helpful = '\n'.join('In %s: %s' % t for t in flat.items())
+                except Exception:
+                    helpful = str(errors)
                 self.text = base + '\n' + helpful
             else:
                 self.text = base
-            self.payment_id = _get_as_snowflake(message, 'payment_id')
+            try:
+                self.payment_id = _get_as_snowflake(message, 'payment_id')
+            except (TypeError, ValueError):
+                self.payment_id = None
         else:
-            self.text = message or ''
-            self.json = {'code': 0, 'message': message or ''}
+            self.text = message if isinstance(message, str) else (str(message) if message else '')
+            self.json = {'code': 0, 'message': self.text}
 
         if self.code == 40333:
             # Cloudflare access denied

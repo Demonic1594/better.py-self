@@ -826,7 +826,12 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
         if len(self._roles) == 0:
             return guild.default_role
 
-        return max(guild.get_role(rid) or guild.default_role for rid in self._roles)
+        # Roles missing from the cache count as the lowest role, as before; skipping
+        # them avoids comparing None with a Role when @everyone itself is not cached
+        roles = [role for role in map(guild.get_role, self._roles) if role is not None]
+        if not roles:
+            return guild.default_role
+        return max(roles)
 
     @property
     def guild_permissions(self) -> Permissions:

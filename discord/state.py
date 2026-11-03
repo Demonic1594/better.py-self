@@ -288,6 +288,13 @@ class ChunkRequest:
             if not future.done():
                 future.set_result(result)
 
+    def fail(self, exc: BaseException) -> None:
+        # Wake everyone waiting on a request that can no longer complete
+        for future in list(self.waiters):
+            if not future.done():
+                future.set_exception(exc)
+                future.exception()  # mark retrieved: an unawaited future must not warn at GC
+
 
 class MemberSidebar:
     __slots__ = (
@@ -612,6 +619,7 @@ class GuildSubscriptions:
         '_pending',
         '_entry_sizes',
         '_sized_payload',
+        '_flush_failures',
         '_task',
         '_blocked',
         '_subscribed',
@@ -630,6 +638,8 @@ class GuildSubscriptions:
         # Encoded size of each pending entry, valid for the dict in _sized_payload
         self._entry_sizes: Dict[str, int] = {}
         self._sized_payload: Any = None
+        # Consecutive failed sends: drives the retry backoff and the warning
+        self._flush_failures: int = 0
         self._task: Optional[asyncio.Task[None]] = None
         self._blocked: bool = False
         self.clear()
@@ -670,8 +680,10 @@ class GuildSubscriptions:
             self._task = None
 
     async def _tick_task(self) -> None:
+        # A send that keeps failing is retried less and less often (up to every 30s)
+        delay = min(self.TICK_TIMEOUT * (2 ** min(self._flush_failures, 6)), 30.0)
         try:
-            await asyncio.sleep(self.TICK_TIMEOUT)
+            await asyncio.sleep(delay)
         except asyncio.CancelledError:
             return
 
@@ -684,7 +696,9 @@ class GuildSubscriptions:
         ws = self._state.ws
         if ws is not None and ws.open:
             await self._flush()
-        else:
+        elif self._pending:
+            # Nothing to retry for when there is nothing queued: the next
+            # subscribe call ticks again
             self._tick()
 
     def _tick(self) -> None:
@@ -807,28 +821,39 @@ class GuildSubscriptions:
         # If it is, we need to flush the old payload and start a new one
         # If there isn't an old payload and the new payload is larger, this is impossible
         EMPTY: Any = {}
-        pending = self._pending
-        new_payload = pending.copy()
-        new_sizes = self._sizes_for(pending).copy()
-        for guild_id, subscriptions in changes.items():
-            old = cast(Dict[Any, Any], new_payload.get(guild_id, EMPTY))
-            updates = cast(Dict[Any, Any], subscriptions)
-            new_payload[guild_id] = merged = cast(Any, {**old, **updates})
-            # Only the changed entry is re-encoded, not the whole batch
-            new_sizes[guild_id] = self._entry_size(guild_id, merged)
+        # Bounded: each round that does not fit sends the backlog first. If sends
+        # keep failing (the backlog is requeued) or other callers keep refilling it,
+        # queue the change anyway instead of recursing without end.
+        for attempt in range(3):
+            pending = self._pending
+            new_payload = pending.copy()
+            new_sizes = self._sizes_for(pending).copy()
+            for guild_id, subscriptions in changes.items():
+                old = cast(Dict[Any, Any], new_payload.get(guild_id, EMPTY))
+                updates = cast(Dict[Any, Any], subscriptions)
+                new_payload[guild_id] = merged = cast(Any, {**old, **updates})
+                # Only the changed entry is re-encoded, not the whole batch
+                new_sizes[guild_id] = self._entry_size(guild_id, merged)
 
-        if self._encoded_size(new_sizes) > self.MAX_PAYLOAD_SIZE:
-            if len(utils._to_json(changes)) > self.MAX_PAYLOAD_SIZE:
-                raise ValueError('Guild subscription payload too large to send')
-            await self._flush()
-            # Other subscribe calls may have queued changes during the flush;
-            # merge into them instead of overwriting
-            await self._checked_add(changes)
-            return
-        else:
+            fits = self._encoded_size(new_sizes) <= self.MAX_PAYLOAD_SIZE
+            if not fits:
+                if len(utils._to_json(changes)) > self.MAX_PAYLOAD_SIZE:
+                    raise ValueError('Guild subscription payload too large to send')
+                if attempt < 2:
+                    await self._flush()
+                    # Other subscribe calls may have queued changes during the flush;
+                    # the next round merges into them instead of overwriting
+                    continue
+                _log.warning(
+                    'Guild subscription backlog could not be flushed (%d consecutive send failures); '
+                    'queueing the change behind it.',
+                    self._flush_failures,
+                )
+
             self._pending = new_payload
             self._entry_sizes = new_sizes
             self._sized_payload = new_payload
+            break
 
         self._tick()
 
@@ -859,12 +884,23 @@ class GuildSubscriptions:
             # Only keys that are present in the payload are updated on the backend
             await self._state.ws.bulk_guild_subscribe(payload)
         except Exception as exc:
-            _log.debug('Bulk guild subscribe failed with %s. Requeuing changes...', exc, exc_info=True)
+            self._flush_failures += 1
+            # Visible, but not on every retry: the first failure and then every 10th
+            level = logging.WARNING if self._flush_failures % 10 == 1 else logging.DEBUG
+            _log.log(
+                level,
+                'Bulk guild subscribe failed with %s (%d in a row). Requeuing changes...',
+                exc,
+                self._flush_failures,
+                exc_info=True,
+            )
             # This should never raise
             new_payload = self._pending
             self._pending = payload
             await self._checked_add(new_payload)
             return
+
+        self._flush_failures = 0
 
         for key, subscriptions in payload.items():
             guild_id = int(key)
@@ -1413,6 +1449,9 @@ class ConnectionState:
         # The frozen startup graph is about to be dropped en masse; return it
         # to the collectable generations so reconnects don't leak it.
         self._release_gc_freeze()
+        # Chunk requests belong to the session that sent them; a fresh READY or a
+        # close would otherwise leave them registered forever, hanging whoever waits
+        self._fail_pending_chunk_requests('The session was reset before the member chunk request finished.')
         self.user: Optional[ClientUser] = None
         self._users: weakref.WeakValueDictionary[int, User] = weakref.WeakValueDictionary()
         self.settings: Optional[UserSettings] = None
@@ -1567,6 +1606,15 @@ class ConnectionState:
             sum(map(len, (guild._threads for guild in guilds))),
             cap,
         )
+
+    def _fail_pending_chunk_requests(self, reason: str) -> None:
+        requests = self._chunk_requests
+        if not requests:
+            return
+        exc = ClientException(reason)
+        for request in list(requests.values()):
+            request.fail(exc)
+        requests.clear()
 
     def process_chunk_requests(self, guild_id: int, nonce: Optional[str], members: List[Member], complete: bool) -> None:
         removed = []
@@ -2238,8 +2286,12 @@ class ConnectionState:
             manager.blocked = False
             await self.chunker(to_chunk, nonce=member_nonce)
 
+            # Every guild's deadline runs from the same start: the requests are all
+            # in flight at once, so N stalled guilds cost the longest timeout, not
+            # the sum of all of them (which held READY for hours at 1000 guilds)
+            started = self.loop.time()
             for guild, future in states:
-                timeout = self._chunk_timeout(guild)
+                timeout = max(0.0, started + self._chunk_timeout(guild) - self.loop.time())
 
                 try:
                     await asyncio.wait_for(future, timeout=timeout)
@@ -2249,6 +2301,11 @@ class ConnectionState:
                     pass
         except asyncio.CancelledError:
             pass
+        except Exception:
+            # e.g. the gateway closed while chunks were being requested; the
+            # reconnect brings a new READY. Nothing awaits this task, so say why
+            # READY did not complete instead of dropping the error silently.
+            _log.warning('The ready sequence failed; waiting for the next READY.', exc_info=True)
         else:
             # Dispatch the event
             self.call_handlers('ready')
@@ -3971,7 +4028,13 @@ class ConnectionState:
             request = self._chunk_requests.get(guild.id)
             if request is None:
                 self._chunk_requests[guild.id] = request = ChunkRequest(guild.id, self.loop, self._get_guild, cache=cache)
-                await self.chunker([guild.id], nonce=request.nonce)
+                try:
+                    await self.chunker([guild.id], nonce=request.nonce)
+                except BaseException as exc:
+                    if self._chunk_requests.get(guild.id) is request:
+                        del self._chunk_requests[guild.id]
+                    request.fail(exc if isinstance(exc, Exception) else ClientException('Member chunk request cancelled.'))
+                    raise
         else:
             if not chunk:
                 await self.assert_guild_presence_count(guild)
@@ -4012,7 +4075,15 @@ class ConnectionState:
                 guild.id, self.loop, self._get_guild, cache=cache, nonce=nonce
             )
             if not nonce:
-                await self.chunker([guild.id], nonce=request.nonce)
+                try:
+                    await self.chunker([guild.id], nonce=request.nonce)
+                except BaseException as exc:
+                    # The request was never sent: leaving it registered made every
+                    # later chunk() join it and wait forever
+                    if self._chunk_requests.get(guild.id) is request:
+                        del self._chunk_requests[guild.id]
+                    request.fail(exc if isinstance(exc, Exception) else ClientException('Member chunk request cancelled.'))
+                    raise
 
         if wait:
             return await request.wait()

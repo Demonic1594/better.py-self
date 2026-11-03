@@ -333,3 +333,35 @@ async def test_invalid_session_true_keeps_the_session_and_delays_resume():
     assert caught.value.resume is True
     assert 1.0 <= caught.value.delay <= 5.0
     assert ws.session_id == 'sess' and ws.sequence == 42
+
+
+@pytest.mark.asyncio
+async def test_repeated_reconnect_requests_back_off(monkeypatch):
+    from discord.gateway import ReconnectWebSocket
+
+    # A gateway (or proxy) that answers every connection with RECONNECT
+    script = [(1, ReconnectWebSocket()) for _ in range(6)] + [(0, None)]
+    sleeps, connects, _, _ = await _run_script(monkeypatch, script)
+
+    assert connects == 7
+    # The first few retries are immediate; after that each one waits
+    assert len(sleeps) == 3, f'expected backoff from the 4th consecutive request on, got {sleeps}'
+
+
+@pytest.mark.asyncio
+async def test_a_healthy_session_resets_the_reconnect_streak(monkeypatch):
+    from discord.gateway import ReconnectWebSocket
+
+    script = [
+        (1, ReconnectWebSocket()),
+        (1, ReconnectWebSocket()),
+        (1, ReconnectWebSocket()),
+        (120, ReconnectWebSocket()),  # a normal long session ends in a RECONNECT
+        (1, ReconnectWebSocket()),
+        (1, ReconnectWebSocket()),
+        (1, ReconnectWebSocket()),
+        (0, None),
+    ]
+    sleeps, _, _, _ = await _run_script(monkeypatch, script)
+
+    assert sleeps == [], f'no backoff expected when no streak builds up, got {sleeps}'

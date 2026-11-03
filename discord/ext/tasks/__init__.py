@@ -207,7 +207,16 @@ class Loop(Generic[LF]):
 
     async def _loop(self, *args: Any, **kwargs: Any) -> None:
         backoff = ExponentialBackoff()
-        await self._call_loop_function('before_loop')
+        try:
+            await self._call_loop_function('before_loop')
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # Nothing awaits this task, so without this the error vanished until GC:
+            # route it to the loop's error handler like a failure in the body
+            self._has_failed = True
+            await self._call_loop_function('error', exc)
+            raise
         self._last_iteration_failed = False
         if self._is_explicit_time():
             self._next_iteration = self._get_next_sleep_time()
