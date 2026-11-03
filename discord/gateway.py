@@ -219,42 +219,37 @@ class KeepAliveHandler:  # Inspired by enhanced-discord.py/Gnome
             ):
                 payload = self.get_time_spent_payload()
                 _log.debug(self.time_spent_msg)
-                try:
-                    total = 0
-                    while True:
-                        try:
-                            await asyncio.wait_for(self.ws.send_heartbeat(payload), timeout=10)
-                            break
-                        except asyncio.TimeoutError:
-                            total += 10
-
-                            stack = ''.join(traceback.format_stack())
-                            msg = f'{self.block_msg}\nLoop traceback (most recent call last):\n{stack}'
-                            _log.warning(msg, total)
-                except Exception:
-                    self.stop()
-                else:
-                    self._last_time_spent = time.perf_counter()
+                if not await self._send_guarded(payload):
+                    # The connection is gone: don't follow up with a heartbeat on it
+                    return
+                self._last_time_spent = time.perf_counter()
 
             data = self.get_heartbeat_payload()
             _log.debug(self.msg)
             # Stamp the send time before the send actually happens, otherwise a slow
             # send makes the measured latency smaller than it really is
             self._last_send = time.perf_counter()
-            try:
-                total = 0
-                while True:
-                    try:
-                        await asyncio.wait_for(self.ws.send_heartbeat(data), timeout=10)
-                        break
-                    except asyncio.TimeoutError:
-                        total += 10
+            await self._send_guarded(data)
 
-                        stack = ''.join(traceback.format_stack())
-                        msg = f'{self.block_msg}\nLoop traceback (most recent call last):\n{stack}'
-                        _log.warning(msg, total)
-            except Exception:
-                self.stop()
+    async def _send_guarded(self, payload: Dict[str, Any], /) -> bool:
+        """Sends a heartbeat-class payload, warning every 10s while the loop is blocked.
+
+        Returns ``False`` (after stopping the handler) if the send failed.
+        """
+        total = 0
+        try:
+            while True:
+                try:
+                    await asyncio.wait_for(self.ws.send_heartbeat(payload), timeout=10)
+                    return True
+                except asyncio.TimeoutError:
+                    total += 10
+                    stack = ''.join(traceback.format_stack())
+                    msg = f'{self.block_msg}\nLoop traceback (most recent call last):\n{stack}'
+                    _log.warning(msg, total)
+        except Exception:
+            self.stop()
+            return False
 
     def get_heartbeat_payload(self) -> Dict[str, Any]:
         reasons = ['foregrounded']

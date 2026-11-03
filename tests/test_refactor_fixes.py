@@ -280,3 +280,97 @@ async def test_presence_wait_for_only_listener_gets_before_and_after():
 
     assert before.status is discord.Status.online and after.status is discord.Status.idle
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_webhook_lock_released_when_cancelled_during_deferral():
+    from discord.webhook.async_ import AsyncDeferredLock
+
+    lock = asyncio.Lock()
+
+    async def holder():
+        async with AsyncDeferredLock(lock) as deferred:
+            deferred.delay_by(30)  # bucket exhausted: defer the release
+
+    task = asyncio.ensure_future(holder())
+    await asyncio.sleep(0.01)
+    assert lock.locked()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert not lock.locked(), 'later senders to this webhook would hang forever'
+
+
+def test_sync_webhook_lock_released_when_interrupted(monkeypatch):
+    import threading
+
+    import discord.webhook.sync as sync_module
+
+    def interrupted_sleep(_):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(sync_module.time, 'sleep', interrupted_sleep)
+    lock = threading.Lock()
+    with pytest.raises(KeyboardInterrupt):
+        with sync_module.DeferredLock(lock) as deferred:
+            deferred.delay_by(5)
+    assert not lock.locked()
+
+
+def test_connection_reset_errnos_cover_this_platform():
+    import errno
+
+    from discord import utils
+
+    assert errno.ECONNRESET in utils._CONNECTION_RESET_ERRNOS  # 104 on Linux
+    assert {54, 10054} <= utils._CONNECTION_RESET_ERRNOS
+
+
+def test_ratelimit_header_without_reset_fields_does_not_raise():
+    from discord import utils
+
+    response = SimpleNamespace(headers={'X-Ratelimit-Remaining': '0'})
+    assert utils._parse_ratelimit_header(response) == 0.0
+    assert utils._parse_ratelimit_header(SimpleNamespace(headers={'X-Ratelimit-Reset-After': '1.5'})) == 1.5
+
+
+@pytest.mark.asyncio
+async def test_webhook_gives_up_without_a_final_sleep(monkeypatch):
+    import discord.webhook.async_ as async_module
+    from discord.errors import DiscordServerError
+    from discord.http import Route
+
+    sleeps = []
+
+    async def fake_sleep(delay):
+        sleeps.append(delay)
+
+    monkeypatch.setattr(async_module.asyncio, 'sleep', fake_sleep)
+
+    class Response:
+        status = 503
+        headers: dict = {}
+        reason = 'Service Unavailable'
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return None
+
+        async def text(self):
+            return 'down'
+
+        async def read(self):
+            return b'down'
+
+    class Session:
+        def request(self, *args, **kwargs):
+            return Response()
+
+    adapter = async_module.AsyncWebhookAdapter()
+    route = Route('POST', '/webhooks/{webhook_id}/{webhook_token}', webhook_id=1, webhook_token='t')
+    with pytest.raises(DiscordServerError):
+        await adapter.request(route, session=Session())  # type: ignore[arg-type]
+
+    assert len(sleeps) == 4, f'5 attempts need 4 backoffs, not 5: {sleeps}'
