@@ -537,3 +537,57 @@ def test_play_while_paused_stops_the_parked_player(monkeypatch):
 
     assert stopped == [True], 'the paused player thread would be orphaned'
     assert isinstance(client._player, FakePlayer)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_ratelimit_refreshes_sleep_the_window_once():
+    from discord.http import Ratelimit
+
+    bucket = Ratelimit(None, 1)
+    loop = asyncio.get_running_loop()
+    bucket.remaining = 0
+    bucket.reset_after = 0.05
+    bucket.expires = loop.time() + bucket.reset_after
+    resets = []
+    real_reset = Ratelimit.reset
+
+    def counting_reset(self):
+        resets.append(1)
+        real_reset(self)
+
+    Ratelimit.reset = counting_reset  # type: ignore[method-assign]
+    try:
+        start = loop.time()
+        await asyncio.gather(*(bucket._refresh() for _ in range(5)))
+        elapsed = loop.time() - start
+    finally:
+        Ratelimit.reset = real_reset  # type: ignore[method-assign]
+
+    assert len(resets) == 1, 'queued refreshes must not re-reset an already refreshed bucket'
+    assert elapsed < 0.05 * 2, f'5 queued refreshes slept {elapsed:.2f}s (stale windows re-slept)'
+
+
+@pytest.mark.asyncio
+async def test_voice_poller_logs_and_disconnects_on_unexpected_error(monkeypatch, caplog):
+    import logging
+
+    from discord.voice_state import ConnectionFlowState, VoiceConnectionState
+
+    conn = VoiceConnectionState.__new__(VoiceConnectionState)
+    conn._state = ConnectionFlowState.connected
+    disconnects = []
+
+    async def failing_loop(self, reconnect):
+        raise RuntimeError('voice server returned garbage')
+
+    async def fake_disconnect(self, *args, **kwargs):
+        disconnects.append(True)
+
+    monkeypatch.setattr(VoiceConnectionState, '_poll_voice_ws_loop', failing_loop)
+    monkeypatch.setattr(VoiceConnectionState, 'disconnect', fake_disconnect)
+
+    with caplog.at_level(logging.ERROR, logger='discord.voice_state'):
+        await conn._poll_voice_ws(True)  # must not raise out of the (never awaited) task
+
+    assert disconnects == [True]
+    assert any('poller stopped on an unexpected error' in r.getMessage() for r in caplog.records)

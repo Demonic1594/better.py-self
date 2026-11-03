@@ -808,6 +808,20 @@ class VoiceConnectionState:
             self._socket_reader.resume()
 
     async def _poll_voice_ws(self, reconnect: bool) -> None:
+        # Nothing awaits this task: an exception escaping the poll loop (e.g. an
+        # HTTPException while re-connecting) used to vanish as "Task exception was
+        # never retrieved", leaving the voice connection half dead
+        try:
+            await self._poll_voice_ws_loop(reconnect)
+        except Exception:
+            _log.exception('Voice websocket poller stopped on an unexpected error. Disconnecting from voice...')
+            if self.state is not ConnectionFlowState.disconnected:
+                try:
+                    await self.disconnect()
+                except Exception:
+                    _log.exception('Disconnecting from voice after the poller error failed.')
+
+    async def _poll_voice_ws_loop(self, reconnect: bool) -> None:
         backoff = ExponentialBackoff()
         while True:
             try:
