@@ -164,7 +164,9 @@ Webhooks (``discord/webhook/async_.py``, ``discord/webhook/sync.py``)
 Voice (``discord/voice_client.py``, ``discord/voice_media.py``, ``discord/opus.py``)
     ``play()`` stops a paused player before replacing it;
     ``VoiceConnectionState._poll_voice_ws`` wraps ``_poll_voice_ws_loop`` so
-    an unexpected error is logged and disconnects cleanly; the RTP audio
+    an unexpected error is logged and disconnects cleanly; ``_inner_connect``
+    disconnects and re-raises after its fifth failed handshake instead of
+    reporting success; the RTP audio
     level is computed with ``array``/``math.sumprod``; ``Encoder.encode`` /
     ``Decoder.decode`` return the ctypes buffers' bytes directly.
 

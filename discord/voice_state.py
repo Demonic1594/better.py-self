@@ -579,14 +579,19 @@ class VoiceConnectionState:
                 self.ws = await self._connect_websocket(resume)
                 await self._handshake_websocket()
                 break
-            except ConnectionClosed:
-                if reconnect:
+            except ConnectionClosed as exc:
+                if reconnect and i < 4:
                     wait = 1 + i * 2.0
                     _log.exception('Failed to connect to voice... Retrying in %ss...', wait)
                     await self.disconnect(cleanup=False)
                     await asyncio.sleep(wait)
                     continue
                 else:
+                    # Out of attempts (or not reconnecting): fail the connect. The
+                    # last retry used to fall out of the loop, so connect() reported
+                    # success and started the poller on a closed websocket
+                    if reconnect:
+                        _log.error('Failed to connect to voice after 5 attempts (close code %s).', exc.code)
                     await self.disconnect()
                     raise
 
