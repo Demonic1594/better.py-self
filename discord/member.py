@@ -179,6 +179,19 @@ class VoiceState:
         return f'<{self.__class__.__name__} {inner}>'
 
 
+class _CallableList(List[Collectible]):
+    """A list that returns itself when called.
+
+    :attr:`Member.collectibles` is a property here but a method upstream, so this
+    keeps ``member.collectibles`` and ``member.collectibles()`` both working.
+    """
+
+    __slots__ = ()
+
+    def __call__(self) -> List[Collectible]:
+        return self
+
+
 def flatten_user(cls: T) -> T:
     for attr, value in itertools.chain(BaseUser.__dict__.items(), User.__dict__.items()):
         # Ignore private/special methods
@@ -949,9 +962,12 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
         This will return the guild specific collectibles if available, otherwise it will
         return the user's collectibles.
 
+        The returned list can also be called and returns itself, so code that uses
+        ``member.collectibles()`` (as with :meth:`User.collectibles`) keeps working.
+
         .. versionadded:: 2.3
         """
-        return self.guild_collectibles or self._user.collectibles()
+        return _CallableList(self.guild_collectibles or self._user.collectibles())
 
     async def ban(
         self,

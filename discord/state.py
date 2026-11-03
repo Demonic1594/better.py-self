@@ -1467,6 +1467,8 @@ class ConnectionState:
         self._member_hits: int = 0
         self._member_misses: int = 0
         self._presence_evictions: int = 0
+        # Caches that have logged their first eviction (logged once per cache, at INFO)
+        self._eviction_logged: Set[str] = set()
 
         self.dispatch: Callable[..., Any] = dispatch
         self.handlers: Dict[str, Callable[..., Any]] = handlers
@@ -1643,6 +1645,20 @@ class ConnectionState:
         self._member_add_counter += 1
         if self._member_add_counter >= 1024:
             self._maybe_evict_members_global()
+
+    def _log_first_eviction(self, cache: str) -> None:
+        # Eviction is silent below INFO, so a user whose caches fill up would
+        # otherwise not know the caps exist; say so once per cache
+        logged = self._eviction_logged
+        if cache in logged:
+            return
+        logged.add(cache)
+        _log.info(
+            'The %s cache reached its cap and now evicts the least recently used entries. '
+            'This is expected on large accounts; raise or disable the max_*_cache options if needed '
+            '(see Client.cache_stats()). Logged once per cache.',
+            cache,
+        )
 
     def _maybe_evict_members_global(self) -> None:
         cap = self.max_total_member_cache
@@ -5290,6 +5306,7 @@ class ConnectionState:
                     evicted += 1
                 if evicted:
                     self._presence_evictions += evicted
+                    self._log_first_eviction('presence')
         else:
             presences = self._presences
             if user_id in presences:
@@ -5303,6 +5320,7 @@ class ConnectionState:
                     evicted += 1
                 if evicted:
                     self._presence_evictions += evicted
+                    self._log_first_eviction('presence')
         return presence
 
     @overload
