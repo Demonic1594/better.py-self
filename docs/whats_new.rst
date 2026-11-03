@@ -11,6 +11,54 @@ Changelog
 This page keeps a detailed human friendly rendering of what's new and changed
 in specific versions.
 
+.. _vp2p2p0_unreleased:
+
+Unreleased
+----------
+
+New Features
+~~~~~~~~~~~~~
+
+- Add the ``eager_dispatch`` option to :class:`Client` (opt-in, default ``False``, Python 3.12+). Event handler tasks start eagerly, so a handler runs inside the dispatch up to its first ``await``. Handlers that usually return early are about 8-13% faster per message; handlers that always await are unchanged. On older Python versions the option logs a warning and is ignored.
+
+Performance
+~~~~~~~~~~~
+
+- Message objects skip building empty ``embeds``, ``attachments``, ``reactions``, ``sticker_items`` and mention lists.
+- Unhandled dispatches, presence updates with no ``presence_update`` listener, and the subscription batch-size check are cheaper.
+- Rate-limit bucket sweeps run at most every 30 seconds instead of on every new bucket.
+- Voice audio levels are computed without a per-sample Python loop, and Opus encode/decode no longer round-trip through Python lists.
+- Interaction and autocomplete contexts are released when their event arrives, so the bounded caches only hold in-flight requests.
+
+Behaviour Changes
+~~~~~~~~~~~~~~~~~
+
+- :meth:`TextChannel.purge` no longer re-deletes messages that were already removed.
+- ``Guild.audit_logs(limit=...)`` now honours ``limit``. Before, the limit was reduced by the number of response keys, not entries, so more entries than requested could be returned.
+- :meth:`GuildChannel.move` with ``category=None`` now positions the channel among top-level channels.
+- Slash command options: an unknown option name is logged as a warning (it is still ignored). A boolean option given ``"false"``, ``"0"`` or ``"no"`` is now ``False``.
+- Connecting to voice (:meth:`abc.Connectable.connect`) raises after its fifth failed handshake instead of reporting success.
+- :meth:`UserSettings.edit` with ``MISSING`` for ``restricted_guilds``-style fields or ``soundboard_volume`` resets the field, instead of raising or setting the volume to 0.
+- Cache snapshots over 256 MiB are no longer written.
+- Gateway reconnects: a session that stayed up for at least 60 seconds before failing starts a fresh backoff. A connection reset resumes immediately once; if resets keep happening, the client backs off instead of reconnecting in a tight loop. Connection resets are recognised on every platform, not just macOS and Windows.
+- Voice handshake retries use a jittered backoff rather than a fixed linear delay, so accounts recovering from one voice outage don't retry in lockstep.
+
+Fixes
+~~~~~
+
+- Two concurrent chunk or ``query_members`` requests could share a nonce, and the second one hung until its timeout. Nonces are now unique within a millisecond.
+- A subscription sent while an earlier batch was in flight could be dropped.
+- Closing the client before the fresh ``READY`` could overwrite a restored cache snapshot with an empty one.
+- A cancelled webhook send could leave its webhook locked, so later sends hung. Connection resets are now retried on Linux as well.
+- The ``max_concurrency`` limit could be exceeded with ``wait=True``.
+- A paused voice player was not cleaned up when replaced by a new :meth:`VoiceClient.play` call.
+- Queued rate-limit refreshes slept and reset the bucket once per waiting request.
+- Mixing :class:`CloudFile` and local :class:`File` objects in one send gave the local file the wrong attachment ID.
+- :class:`CloudFile` uploads dropped the spoiler flag, and :attr:`File.size` ignored the buffer's starting offset.
+- Interaction-related caches could evict in-flight entries, and :attr:`Interaction.message` no longer caches a ``None`` lookup.
+- MP4 files were not detected as video.
+- ``UserExperiment.from_holdout`` treated bucket 0 as unassigned.
+
 .. _vp2p2p0:
 
 v2.2.0

@@ -171,6 +171,9 @@ Differences From Upstream
   rename/publish workflows.
 - The cache caps have sensible defaults (see the tuning guide) — pass
   ``None`` to any of them for unbounded, upstream-style behavior.
+- ``Client(eager_dispatch=True)`` is an opt-in addition (Python 3.12+) that
+  starts event handlers eagerly. It is off by default, and the changelog
+  lists the behaviour changes this round made.
 
 Quick Example
 --------------
