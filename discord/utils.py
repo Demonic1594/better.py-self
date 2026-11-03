@@ -62,6 +62,7 @@ from itertools import islice
 from base64 import b64encode, b64decode
 from bisect import bisect_left
 import datetime
+import errno
 import functools
 from inspect import isawaitable as _isawaitable, signature as _signature
 from operator import attrgetter
@@ -833,12 +834,23 @@ else:
     _from_json_frame = _json_loads_frame
 
 
+# "Connection reset by peer": 54 (BSD/macOS), 10054 (Windows) and the
+# platform's own ECONNRESET (104 on Linux, which the literals alone missed)
+_CONNECTION_RESET_ERRNOS: frozenset = frozenset({54, 10054, errno.ECONNRESET})
+
+
 def _parse_ratelimit_header(request: Any, *, use_clock: bool = False) -> float:
     reset_after: Optional[str] = request.headers.get('X-Ratelimit-Reset-After')
     if use_clock or not reset_after:
+        reset_at = request.headers.get('X-Ratelimit-Reset')
+        if reset_at is None:
+            # Malformed rate limit headers must not turn a delivered response
+            # into an exception; don't defer the bucket in that case
+            logging.getLogger(__name__).debug('Rate limit headers lack both reset fields; not deferring.')
+            return 0.0
         utc = datetime.timezone.utc
         now = datetime.datetime.now(utc)
-        reset = datetime.datetime.fromtimestamp(float(request.headers['X-Ratelimit-Reset']), utc)
+        reset = datetime.datetime.fromtimestamp(float(reset_at), utc)
         return (reset - now).total_seconds()
     else:
         return float(reset_after)
