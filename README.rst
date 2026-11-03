@@ -119,8 +119,8 @@ Installing
 **Python 3.10 or higher is required.**
 
 This fork is not published to PyPI. Install it from the
-repository, or from the `v2.2.0 release
-<https://github.com/Demonic1594/better.py-self/releases/tag/v2.2.0>`_
+repository, or from the `v2.3.0 release
+<https://github.com/Demonic1594/better.py-self/releases/tag/v2.3.0>`_
 wheel:
 
 .. code:: sh
@@ -129,7 +129,7 @@ wheel:
     python3 -m pip install -U git+https://github.com/Demonic1594/better.py-self.git
 
     # From the release wheel
-    python3 -m pip install -U https://github.com/Demonic1594/better.py-self/releases/download/v2.2.0/discord_py_self-2.2.0-py3-none-any.whl
+    python3 -m pip install -U https://github.com/Demonic1594/better.py-self/releases/download/v2.3.0/discord_py_self-2.3.0-py3-none-any.whl
 
 For voice support, add the ``[voice]`` extra:
 
@@ -168,7 +168,7 @@ Differences From Upstream
 --------------------------
 
 - The package still installs as ``discord`` (import ``discord`` as usual);
-  the distribution name on the v2.2.0 wheel is ``discord_py_self``.
+  the distribution name on the v2.3.0 wheel is ``discord_py_self``.
 - Upstream's ``selfcord.py`` renamed build (the ``renamed`` branch) is not
   carried by this fork; it was removed together with the destructive
   rename/publish workflows.
