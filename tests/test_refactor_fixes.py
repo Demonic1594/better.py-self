@@ -591,3 +591,51 @@ async def test_voice_poller_logs_and_disconnects_on_unexpected_error(monkeypatch
 
     assert disconnects == [True]
     assert any('poller stopped on an unexpected error' in r.getMessage() for r in caplog.records)
+
+
+def test_nonces_are_unique_within_a_millisecond():
+    from discord import utils
+
+    nonces = [utils._generate_nonce() for _ in range(5000)]
+    assert len(set(nonces)) == len(nonces), 'nonces made in the same ms used to collide'
+    # Still snowflake-shaped: the timestamp part decodes to now
+    created = utils.snowflake_time(int(nonces[-1]))
+    assert abs((utils.utcnow() - created).total_seconds()) < 5
+
+
+@pytest.mark.asyncio
+async def test_interaction_create_pops_its_nonce_context():
+    import discord
+
+    client = discord.Client()
+    await client._async_setup_hook()
+    state = client._connection
+    state.user = discord.ClientUser(
+        state=state, data={'id': '5', 'username': 'me', 'discriminator': '0', 'global_name': None, 'avatar': None}
+    )
+    channel = object()
+    state._interaction_cache['n1'] = (2, 'ping', channel)
+
+    seen = []
+    client.on_interaction = lambda i: seen.append(i) or asyncio.sleep(0)  # type: ignore[attr-defined]
+    state.parse_interaction_create({'id': '77', 'nonce': 'n1'})  # type: ignore[arg-type]
+
+    assert 'n1' not in state._interaction_cache, 'the cache must only hold in-flight interactions'
+    interaction = state._interactions[77]
+    assert interaction.channel is channel and interaction.name == 'ping'
+    await client.close()
+
+
+def test_boolean_option_strings_and_unknown_options(caplog):
+    import logging
+    from types import SimpleNamespace
+
+    from discord.commands import SlashMixin
+    from discord.enums import ApplicationCommandOptionType
+
+    opt = SimpleNamespace(name='flag', type=ApplicationCommandOptionType.boolean)
+    cmd = SimpleNamespace(options=[opt], name='cmd')
+    with caplog.at_level(logging.WARNING, logger='discord.commands'):
+        options, _, _ = SlashMixin._parse_kwargs(cmd, {'flag': 'false', 'flgg': True})  # type: ignore[arg-type]
+    assert options == [{'type': ApplicationCommandOptionType.boolean.value, 'name': 'flag', 'value': False}]
+    assert any("'flgg'" in r.getMessage() for r in caplog.records), 'unknown options must not vanish silently'

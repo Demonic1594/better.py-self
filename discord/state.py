@@ -1807,6 +1807,8 @@ class ConnectionState:
         nonce = data.get('nonce', interaction.nonce)
         if nonce is not None:
             self._application_command_autocomplete_cache.pop(nonce, None)
+            # Present when INTERACTION_CREATE never arrived (terminal-event fallback)
+            self._interaction_cache.pop(nonce, None)
 
     def _get_interaction_from_terminal_event(self, data: Mapping[str, Any]) -> Optional[Interaction]:
         interaction_id = int(data['id'])
@@ -4629,7 +4631,14 @@ class ConnectionState:
             # Most likely user is messing around with the raw API
             return
 
-        type, name, channel = self._interaction_cache.get(data['nonce'], (0, None, None))
+        # Each nonce gets one INTERACTION_CREATE: pop it so the bounded cache only
+        # ever holds in-flight interactions (it used to keep the last 50, so a
+        # burst could evict entries that were still waiting for this event)
+        context = self._interaction_cache.pop(data['nonce'], None)
+        if context is None:
+            _log.debug('INTERACTION_CREATE for an unknown nonce %s; channel and name are unavailable.', data['nonce'])
+            context = (0, None, None)
+        type, name, channel = context
         i = Interaction._from_self(channel, type=type, user=self.user, name=name, **data)  # type: ignore # self.user is always present here
         self._add_interaction(i)
         self.dispatch('interaction', i)
@@ -4661,7 +4670,8 @@ class ConnectionState:
         from .commands import ApplicationCommandAutocomplete
 
         nonce = data['nonce']
-        context = self._application_command_autocomplete_cache.get(nonce)
+        # One response per request: pop so the bounded cache holds only pending ones
+        context = self._application_command_autocomplete_cache.pop(nonce, None)
         if context is None:
             _log.warning('APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE referencing an unknown nonce: %s. Discarding.', nonce)
             return

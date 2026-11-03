@@ -27,6 +27,7 @@ from __future__ import annotations
 import array
 import asyncio
 import inspect
+import itertools
 from typing import (
     Any,
     AsyncIterable,
@@ -1556,8 +1557,15 @@ def _generate_session_id() -> str:
     return ''.join(random.choices(string.ascii_letters + string.digits, k=16))
 
 
+_nonce_increment = itertools.count()
+
+
 def _generate_nonce() -> str:
-    return str(time_snowflake(utcnow()))
+    # The low 22 bits of a time snowflake are zero, so nonces made in the same
+    # millisecond used to collide (two chunk requests or interactions started
+    # together overwrote each other's pending state). Fill them from a
+    # process-wide counter, like a real snowflake's increment field.
+    return str(time_snowflake(utcnow()) | (next(_nonce_increment) & 0x3FFFFF))
 
 
 def _parse_localizations(data: Any, key: str) -> tuple[Any, dict]:
