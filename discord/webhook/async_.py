@@ -41,7 +41,7 @@ from ..user import BaseUser, User
 from ..flags import MessageFlags
 from ..asset import Asset
 from ..partial_emoji import PartialEmoji
-from ..http import Route, handle_message_parameters, json_or_text, HTTPClient
+from ..http import Route, handle_message_parameters, json_or_text, HTTPClient, _retry_delay
 from ..mixins import Hashable
 from ..channel import TextChannel, ForumChannel, PartialMessageable, ForumTag
 from ..file import File
@@ -113,9 +113,13 @@ class AsyncDeferredLock:
         exc: Optional[BE],
         traceback: Optional[TracebackType],
     ) -> None:
-        if self.delta:
-            await asyncio.sleep(self.delta)
-        self.lock.release()
+        try:
+            if self.delta:
+                await asyncio.sleep(self.delta)
+        finally:
+            # A cancellation during the deferral sleep must still release the
+            # lock, or every later request to this webhook would hang forever
+            self.lock.release()
 
 
 class AsyncWebhookAdapter:
@@ -213,11 +217,15 @@ class AsyncWebhookAdapter:
 
                             retry_after: float = data['retry_after']  # type: ignore
                             _log.warning(fmt, webhook_id, retry_after)
+                            if attempt == 4:
+                                break  # out of attempts: don't sleep (holding the lock) only to give up
                             await asyncio.sleep(retry_after)
                             continue
 
                         if response.status >= 500:
-                            await asyncio.sleep(1 + attempt * 2)
+                            if attempt == 4:
+                                break
+                            await asyncio.sleep(_retry_delay(attempt))
                             continue
 
                         if response.status == 403:
@@ -228,8 +236,8 @@ class AsyncWebhookAdapter:
                             raise HTTPException(response, data)
 
                 except OSError as e:
-                    if attempt < 4 and e.errno in (54, 10054):
-                        await asyncio.sleep(1 + attempt * 2)
+                    if attempt < 4 and e.errno in utils._CONNECTION_RESET_ERRNOS:
+                        await asyncio.sleep(_retry_delay(attempt))
                         continue
                     raise
 
@@ -732,7 +740,7 @@ class WebhookMessage(Message):
                 except HTTPException:
                     pass
 
-            asyncio.create_task(inner_call())
+            utils._spawn_background(inner_call())
         else:
             await self._state._webhook.delete_message(self.id, thread=self._state._thread)
 

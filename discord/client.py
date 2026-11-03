@@ -56,7 +56,7 @@ from typing import (
     Union,
 )
 
-from curl_cffi import CurlError
+from curl_cffi import CurlError, requests as curl_requests
 
 from .user import _UserTag, RecentAvatar, User, ClientUser
 from .invite import Invite
@@ -118,7 +118,7 @@ from .settings import UserSettings, LegacyUserSettings, TrackingSettings, EmailS
 from .affinity import *
 from .oauth2 import OAuth2Authorization, OAuth2Token
 from .experiment import ApexExperiment, UserExperiment, GuildExperiment
-from .tracking import HeadersContext
+from .tracking import HeadersContext, _CurlFetchSession
 from .discovery import GuildProfile
 
 if TYPE_CHECKING:
@@ -680,7 +680,7 @@ class Client:
             _log.debug(
                 'Setting initial presence to (status=%s, activities=%s, afk=%s, since=%s)', status, activities, afk, since
             )
-            self.loop.create_task(
+            utils._spawn_background(
                 self.change_presence(
                     activities=activities, status=status, afk=afk, idle_since=since, edit_settings=self._sync_presences
                 )
@@ -1238,23 +1238,23 @@ class Client:
                 for idx in reversed(removed):
                     del listeners[idx]
 
+        # getattr with a default: most dispatched events (socket_event_type,
+        # raw_*) have no handler, and a raised-and-caught AttributeError per
+        # dispatch cost ~7x more than the lookup itself
         coro = self._event_handlers.get(method)
         if coro is None:
-            try:
-                coro = getattr(self, method)
-            except AttributeError:
+            coro = getattr(self, method, None)
+            if coro is None:
                 return
-            else:
-                self._event_handlers[method] = coro
-        elif getattr(self, method, None) is not coro:
-            # The handler was replaced/removed by direct attribute assignment
-            try:
-                coro = getattr(self, method)
-            except AttributeError:
-                del self._event_handlers[method]
-                return
-            else:
-                self._event_handlers[method] = coro
+            self._event_handlers[method] = coro
+        else:
+            current = getattr(self, method, None)
+            if current is not coro:
+                # The handler was replaced/removed by direct attribute assignment
+                if current is None:
+                    del self._event_handlers[method]
+                    return
+                self._event_handlers[method] = coro = current
 
         self._schedule_event(coro, method, *args, **kwargs)
 
@@ -1394,11 +1394,12 @@ class Client:
             The headers context for the client.
         """
         http = self.http
-        # The aiohttp session is created lazily; make sure it exists before
-        # the fingerprint fetches use it (they fail - and the header context
-        # silently falls back to the 9999 placeholder build - otherwise)
-        session = await http._ensure_asession()  # type: ignore
-        return await HeadersContext.default(session, http.proxy, http.proxy_auth)
+        # Run the build-number/browser-version lookups over a short-lived
+        # curl_cffi session (already loaded for REST and the gateway) rather
+        # than aiohttp: importing aiohttp just for these costs ~10 MB of RSS
+        # per process, and curl also gives the lookups a browser TLS fingerprint
+        async with curl_requests.AsyncSession(impersonate='chrome', timeout=10) as session:
+            return await HeadersContext.default(_CurlFetchSession(session), http.proxy, http.proxy_auth)  # type: ignore
 
     async def _async_setup_hook(self) -> None:
         # Called whenever the client needs to initialise asyncio objects with a running loop
@@ -1761,7 +1762,10 @@ class Client:
         """
         # The private channel pseudo-guild settings have a guild ID of null
         state = self._connection
-        return state.guild_settings.get(None, state.default_guild_settings(None))
+        settings = state.guild_settings.get(None)
+        if settings is None:
+            settings = state.default_guild_settings(None)
+        return settings
 
     @property
     def initial_activity(self) -> Optional[ActivityTypes]:

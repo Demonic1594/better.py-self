@@ -1760,7 +1760,10 @@ class OperatingSystem(Enum):
             'playstation': cls.playstation,
             'unknown': cls.unknown,
         }
-        return lookup.get(value, create_unknown_value(cls, value))
+        try:
+            return lookup[value]
+        except KeyError:
+            return create_unknown_value(cls, value)
 
     def to_string(self):
         lookup = {

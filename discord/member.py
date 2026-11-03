@@ -280,10 +280,11 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
         '_avatar_decoration_data',
         '_banner',
         '_flags',
-        '_raw_joined_at',
+        # Only the usually-None timestamps keep their raw form for cheap change
+        # detection; roles and joined_at are compared parsed, since holding
+        # their raw strings costs ~300 B per cached member
         '_raw_premium_since',
         '_raw_timed_out_until',
-        '_raw_roles',
     )
 
     if TYPE_CHECKING:
@@ -325,12 +326,10 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
         self._state: ConnectionState = state
         self._user: User = state.store_user(data['user'])
         self.guild: Guild = guild
-        self._raw_joined_at: Optional[str] = data.get('joined_at')
-        self.joined_at: Optional[datetime.datetime] = utils.parse_time(self._raw_joined_at)
+        self.joined_at: Optional[datetime.datetime] = utils.parse_time(data.get('joined_at'))
         self._raw_premium_since: Optional[str] = data.get('premium_since')
         self.premium_since: Optional[datetime.datetime] = utils.parse_time(self._raw_premium_since)
-        self._raw_roles = data['roles']
-        self._roles: utils.SnowflakeList = utils.SnowflakeList(map(int, self._raw_roles))
+        self._roles: utils.SnowflakeList = utils.SnowflakeList(map(int, data['roles']))
         self._presence: Optional[Presence] = None
         self.nick: Optional[str] = data.get('nick', None)
         self.pending: bool = data.get('pending', False)
@@ -367,10 +366,9 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
 
     def _update_from_message(self, data: MemberPayload) -> None:
         # Only re-parse fields that actually changed
-        raw = data.get('joined_at')
-        if raw != self._raw_joined_at:
-            self._raw_joined_at = raw
-            self.joined_at = utils.parse_time(raw)
+        joined_at = utils.parse_time(data.get('joined_at'))
+        if joined_at != self.joined_at:
+            self.joined_at = joined_at
 
         raw = data.get('premium_since')
         if raw != self._raw_premium_since:
@@ -383,9 +381,10 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
             self.timed_out_until = utils.parse_time(raw)
 
         roles = data.get('roles')
-        if roles is not None and roles != self._raw_roles:
-            self._raw_roles = roles
-            self._roles = utils.SnowflakeList(map(int, roles))
+        if roles is not None:
+            _roles = utils.SnowflakeList(map(int, roles))
+            if _roles != self._roles:
+                self._roles = _roles
 
         self.nick = data.get('nick', None)
         self.pending = data.get('pending', False)
@@ -422,10 +421,8 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
         self._avatar = member._avatar
         self._avatar_decoration_data = member._avatar_decoration_data
         self._banner = member._banner
-        self._raw_joined_at = member._raw_joined_at
         self._raw_premium_since = member._raw_premium_since
         self._raw_timed_out_until = member._raw_timed_out_until
-        self._raw_roles = member._raw_roles
 
         # Reference will not be copied unless necessary by PRESENCE_UPDATE
         # See below
@@ -458,10 +455,12 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
             timed_out_until = utils.parse_time(raw_timeout)
 
         roles = get('roles')
-        if roles is None or roles == self._raw_roles:
+        if roles is None:
             _roles = self._roles
         else:
             _roles = utils.SnowflakeList(map(int, roles))
+            if _roles == self._roles:
+                _roles = self._roles
 
         _avatar = get('avatar')
         _banner = get('banner')
@@ -489,8 +488,6 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
             self._banner = _banner
             self._raw_premium_since = raw_premium
             self._raw_timed_out_until = raw_timeout
-            if roles is not None:
-                self._raw_roles = roles
             return old
 
     def _presence_update(
@@ -500,7 +497,7 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
         return self._user._update_self(user)
 
     def _get_voice_client_key(self) -> Tuple[int, str]:
-        return self._state.self_id, 'self_id'  # type: ignore # self_id is always set at this point
+        return self._state.self_id, 'self_id'  # self_id is always set at this point
 
     def _get_voice_state_pair(self) -> Tuple[int, int]:
         return self._state.self_id, self.dm_channel.id  # type: ignore # self_id is always set at this point

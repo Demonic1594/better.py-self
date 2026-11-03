@@ -345,8 +345,7 @@ class Attachment(Hashable):
                 fp.seek(0)
             return written
         else:
-            with open(fp, 'wb') as f:
-                return f.write(data)
+            return await asyncio.to_thread(utils._write_bytes, fp, data)
 
     async def read(self, *, use_cached: bool = False) -> bytes:
         """|coro|
@@ -1061,7 +1060,7 @@ class PartialMessage(Hashable):
                 except HTTPException:
                     pass
 
-            asyncio.create_task(delete(delay))
+            utils._spawn_background(delete(delay))
         else:
             await self._state.http.delete_message(self.channel.id, self.id)
 
@@ -2349,12 +2348,10 @@ class Message(PartialMessage, Hashable):
         channel = self.channel
         settings = guild.notification_settings if guild else state.client.notification_settings
 
-        if (
-            channel.type in (ChannelType.private, ChannelType.group)
-            and not settings.muted
-            and not (getattr(channel, 'notification_settings', None) and channel.notification_settings.muted)  # type: ignore
-        ):
-            return True
+        if channel.type in (ChannelType.private, ChannelType.group) and not settings.muted:
+            channel_settings = getattr(channel, 'notification_settings', None)
+            if not (channel_settings and channel_settings.muted):
+                return True
         if state.user in self.mentions:
             return True
         if self.mention_everyone and not settings.suppress_everyone:

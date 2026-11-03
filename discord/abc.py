@@ -856,9 +856,10 @@ class GuildChannel:
         .. versionadded:: 2.0
         """
         guild = self.guild
-        return guild.notification_settings._channel_overrides.get(
-            self.id, self._state.default_channel_settings(guild.id, self.id)
-        )
+        settings = guild.notification_settings._channel_overrides.get(self.id)
+        if settings is None:
+            settings = self._state.default_channel_settings(guild.id, self.id)
+        return settings
 
     @property
     def changed_roles(self) -> List[Role]:

@@ -762,6 +762,13 @@ class VoiceClient(VoiceProtocol):
                 signal_type=signal_type,
             )
 
+        if self._player is not None:
+            # A paused player is not "playing", but its thread is still parked
+            # waiting to resume: stop it so it exits, runs its `after` callback
+            # and cleans up its source (e.g. the FFmpeg process) instead of
+            # leaking when it is replaced
+            self._player.stop()
+
         self._player = AudioPlayer(source, self, after=after)
         self._player.start()
 

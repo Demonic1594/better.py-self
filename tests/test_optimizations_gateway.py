@@ -127,10 +127,10 @@ def test_zlib_decompression_split_and_fast_path():
 
     d = ctx_cls()
     assert d.decompress(frame[:-2]) is None  # partial marker buffered
-    assert d.decompress(frame[-2:]) == payload.decode()
+    assert d.decompress(frame[-2:]) == payload
 
     d2 = ctx_cls()
-    assert d2.decompress(frame) == payload.decode()  # whole-frame fast path
+    assert d2.decompress(frame) == payload  # whole-frame fast path
 
     # Multi-message framing over ONE continuous stream (as the gateway uses)
     d3 = ctx_cls()
@@ -139,8 +139,8 @@ def test_zlib_decompression_split_and_fast_path():
     c = zlib.compressobj(wbits=15)
     f1 = c.compress(msg1) + c.flush(zlib.Z_SYNC_FLUSH)
     f2 = c.compress(msg2) + c.flush(zlib.Z_SYNC_FLUSH)
-    assert d3.decompress(f1) == msg1.decode()
-    assert d3.decompress(f2) == msg2.decode()
+    assert d3.decompress(f1) == msg1
+    assert d3.decompress(f2) == msg2
 
 
 @pytest.mark.asyncio
@@ -171,3 +171,59 @@ async def test_dispatch_listeners_early_out():
         del ws._dispatch_listeners[index]
     assert fut.done() and fut.result() == {'x': 1}
     assert not ws._dispatch_listeners
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('use_orjson', [False, True])
+async def test_compressed_frame_parses_from_bytes_and_raw_event_gets_str(monkeypatch, use_orjson):
+    import json
+
+    if use_orjson:
+        orjson = pytest.importorskip('orjson')
+        monkeypatch.setattr(utils, '_from_json_frame', orjson.loads)
+    else:
+
+        def frame_loader(data):
+            return json.loads(data.decode('utf-8') if type(data) is bytes else data)
+
+        monkeypatch.setattr(utils, '_from_json_frame', frame_loader)
+
+    ws = make_ws(asyncio.get_running_loop())
+    payload = '{"t":"TYPING_START","s":7,"op":0,"d":{"channel_id":"1","user_id":"2","emoji":"é"}}'.encode()
+
+    class OneShotDecompressor:
+        def decompress(self, data):
+            return data  # stands in for zlib/zstd: yields the raw UTF-8 bytes
+
+    ws._decompressor = OneShotDecompressor()  # type: ignore
+    dispatched = []
+    ws._dispatch = lambda *a: dispatched.append(a)
+    ws.log_receive = ws.debug_log_receive
+    ws._discord_parsers = {'TYPING_START': lambda d: dispatched.append(('parsed', d))}
+
+    await ws.received_message(payload)
+
+    assert ws.sequence == 7
+    raw = [a for a in dispatched if a[0] == 'socket_raw_receive']
+    assert raw and type(raw[0][1]) is str and raw[0][1] == payload.decode()
+    assert ('parsed', {'channel_id': '1', 'user_id': '2', 'emoji': 'é'}) in dispatched
+
+
+@pytest.mark.asyncio
+async def test_listener_result_error_goes_to_waiter_not_receive_loop():
+    ws = make_ws(asyncio.get_running_loop())
+    ws._discord_parsers = {'GUILD_MEMBER_LIST_UPDATE': lambda d: None}
+
+    def boom(data):
+        raise KeyError('missing')
+
+    failing = ws.wait_for('GUILD_MEMBER_LIST_UPDATE', lambda d: True, result=boom)
+    ok = ws.wait_for('GUILD_MEMBER_LIST_UPDATE', lambda d: True)
+
+    # Used to raise out of received_message (ending the poll loop -> reconnect)
+    await ws.received_message('{"t":"GUILD_MEMBER_LIST_UPDATE","s":3,"op":0,"d":{"guild_id":"1"}}')
+
+    with pytest.raises(KeyError):
+        failing.result()
+    assert ok.result() == {'guild_id': '1'}
+    assert ws._dispatch_listeners == []
