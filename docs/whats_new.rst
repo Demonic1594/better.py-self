@@ -29,6 +29,7 @@ Performance
 - Rate-limit bucket sweeps run at most every 30 seconds instead of on every new bucket.
 - Voice audio levels are computed without a per-sample Python loop, and Opus encode/decode no longer round-trip through Python lists.
 - Interaction and autocomplete contexts are released when their event arrives, so the bounded caches only hold in-flight requests.
+- Cache persistence snapshots are written one guild per record and replayed one guild at a time, yielding to the event loop as they go. Replaying a 500k-member snapshot with the default caps peaked at 146 MiB instead of about 2 GiB, and no longer blocks other clients in the same process. Snapshots in the old format still load and are converted on the next write.
 
 Behaviour Changes
 ~~~~~~~~~~~~~~~~~

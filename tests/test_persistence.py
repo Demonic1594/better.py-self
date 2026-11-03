@@ -28,6 +28,19 @@ async def wait_for_snapshot(state, path, timeout=5.0):
     assert not state._persistence_tasks, 'persistence write task did not finish'
 
 
+def read_snapshot(path):
+    """Decodes a snapshot file (version 1 or 2) into one version-1-shaped dict."""
+    import json
+    import zlib
+
+    raw = zlib.decompress(path.read_bytes())
+    records = [json.loads(line) for line in raw.split(b'\n') if line.strip()]
+    head = records[0]
+    if head.get('version') == 2:
+        head = dict(head, guilds=records[1:])
+    return head
+
+
 def up(uid):
     return {'id': str(uid), 'username': f'u{uid}', 'discriminator': '0001', 'global_name': f'U{uid}', 'avatar': None}
 
@@ -340,8 +353,7 @@ async def test_snapshot_strips_auth_and_account_data(tmp_path):
     path = tmp_path / 'cache.bin'
     await _snapshot_to(path)
 
-    raw = zlib.decompress(path.read_bytes())
-    payload = __import__('json').loads(raw)
+    payload = read_snapshot(path)
     assert set(payload['ready']) <= {'user', 'users', 'relationships', 'private_channels'}
     for forbidden in (
         'auth_token',
@@ -478,7 +490,6 @@ async def _snapshot_with_two_guilds(path):
 
 @pytest.mark.asyncio
 async def test_close_before_fresh_ready_keeps_the_replayed_snapshot(tmp_path):
-    import zlib
 
     path = tmp_path / 'cache.bin'
     await _snapshot_with_two_guilds(path)
@@ -493,9 +504,7 @@ async def test_close_before_fresh_ready_keeps_the_replayed_snapshot(tmp_path):
     assert await state2._write_persistence() is False, 'nothing new to persist before the fresh READY'
 
     assert path.read_bytes() == before, 'the warm-cache snapshot must survive a close before READY'
-    import json
-
-    assert len(json.loads(zlib.decompress(path.read_bytes()))['guilds']) == 2
+    assert len(read_snapshot(path)['guilds']) == 2
 
 
 @pytest.mark.asyncio
@@ -533,3 +542,132 @@ async def test_older_write_never_replaces_a_newer_snapshot(tmp_path):
     await state1._write_persistence()
     assert path.read_bytes() == newest
     assert not list(tmp_path.glob('.persist-*.tmp')), 'temp file cleaned up'
+
+
+# --- Streaming snapshot format (version 2) -----------------------------------
+
+
+async def _write_snapshot_v2(path, guilds, members):
+    c = Client(persistence_path=path)
+    await c._async_setup_hook()
+    state = c._connection
+    state.user = discord.ClientUser(state=state, data=up(5))
+    state._persistence_ready = ready_payload()
+    state._persistence_guild_payloads = {g: guild_payload(g, members) for g in range(1, guilds + 1)}
+    assert await state._write_persistence()
+
+
+def _rewrite_as_v1(path):
+    import json
+    import zlib
+
+    doc = read_snapshot(path)
+    doc['version'] = 1
+    path.write_bytes(zlib.compress(json.dumps(doc).encode(), 1))
+
+
+async def _replay(path, **kwargs):
+    c = Client(persistence_path=path, **kwargs)
+    await c._async_setup_hook()
+    c._connection.user = discord.ClientUser(state=c._connection, data=up(5))
+    return c, await c._connection._replay_persistence()
+
+
+@pytest.mark.asyncio
+async def test_snapshot_is_written_one_guild_per_record(tmp_path):
+    import json
+    import zlib
+
+    path = tmp_path / 'cache.bin'
+    await _write_snapshot_v2(path, guilds=3, members=4)
+    lines = [line for line in zlib.decompress(path.read_bytes()).split(b'\n') if line]
+    head, *guilds = (json.loads(line) for line in lines)
+    assert head['version'] == 2 and 'guilds' not in head, 'the header carries no guild payloads'
+    assert sorted(int(g['id']) for g in guilds) == [1, 2, 3]
+    assert all(len(g['members']) == 4 for g in guilds)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('version', [1, 2])
+async def test_both_snapshot_versions_replay(tmp_path, version):
+    path = tmp_path / 'cache.bin'
+    await _write_snapshot_v2(path, guilds=3, members=4)
+    if version == 1:
+        _rewrite_as_v1(path)
+    c, ok = await _replay(path)
+    assert ok
+    guilds = c._connection._guilds
+    assert sorted(guilds) == [1, 2, 3]
+    assert all(len(g._members) == 4 for g in guilds.values())
+
+
+@pytest.mark.asyncio
+async def test_truncated_streamed_snapshot_is_a_clean_cold_start(tmp_path):
+    path = tmp_path / 'cache.bin'
+    await _write_snapshot_v2(path, guilds=20, members=200)
+    blob = path.read_bytes()
+    path.write_bytes(blob[: len(blob) * 2 // 3])  # some guilds decode, then the stream ends mid-record
+    c, ok = await _replay(path)
+    assert ok is False
+    assert not c._connection._guilds, 'guilds replayed before the damage must not linger'
+
+
+@pytest.mark.asyncio
+async def test_streamed_replay_holds_one_guild_not_the_whole_snapshot(tmp_path):
+    """The point of version 2: replay peak memory tracks one guild payload, not
+    the account. Version 1 must decode every guild before replaying any."""
+    import tracemalloc
+
+    path = tmp_path / 'cache.bin'
+    await _write_snapshot_v2(path, guilds=20, members=1500)
+    peaks = {}
+    for version in (2, 1):
+        if version == 1:
+            _rewrite_as_v1(path)
+        tracemalloc.start()
+        c, ok = await _replay(path, max_member_cache=100, max_total_member_cache=500)
+        peaks[version] = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+        assert ok
+        assert len(c._connection._guilds) == 20
+    assert peaks[2] < peaks[1] / 3, f'streamed peak {peaks[2] / 1e6:.1f} MB vs whole-document {peaks[1] / 1e6:.1f} MB'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('version', [1, 2])
+async def test_replay_yields_to_the_event_loop(tmp_path, version):
+    """A large replay must not stall other tasks (e.g. another account's
+    heartbeat in the same process) for its whole duration."""
+    path = tmp_path / 'cache.bin'
+    await _write_snapshot_v2(path, guilds=60, members=1500)
+    if version == 1:
+        _rewrite_as_v1(path)
+    loop = asyncio.get_running_loop()
+    gaps = []
+    stop = False
+
+    async def ticker():
+        last = loop.time()
+        while not stop:
+            await asyncio.sleep(0)
+            now = loop.time()
+            gaps.append(now - last)
+            last = now
+
+    task = asyncio.create_task(ticker())
+    await asyncio.sleep(0)
+    start = loop.time()
+    c, ok = await _replay(path)
+    duration = loop.time() - start
+    stop = True
+    await task
+    assert ok and len(c._connection._guilds) == 60
+    gaps.sort()
+    if version == 1:
+        # A version 1 file is one JSON document: parsing it holds the GIL for
+        # the whole parse even in a worker thread, so one long gap remains (the
+        # reason version 2 exists). Building the guilds afterwards must yield.
+        worst = gaps[-2]
+    else:
+        worst = gaps[-1]
+    assert worst < duration / 4, f'loop blocked {worst:.3f}s of a {duration:.3f}s replay'

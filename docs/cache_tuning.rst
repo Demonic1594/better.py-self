@@ -148,12 +148,12 @@ numbers as relative to that machine; compare runs on the same host.
        core.
    * - Persistence, 500k READY-time members
      - 9.2 MiB snapshot (synthetic payloads compress well; real ones will be
-       larger). Replay took 6.0 s and about 1.16 GiB of RSS with the member
-       caps disabled. With the default caps only 55k of the 500k members are
-       kept, but replay still cost about 1.0 GiB of RSS (peak near 1.9 GiB for
-       the process): the whole snapshot is decoded before the caps trim it.
-       This is a worst case near the 256 MiB snapshot limit; typical READY-time
-       member sets are far smaller.
+       larger). Replayed in a fresh process with the default caps (55k of the
+       500k members kept), the process peaked at 146 MiB and replay took about
+       5 s. The previous single-document format peaked near 2 GiB on the same
+       data, because the whole snapshot was decoded before the caps trimmed it;
+       snapshots in that format still load, at that cost, until the next write
+       converts them.
    * - 1M malformed or truncated frames
      - No exception escaped the receive path. 143k frames were undecodable and
        dropped; the parsers logged 378k warnings and RSS grew 80 MiB.
@@ -179,6 +179,11 @@ the next startup. A restarted process starts with a warm cache and skips
 member list re-scraping entirely — restarts go from seconds to effectively
 instant. Snapshots older than ``persistence_max_age`` (14 days by default) or
 belonging to a different account are ignored automatically.
+
+The snapshot stores one guild per record, so replay decodes and caches one
+guild at a time and gives other tasks a turn every few milliseconds. Memory
+during replay tracks the largest single guild rather than the whole account,
+and a long replay does not stall other clients running in the same process.
 
 The snapshot contains the raw gateway ``READY`` payload, so treat it as a
 secret. It is written atomically with owner-only (``0600``) permissions; keep
