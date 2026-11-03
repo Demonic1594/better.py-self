@@ -24,6 +24,7 @@ DEALINGS IN THE SOFTWARE.
 
 from __future__ import annotations
 
+import logging
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -101,6 +102,8 @@ if TYPE_CHECKING:
         Object,
     ]
     CommandApplicationTarget = Union[CommandApplication, IntegrationApplication, PartialApplication]
+
+_log = logging.getLogger(__name__)
 
 __all__ = (
     'BaseCommand',
@@ -1144,7 +1147,17 @@ class SlashMixin(ApplicationCommand, Protocol):
         self, kwargs: Dict[str, Any], *, autocomplete: bool = False
     ) -> Tuple[List[InteractionDataValueOption], List[_FileBase], List[PartialAttachmentPayload]]:
         possible_options = {o.name: o for o in self.options}
-        kwargs = {k: v for k, v in kwargs.items() if k in possible_options}
+        unknown = [k for k in kwargs if k not in possible_options]
+        if unknown:
+            # Still ignored (as before), but no longer silently: a typo such as
+            # usr=... instead of user=... would otherwise just vanish
+            _log.warning(
+                'Ignoring unknown option(s) %s for command %r (valid: %s).',
+                ', '.join(map(repr, unknown)),
+                getattr(self, 'name', '?'),
+                ', '.join(possible_options) or 'none',
+            )
+            kwargs = {k: v for k, v in kwargs.items() if k in possible_options}
         options = []
         files = []
 
@@ -1160,7 +1173,8 @@ class SlashMixin(ApplicationCommand, Protocol):
             }:
                 v = str(v.id)
             elif type is ApplicationCommandOptionType.boolean:
-                v = bool(v)
+                # bool('false') is True: accept the obvious string forms explicitly
+                v = v.strip().lower() in ('true', '1', 'yes') if isinstance(v, str) else bool(v)
             elif type is ApplicationCommandOptionType.attachment:
                 if autocomplete:
                     continue
