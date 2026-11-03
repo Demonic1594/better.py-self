@@ -149,8 +149,8 @@ numbers as relative to that machine; compare runs on the same host.
    * - Persistence, 500k READY-time members
      - 9.2 MiB snapshot (synthetic payloads compress well; real ones will be
        larger). Replayed in a fresh process with the default caps (55k of the
-       500k members kept), the process peaked at 146 MiB and replay took about
-       5 s. The previous single-document format peaked near 2 GiB on the same
+       500k members kept), the process peaked at 128 MiB and replay took about
+       4.5 s. The previous single-document format peaked near 2 GiB on the same
        data, because the whole snapshot was decoded before the caps trimmed it;
        snapshots in that format still load, at that cost, until the next write
        converts them.
