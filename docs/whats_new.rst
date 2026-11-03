@@ -11,6 +11,21 @@ Changelog
 This page keeps a detailed human friendly rendering of what's new and changed
 in specific versions.
 
+.. _vp2p3p2_unreleased:
+
+Unreleased
+----------
+
+Behaviour Changes
+~~~~~~~~~~~~~~~~~
+
+- Debug logging no longer stores credentials. Raw gateway events, HTTP request and response bodies, and voice payloads are logged with the values of sensitive keys (``token``, ``auth_token``, ``analytics_token``, ``secret_key``, ``password``, ``new_password``, ``email``, ``phone`` and similar) replaced by ``[redacted]``. Webhook and interaction tokens are masked in logged URLs (including the 429 and deferred-request warnings) and rate-limit keys, and pre-signed upload URLs are masked too. Before, enabling DEBUG logging to a file recorded the READY payload's tokens, profile-edit passwords and the voice encryption key. The ``on_socket_raw_receive`` event (``enable_debug_events``) is unchanged and still delivers raw data to your own handler.
+
+Fixes
+~~~~~
+
+- Credentials leaked into DEBUG logs: READY tokens, email and phone, profile-edit passwords, the voice ``secret_key``, webhook and interaction tokens in URLs (also in the 429 WARNING) and the signature of pre-signed upload URLs. They are now redacted (see Behaviour Changes).
+
 .. _vp2p3p1:
 
 v2.3.1
