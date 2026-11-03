@@ -384,7 +384,7 @@ def handle_message_parameters(
 
     if nonce is MISSING:
         payload['nonce'] = utils._generate_nonce()
-    elif nonce:
+    elif nonce is not None:
         payload['nonce'] = nonce
 
     if message_reference is not MISSING:

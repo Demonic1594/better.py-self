@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import logging
 import re
 import io
 from os import PathLike
@@ -78,6 +79,9 @@ _USER_MENTION_REGEX = re.compile(r'<@!?([0-9]{15,20})>')
 _CHANNEL_MENTION_REGEX = re.compile(r'<#([0-9]{15,20})>')
 _ROLE_MENTION_REGEX = re.compile(r'<@&([0-9]{15,20})>')
 _CLEAN_CONTENT_MENTION_REGEX = re.compile(r'<(@[!&]?|#)([0-9]{15,20})>')
+
+
+_log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from typing_extensions import Self
@@ -1059,6 +1063,10 @@ class PartialMessage(Hashable):
                     await self._state.http.delete_message(self.channel.id, self.id)
                 except HTTPException:
                     pass
+                except Exception:
+                    # Nobody awaits this task: an unexpected error would only
+                    # surface as "Task exception was never retrieved"
+                    _log.warning('Deleting message %s after a delay failed.', self.id, exc_info=True)
 
             utils._spawn_background(delete(delay))
         else:

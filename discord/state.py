@@ -301,6 +301,7 @@ class ChunkRequest:
         'last_buffer',
         'waiters',
         'reverse',
+        'unclaimed',
     )
 
     def __init__(
@@ -327,6 +328,11 @@ class ChunkRequest:
         self.last_buffer: Optional[List[Member]] = None
         self.waiters: List[asyncio.Future[List[Member]]] = []
         self.reverse: bool = reverse
+        # A result that completed before anyone waited for it. The request is
+        # sent before the caller starts waiting, so a fast reply can arrive in
+        # between; without this it was dropped and the caller hung until its
+        # timeout. Claimed by exactly one later wait.
+        self.unclaimed: Optional[List[Member]] = None
 
     def add_members(self, members: List[Member]) -> None:
         if self.reverse:
@@ -353,6 +359,10 @@ class ChunkRequest:
             self.last_buffer = members
 
     async def wait(self) -> List[Member]:
+        unclaimed = self.unclaimed
+        if unclaimed is not None:
+            self.unclaimed = None
+            return unclaimed
         future = self.loop.create_future()
         self.waiters.append(future)
         try:
@@ -362,14 +372,23 @@ class ChunkRequest:
 
     def get_future(self) -> asyncio.Future[List[Member]]:
         future = self.loop.create_future()
+        unclaimed = self.unclaimed
+        if unclaimed is not None:
+            self.unclaimed = None
+            future.set_result(unclaimed)
+            return future
         self.waiters.append(future)
         return future
 
     def done(self) -> None:
         result = self.buffer if self.oneshot else self.last_buffer or self.buffer
+        delivered = False
         for future in self.waiters:
             if not future.done():
                 future.set_result(result)
+                delivered = True
+        if not delivered:
+            self.unclaimed = result
 
     def fail(self, exc: BaseException) -> None:
         # Wake everyone waiting on a request that can no longer complete

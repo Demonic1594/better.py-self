@@ -654,8 +654,8 @@ class ScheduledEvent(Hashable):
 
             return users, after, limit
 
-        if limit is None:
-            limit = self.user_count or None
+        # limit=None means every user: user_count is only a snapshot from when
+        # the event was fetched and would cut the iteration short
 
         if oldest_first is MISSING:
             reverse = after is not None
@@ -667,11 +667,11 @@ class ScheduledEvent(Hashable):
         if reverse:
             strategy, state = _after_strategy, after
             if before:
-                predicate = lambda u: u['user']['id'] < before.id
+                predicate = lambda u: int(u['id']) < before.id
         else:
             strategy, state = _before_strategy, before
             if after and after != OLDEST_OBJECT:
-                predicate = lambda u: u['user']['id'] > after.id
+                predicate = lambda u: int(u['id']) > after.id
 
         while True:
             retrieve = 100 if limit is None else min(limit, 100)

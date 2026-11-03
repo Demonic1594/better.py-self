@@ -270,7 +270,9 @@ class Embed:
             except KeyError:
                 continue
             else:
-                setattr(self, '_' + attr, value)
+                # Copy the fields list: add_field() appends to it, which would
+                # otherwise modify the caller's dict
+                setattr(self, '_' + attr, list(value) if attr == 'fields' and isinstance(value, list) else value)
 
         return self
 

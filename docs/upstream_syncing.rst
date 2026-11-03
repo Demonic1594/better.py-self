@@ -246,6 +246,17 @@ Upstream issue and PR triage (2026-11-03)
     server), and the unmerged feature PRs #896 (frecency settings) and #934
     (profile editing), which are still in review upstream.
 
+User-path fixes (2026-11-03)
+    Upstream bugs fixed here and not upstream: ``ScheduledEvent.users``
+    predicates (top-level user objects, int ids) and the ``user_count`` cap;
+    ``_handle_message_search`` drops ``offset`` after the first page and
+    skips empty entries for the cursor; ``ChunkRequest.unclaimed`` keeps a
+    reply that lands before the waiter; ``_transform_greedy_pos`` stops at
+    trailing whitespace; ``Loop._get_time_parameter`` sorts by instant;
+    ``File`` uses ``os.path.basename`` of ``fp.name``; naive ``before``
+    datetimes in pins/archived threads are local time; ``greet`` merges
+    ``mention_author`` into a new ``AllowedMentions``.
+
 Ported unmerged upstream PRs (2026-11-03)
     #896 (frecency settings) and #934 (display name styles, collectibles,
     pronouns, profile editing) were ported before upstream merged them. If

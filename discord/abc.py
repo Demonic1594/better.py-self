@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import copy
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 from operator import attrgetter
 from typing import (
@@ -351,12 +351,19 @@ async def _handle_message_search(
         elif state:
             payload['max_id'] = state.id
         data = await endpoint(entity_id, payload)
+        # The caller's offset applies to the first page only: later pages are
+        # positioned by the min_id/max_id cursor, and re-sending the offset
+        # skipped that many more results on every page
+        payload.pop('offset', None)
 
         if data['messages']:
             if limit is not None:
                 limit -= len(data['messages'])
 
-            state = Object(id=int(data['messages'][-1][0]['id']))
+            # Entries can be empty lists; take the cursor from the last real one
+            last = next((group for group in reversed(data['messages']) if group), None)
+            if last is not None:
+                state = Object(id=int(last[0]['id']))
 
         return data, state, limit
 
@@ -1721,9 +1728,13 @@ class Messageable:
 
         mapped_files = {i: f for i, f in enumerate(files)}
         data = await self._state.http.get_attachment_urls(channel.id, [f.to_upload_dict(i) for i, f in mapped_files.items()])
+        # Each upload slot echoes the id it was requested with; fall back to its
+        # position if Discord omits it
         return [
-            await CloudFile.from_file(state=state, data=uploaded, file=mapped_files[int(uploaded.get('id', 11))])
-            for uploaded in data['attachments']
+            await CloudFile.from_file(
+                state=state, data=uploaded, file=mapped_files[int(uploaded['id']) if 'id' in uploaded else index]
+            )
+            for index, uploaded in enumerate(data['attachments'])
         ]
 
     @overload
@@ -2034,9 +2045,9 @@ class Messageable:
             if previous_allowed_mention:
                 allowed_mentions = previous_allowed_mention.merge(allowed_mentions)
         if mention_author is not MISSING:
-            if not allowed_mentions:
-                allowed_mentions = AllowedMentions()
-            allowed_mentions.replied_user = mention_author
+            # Never write into the caller's object: merge returns a new one
+            base = allowed_mentions or AllowedMentions()
+            allowed_mentions = base.merge(AllowedMentions(replied_user=mention_author))
         if allowed_mentions and allowed_mentions.replied_user:
             # No point sending them
             allowed_mentions = MISSING
@@ -2171,7 +2182,9 @@ class Messageable:
         max_limit: int = 50
 
         time: Optional[str] = (
-            (before if isinstance(before, datetime) else utils.snowflake_time(before.id)).isoformat()
+            (
+                before.astimezone(timezone.utc) if isinstance(before, datetime) else utils.snowflake_time(before.id)
+            ).isoformat()
             if before is not None
             else None
         )
