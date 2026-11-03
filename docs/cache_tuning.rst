@@ -107,6 +107,60 @@ The ``dispatch_backlog_warning`` option (default ``1000``) dispatches
 complete — the single most common silent failure mode for long-running
 accounts.
 
+Stress baseline
+----------------
+
+``tools/stress_bench.py`` feeds pre-serialised gateway frames through the real
+receive, parse and dispatch path of a 100-guild account, offline. It measures
+the library's own CPU and memory, not socket I/O or Discord's latency. Run it
+with ``--heavy`` for the full profile below, or ``--phase <name>`` for one
+phase (each phase runs in its own process so RSS figures are not polluted by
+earlier phases). It exits non-zero when a gate fails: a cache over its cap,
+memory still growing after the caches are full, a backlog that does not drain,
+or a library warning on a well-formed stream.
+
+Baseline from ``--heavy`` on a 4-vCPU cloud container, Python 3.13, with the
+``[speed]`` extra (orjson) installed, default cache caps. Treat the absolute
+numbers as relative to that machine; compare runs on the same host.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 72
+
+   * - Phase
+     - Result
+   * - Throughput, 1M mixed events
+     - 37,200 events/s with no handlers (27 us each, p99 37 us); 30,200
+       events/s with six async handlers attached (about 595k handler runs).
+   * - Soak, 5M churning events
+     - 22,400 events/s including cache eviction. Members held at about 50.5k
+       (cap 50k plus batch slack), messages at 1,000, presences under 20. RSS
+       reached 172 MiB by 1.2M events and 185 MiB at 5M; the last million
+       events added 0.7 MiB. No library warnings.
+   * - Slow-handler burst, 300k events
+     - Handlers sleeping 20 ms each. The backlog drained completely, every
+       handler task completed, ``on_dispatch_backlog`` fired, memory after the
+       drain was +58 MiB.
+   * - 40 accounts, one process
+     - About 6.6 MiB per account after READY and about 36 MiB per account after
+       50k events each (cache caps filling), on top of about 68 MiB of
+       interpreter and imports paid once. Aggregate 14,900 events/s on one
+       core.
+   * - Persistence, 500k READY-time members
+     - 9.2 MiB snapshot (synthetic payloads compress well; real ones will be
+       larger). Replay took 6.0 s and about 1.16 GiB of RSS with the member
+       caps disabled. With the default caps only 55k of the 500k members are
+       kept, but replay still cost about 1.0 GiB of RSS (peak near 1.9 GiB for
+       the process): the whole snapshot is decoded before the caps trim it.
+       This is a worst case near the 256 MiB snapshot limit; typical READY-time
+       member sets are far smaller.
+   * - 1M malformed or truncated frames
+     - No exception escaped the receive path. 143k frames were undecodable and
+       dropped; the parsers logged 378k warnings and RSS grew 80 MiB.
+
+Open questions this baseline does not answer: real-account traffic shape
+(use ``tools/profile_live.py``), voice, and socket-level behaviour.
+
 Garbage collection
 -------------------
 

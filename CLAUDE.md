@@ -41,5 +41,6 @@ functionality unless explicitly asked.
   `PYRIGHT_PYTHON_FORCE_VERSION=1.1.394 pyright discord`
 - `python -m pytest -q` (about 2.5 minutes)
 - Memory benchmark: `python tests/memory_bench.py --members 50000 --top 15`
+- Stress benchmark (not part of CI, run for perf/memory/robustness work): `python tools/stress_bench.py` (moderate) or `--heavy`; baseline in `docs/cache_tuning.rst`
 - After same-size in-place edits (e.g. `==` to `is`), clear `__pycache__`
   before re-running tests: the stale `.pyc` can be reused.
