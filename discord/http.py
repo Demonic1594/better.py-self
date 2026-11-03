@@ -640,7 +640,14 @@ class Ratelimit:
     async def _refresh(self) -> None:
         error = self._max_ratelimit_timeout and self.reset_after > self._max_ratelimit_timeout
         exception = RateLimited(self.reset_after) if error else None
+        window = self.expires
         async with self._sleeping:
+            if self.expires != window:
+                # Another refresh (or a newer response) already moved the bucket on
+                # while we queued for the lock: sleeping out the stale window again
+                # and re-resetting would only add latency and drop newer state.
+                # The caller's acquire loop re-checks against the fresh expiry.
+                return
             if not error:
                 await asyncio.sleep(self.reset_after)
 
