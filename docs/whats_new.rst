@@ -19,6 +19,8 @@ Unreleased
 New Features
 ~~~~~~~~~~~~~
 
+- Frecency and favorites settings (ported from dolfies/discord.py-self#896): :meth:`Client.fetch_frecency_settings`, :attr:`Client.frecency_settings`, :class:`FrecencySettings` (favorite GIFs, stickers, emojis and soundboard sounds, plus usage frecency) with :meth:`FrecencySettings.edit`, and the :func:`on_frecency_settings_update` event.
+- Profile styling (ported from dolfies/discord.py-self#934): display name styles, collectibles and pronouns on :class:`Member` and :class:`ClientUser`, :meth:`ClientUser.edit_profile`, and new ``edit()`` parameters such as ``display_name_font``, ``display_name_effect``, ``display_name_colours``, ``nameplate_sku_id``, ``avatar_decoration_sku_id`` and ``pronouns``. ``ClientUser.edit(avatar_decoration=...)``, which upstream removed, still works here but is deprecated in favour of ``avatar_decoration_sku_id``.
 - Add the ``eager_dispatch`` option to :class:`Client` (opt-in, default ``False``, Python 3.12+). Event handler tasks start eagerly, so a handler runs inside the dispatch up to its first ``await``. Handlers that usually return early are about 8-13% faster per message; handlers that always await are unchanged. On older Python versions the option logs a warning and is ignored.
 
 Performance
