@@ -11,10 +11,10 @@ Changelog
 This page keeps a detailed human friendly rendering of what's new and changed
 in specific versions.
 
-.. _vp2p2p0_unreleased:
+.. _vp2p3p0:
 
-Unreleased
-----------
+v2.3.0
+-------
 
 New Features
 ~~~~~~~~~~~~~

@@ -843,7 +843,7 @@ class ClientUser(BaseUser):
             This function will now raise :exc:`ValueError` instead of
             ``InvalidArgument``.
 
-        .. versionchanged:: 2.2
+        .. versionchanged:: 2.3
             ``avatar_decoration`` is deprecated in favor of ``avatar_decoration_sku_id``.
 
         Parameters
@@ -910,35 +910,35 @@ class ClientUser(BaseUser):
                 object and the identity is enabled.
             - If ``None`` is passed, then the primary guild is removed and the identity is disabled.
 
-            .. versionadded:: 2.2
+            .. versionadded:: 2.3
         display_name_font: Optional[:class:`NameFont`]
             The font to use for your display name. Pass ``None`` to remove the font.
 
-            .. versionadded:: 2.2
+            .. versionadded:: 2.3
         display_name_effect: Optional[:class:`NameEffect`]
             The effect to use for your display name. Pass ``None`` to remove the effect.
 
-            .. versionadded:: 2.2
+            .. versionadded:: 2.3
         display_name_colours: Optional[List[:class:`Colour`]]
             The colours to use for your display name. Pass ``None`` to remove the colours.
 
-            .. versionadded:: 2.2
+            .. versionadded:: 2.3
         nameplate_sku_id: Optional[:class:`int`]
             The SKU ID of the nameplate to use. Pass ``None`` to remove the nameplate.
 
-            .. versionadded:: 2.2
+            .. versionadded:: 2.3
         avatar_decoration: Optional[:class:`bytes`]
             A :term:`py:bytes-like object` representing the image to upload.
             Could be ``None`` to denote no avatar decoration.
 
             .. versionadded:: 2.0
 
-            .. deprecated:: 2.2
+            .. deprecated:: 2.3
                 Use ``avatar_decoration_sku_id`` instead.
         avatar_decoration_sku_id: Optional[:class:`int`]
             The SKU ID of the avatar decoration to use. Pass ``None`` to remove the avatar decoration.
 
-            .. versionadded:: 2.2
+            .. versionadded:: 2.3
         pronouns: Optional[:class:`str`]
             The pronouns to use for your profile. Pass ``None`` to remove the pronouns.
 
@@ -1128,7 +1128,7 @@ class ClientUser(BaseUser):
 
         Edits the current user's profile metadata.
 
-        .. versionadded:: 2.2
+        .. versionadded:: 2.3
 
         Parameters
         -----------

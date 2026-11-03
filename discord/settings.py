@@ -1149,7 +1149,7 @@ class UserSettings(_ProtoSettings):
 class FavoriteGIF:
     """Represents a favorite GIF entry.
 
-    .. versionadded:: 2.2
+    .. versionadded:: 2.3
 
     Attributes
     -----------
@@ -1202,7 +1202,7 @@ class FavoriteGIF:
 class FrecencyItem:
     """Represents a frecency tracking entry for an emoji, sticker, or application command.
 
-    .. versionadded:: 2.2
+    .. versionadded:: 2.3
 
     Attributes
     -----------
@@ -1269,7 +1269,7 @@ class FrecencySettings(_ProtoSettings):
     This includes favorite GIFs, stickers, emojis, soundboard sounds,
     and usage frecency data for emojis, stickers, and application commands.
 
-    .. versionadded:: 2.2
+    .. versionadded:: 2.3
     """
 
     __slots__ = ()
