@@ -43,7 +43,7 @@ import weakref
 from .. import utils
 from ..errors import HTTPException, Forbidden, NotFound, DiscordServerError
 from ..message import Message, MessageFlags
-from ..http import Route, handle_message_parameters
+from ..http import Route, handle_message_parameters, _retry_delay
 from ..channel import PartialMessageable, ForumTag
 
 from .async_ import BaseWebhook, _WebhookState
@@ -103,9 +103,12 @@ class DeferredLock:
         exc: Optional[BE],
         traceback: Optional[TracebackType],
     ) -> None:
-        if self.delta:
-            time.sleep(self.delta)
-        self.lock.release()
+        try:
+            if self.delta:
+                time.sleep(self.delta)
+        finally:
+            # An interrupt during the deferral sleep must still release the lock
+            self.lock.release()
 
 
 class WebhookAdapter:
@@ -207,11 +210,15 @@ class WebhookAdapter:
 
                             retry_after: float = data['retry_after']  # type: ignore
                             _log.warning(fmt, webhook_id, retry_after)
+                            if attempt == 4:
+                                break  # out of attempts: don't sleep (holding the lock) only to give up
                             time.sleep(retry_after)
                             continue
 
                         if response.status_code >= 500:
-                            time.sleep(1 + attempt * 2)
+                            if attempt == 4:
+                                break
+                            time.sleep(_retry_delay(attempt))
                             continue
 
                         if response.status_code == 403:
@@ -222,8 +229,8 @@ class WebhookAdapter:
                             raise HTTPException(response, data)
 
                 except OSError as e:
-                    if attempt < 4 and e.errno in (54, 10054):
-                        time.sleep(1 + attempt * 2)
+                    if attempt < 4 and e.errno in utils._CONNECTION_RESET_ERRNOS:
+                        time.sleep(_retry_delay(attempt))
                         continue
                     raise
 

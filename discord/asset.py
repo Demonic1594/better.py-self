@@ -24,6 +24,7 @@ DEALINGS IN THE SOFTWARE.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import os
 from typing import Any, Literal, Optional, TYPE_CHECKING, Tuple, Union
@@ -123,8 +124,7 @@ class AssetMixin:
                 fp.seek(0)
             return written
         else:
-            with open(fp, 'wb') as f:
-                return f.write(data)
+            return await asyncio.to_thread(utils._write_bytes, fp, data)
 
     async def to_file(
         self,

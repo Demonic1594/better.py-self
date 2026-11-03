@@ -62,6 +62,7 @@ from itertools import islice
 from base64 import b64encode, b64decode
 from bisect import bisect_left
 import datetime
+import errno
 import functools
 from inspect import isawaitable as _isawaitable, signature as _signature
 from operator import attrgetter
@@ -182,7 +183,9 @@ if TYPE_CHECKING:
     class _DecompressionContext(Protocol):
         COMPRESSION_TYPE: str
 
-        def decompress(self, data: bytes, /) -> str | None: ...
+        # Returns the raw UTF-8 bytes: both orjson and json.loads parse bytes
+        # directly, which saves decoding every gateway frame into a str copy
+        def decompress(self, data: bytes, /) -> bytes | None: ...
 
     P = ParamSpec('P')
 
@@ -712,7 +715,32 @@ def get(iterable: _Iter[T], /, **attrs: Any) -> Union[Optional[T], Coro[Optional
 
 
 def _unique(iterable: Iterable[T]) -> List[T]:
-    return [x for x in dict.fromkeys(iterable)]
+    return list(dict.fromkeys(iterable))
+
+
+def _write_bytes(fp: Union[str, bytes, os.PathLike[Any]], data: bytes) -> int:
+    with open(fp, 'wb') as f:
+        return f.write(data)
+
+
+# The event loop only keeps weak references to tasks, so a fire-and-forget
+# task with no other reference can be garbage collected mid-execution.
+# https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
+_background_tasks: Set[asyncio.Task[Any]] = set()
+
+
+def _spawn_background(
+    coro: Coroutine[Any, Any, Any],
+    /,
+    *,
+    loop: Optional[asyncio.AbstractEventLoop] = None,
+    name: Optional[str] = None,
+) -> asyncio.Task[Any]:
+    """Schedules a fire-and-forget coroutine, holding a strong reference until it finishes."""
+    task = (loop or asyncio.get_running_loop()).create_task(coro, name=name)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task
 
 
 def _get_as_snowflake(data: Any, key: str) -> Optional[int]:
@@ -788,6 +816,8 @@ if HAS_ORJSON:
         return orjson.dumps(obj, default=_handle_metadata).decode('utf-8')
 
     _from_json = orjson.loads
+    # orjson parses the raw UTF-8 gateway frame directly, skipping a str copy
+    _from_json_frame = orjson.loads
 
 else:
 
@@ -796,13 +826,31 @@ else:
 
     _from_json = json.loads
 
+    def _json_loads_frame(data: Union[str, bytes]) -> Any:
+        # json.loads(bytes) runs encoding detection first, which is slower
+        # than decoding the (always UTF-8) gateway frame ourselves
+        return json.loads(data.decode('utf-8') if type(data) is bytes else data)
+
+    _from_json_frame = _json_loads_frame
+
+
+# "Connection reset by peer": 54 (BSD/macOS), 10054 (Windows) and the
+# platform's own ECONNRESET (104 on Linux, which the literals alone missed)
+_CONNECTION_RESET_ERRNOS: frozenset = frozenset({54, 10054, errno.ECONNRESET})
+
 
 def _parse_ratelimit_header(request: Any, *, use_clock: bool = False) -> float:
     reset_after: Optional[str] = request.headers.get('X-Ratelimit-Reset-After')
     if use_clock or not reset_after:
+        reset_at = request.headers.get('X-Ratelimit-Reset')
+        if reset_at is None:
+            # Malformed rate limit headers must not turn a delivered response
+            # into an exception; don't defer the bucket in that case
+            logging.getLogger(__name__).debug('Rate limit headers lack both reset fields; not deferring.')
+            return 0.0
         utc = datetime.timezone.utc
         now = datetime.datetime.now(utc)
-        reset = datetime.datetime.fromtimestamp(float(request.headers['X-Ratelimit-Reset']), utc)
+        reset = datetime.datetime.fromtimestamp(float(reset_at), utc)
         return (reset - now).total_seconds()
     else:
         return float(reset_after)
@@ -1764,9 +1812,9 @@ if _ZSTD_SOURCE is not None:
                 # which dynamically allocates a buffer, matching stdlib module's behavior.
                 self.decompressor = self.decompressor.decompressobj()
 
-        def decompress(self, data: bytes, /) -> str | None:
+        def decompress(self, data: bytes, /) -> bytes | None:
             # Each WS message is a complete gateway message
-            return self.decompressor.decompress(data).decode('utf-8')
+            return self.decompressor.decompress(data)
 
     _ActiveDecompressionContext: Type[_DecompressionContext] = _ZstdDecompressionContext
 else:
@@ -1780,7 +1828,7 @@ else:
             self.buffer: bytearray = bytearray()
             self.context = zlib.decompressobj()
 
-        def decompress(self, data: bytes, /) -> str | None:
+        def decompress(self, data: bytes, /) -> bytes | None:
             buffer = self.buffer
             if buffer:
                 buffer.extend(data)
@@ -1795,7 +1843,7 @@ else:
                     return
                 msg = self.context.decompress(data)
 
-            return msg.decode('utf-8')
+            return msg
 
     _ActiveDecompressionContext: Type[_DecompressionContext] = _ZlibDecompressionContext
 

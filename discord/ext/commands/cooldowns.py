@@ -316,12 +316,17 @@ class _Semaphore:
     overkill for what is basically a counter.
     """
 
-    __slots__ = ('value', 'loop', '_waiters')
+    __slots__ = ('value', 'loop', '_waiters', '_woken')
 
     def __init__(self, number: int) -> None:
         self.value: int = number
         self.loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
         self._waiters: Deque[asyncio.Future] = deque()
+        # Waiters handed the slot by wake_up() that have not resumed yet. They
+        # are no longer in _waiters but still count as activity: otherwise
+        # MaxConcurrency drops this semaphore from its mapping in between and
+        # a newcomer gets a fresh one, exceeding the limit
+        self._woken: int = 0
 
     def __repr__(self) -> str:
         return f'<_Semaphore value={self.value} waiters={len(self._waiters)}>'
@@ -330,13 +335,14 @@ class _Semaphore:
         return self.value == 0
 
     def is_active(self) -> bool:
-        return len(self._waiters) > 0
+        return len(self._waiters) > 0 or self._woken > 0
 
     def wake_up(self) -> None:
         while self._waiters:
             future = self._waiters.popleft()
             if not future.done():
                 future.set_result(None)
+                self._woken += 1
                 return
 
     async def acquire(self, *, wait: bool = False) -> bool:
@@ -350,10 +356,14 @@ class _Semaphore:
             try:
                 await future
             except BaseException:
+                if future.done() and not future.cancelled():
+                    self._woken -= 1  # woken, but this waiter won't take the slot
                 future.cancel()
                 if self.value > 0 and not future.cancelled():
                     self.wake_up()
                 raise
+            else:
+                self._woken -= 1
 
         self.value -= 1
         return True

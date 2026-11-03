@@ -28,6 +28,7 @@ import asyncio
 from collections import deque, OrderedDict
 import copy
 import datetime
+import functools
 import gc
 import logging
 import os
@@ -167,6 +168,32 @@ _log = logging.getLogger(__name__)
 # process, one client's unfreeze must not thaw the others' graphs. This
 # counter tracks how many connection states currently hold a freeze.
 _gc_freeze_holders: int = 0
+
+F = TypeVar('F', bound=Callable[..., Any])
+
+
+def _gc_paused(func: F) -> F:
+    """Pauses the cyclic GC while a bulk payload builds long-lived objects.
+
+    READY and large guild/member payloads allocate tens of thousands of objects
+    that all survive; each generational collection they trigger re-scans the
+    growing graph, which costs ~10-15% of the parse. The parse is synchronous,
+    so collection simply resumes when it returns (or raises). Left alone when
+    the application has disabled the GC itself; nested calls are no-ops.
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        if not gc.isenabled():
+            return func(*args, **kwargs)
+        gc.disable()
+        try:
+            return func(*args, **kwargs)
+        finally:
+            gc.enable()
+
+    return wrapper  # type: ignore
+
 
 # Cache persistence limits
 PERSISTENCE_DEFAULT_MAX_AGE: float = 14 * 24 * 3600  # seconds
@@ -446,7 +473,7 @@ class MemberSidebar:
             pass
 
     def start(self):
-        self.loop.create_task(self.wrapper())
+        utils._spawn_background(self.wrapper(), loop=self.loop)
 
     async def wrapper(self):
         try:
@@ -522,7 +549,7 @@ class MemberSidebar:
                 self.subscribing = False
                 break
 
-        state.loop.create_task(state.subscriptions.subscribe_to_channels(guild, {}, replace=True))
+        utils._spawn_background(state.subscriptions.subscribe_to_channels(guild, {}, replace=True), loop=state.loop)
 
 
 class GuildSubscriptions:
@@ -582,6 +609,8 @@ class GuildSubscriptions:
     __slots__ = (
         '_state',
         '_pending',
+        '_entry_sizes',
+        '_sized_payload',
         '_task',
         '_blocked',
         '_subscribed',
@@ -597,6 +626,9 @@ class GuildSubscriptions:
     def __init__(self, state: ConnectionState, /) -> None:
         self._state = state
         self._pending: gw.BulkGuildSubscribePayload = {}
+        # Encoded size of each pending entry, valid for the dict in _sized_payload
+        self._entry_sizes: Dict[str, int] = {}
+        self._sized_payload: Any = None
         self._task: Optional[asyncio.Task[None]] = None
         self._blocked: bool = False
         self.clear()
@@ -639,19 +671,26 @@ class GuildSubscriptions:
     async def _tick_task(self) -> None:
         try:
             await asyncio.sleep(self.TICK_TIMEOUT)
-            if self._state.ws.open:
-                await self._flush()
-                self._task = None
-            else:
-                self._task = None
-                self._tick()
         except asyncio.CancelledError:
-            pass
+            return
+
+        # Past the delay this task is no longer the pending tick: a concurrent
+        # _tick() (any subscribe call) must schedule a new tick rather than
+        # cancel this one mid-send, which would drop the in-flight payload
+        if self._task is asyncio.current_task():
+            self._task = None
+
+        ws = self._state.ws
+        if ws is not None and ws.open:
+            await self._flush()
+        else:
+            self._tick()
 
     def _tick(self) -> None:
         self._cancel()
         if not self._blocked:
-            self._task = self._state.loop.create_task(self._tick_task())
+            # Strongly referenced until done: once flushing, _task no longer holds it
+            self._task = utils._spawn_background(self._tick_task(), loop=self._state.loop)
 
     @property
     def empty(self) -> bool:
@@ -767,21 +806,47 @@ class GuildSubscriptions:
         # If it is, we need to flush the old payload and start a new one
         # If there isn't an old payload and the new payload is larger, this is impossible
         EMPTY: Any = {}
-        new_payload = self._pending.copy()
+        pending = self._pending
+        new_payload = pending.copy()
+        new_sizes = self._sizes_for(pending).copy()
         for guild_id, subscriptions in changes.items():
             old = cast(Dict[Any, Any], new_payload.get(guild_id, EMPTY))
             updates = cast(Dict[Any, Any], subscriptions)
-            new_payload[guild_id] = cast(Any, {**old, **updates})
+            new_payload[guild_id] = merged = cast(Any, {**old, **updates})
+            # Only the changed entry is re-encoded, not the whole batch
+            new_sizes[guild_id] = self._entry_size(guild_id, merged)
 
-        if len(utils._to_json(new_payload)) > self.MAX_PAYLOAD_SIZE:
+        if self._encoded_size(new_sizes) > self.MAX_PAYLOAD_SIZE:
             if len(utils._to_json(changes)) > self.MAX_PAYLOAD_SIZE:
                 raise ValueError('Guild subscription payload too large to send')
             await self._flush()
-            self._pending = changes
+            # Other subscribe calls may have queued changes during the flush;
+            # merge into them instead of overwriting
+            await self._checked_add(changes)
+            return
         else:
             self._pending = new_payload
+            self._entry_sizes = new_sizes
+            self._sized_payload = new_payload
 
         self._tick()
+
+    @staticmethod
+    def _entry_size(key: str, value: Any) -> int:
+        # Length of '"key":value' inside the compact JSON object
+        return len(utils._to_json({key: value})) - 2
+
+    @staticmethod
+    def _encoded_size(sizes: Dict[str, int]) -> int:
+        # len(_to_json(payload)) == braces + entries + commas between them
+        return 2 + sum(sizes.values()) + max(len(sizes) - 1, 0)
+
+    def _sizes_for(self, payload: Any) -> Dict[str, int]:
+        if self._sized_payload is not payload:
+            # _pending was replaced elsewhere (flush, requeue): re-measure once
+            self._entry_sizes = {key: self._entry_size(key, value) for key, value in payload.items()}
+            self._sized_payload = payload
+        return self._entry_sizes
 
     async def _flush(self) -> None:
         payload = self._pending
@@ -1010,7 +1075,7 @@ class ClientStatus:
 
 
 class Presence:
-    __slots__ = ('client_status', 'activities', 'hidden_activities', '_raw_activities')
+    __slots__ = ('client_status', 'activities', 'hidden_activities')
 
     _OFFLINE: ClassVar[Self] = MISSING
 
@@ -1022,7 +1087,6 @@ class Presence:
         self.hidden_activities: Tuple[ActivityTypes, ...] = tuple(
             create_activity(d, state, user_id) for d in data.get('hidden_activities', [])
         )
-        self._raw_activities: List[Any] = data.get('activities', [])
 
     def __repr__(self) -> str:
         attrs = [
@@ -1050,8 +1114,9 @@ class Presence:
     def _update(self, data: gw.BasePresenceUpdate, state: ConnectionState, user_id: int, /) -> None:
         self.client_status._update(data['status'], data.get('client_status'))
         raw_activities = data['activities']
-        if raw_activities != self._raw_activities:
-            self._raw_activities = raw_activities
+        # The raw activity dicts are not kept (they would double the memory of
+        # every presence with an activity), so re-parse unless both are empty
+        if raw_activities or self.activities:
             self.activities = tuple(create_activity(d, state, user_id) for d in raw_activities)
 
     @classmethod
@@ -1061,7 +1126,6 @@ class Presence:
             self.client_status = ClientStatus()
             self.activities = ()
             self.hidden_activities = ()
-            self._raw_activities = []
             cls._OFFLINE = self
 
         return cls._OFFLINE
@@ -1072,7 +1136,6 @@ class Presence:
         self.client_status = ClientStatus._copy(presence.client_status)
         self.activities = presence.activities
         self.hidden_activities = presence.hidden_activities
-        self._raw_activities = presence._raw_activities
         return self
 
 
@@ -1789,7 +1852,8 @@ class ConnectionState:
         except KeyError:
             user = User(state=self, data=data)
             if cache:
-                self._users[user_id] = user
+                # Key on the user's own id int so each cached user holds one int, not two
+                self._users[user.id] = user
             return user
 
     def create_user(self, data: Union[UserPayload, PartialUserPayload], cache: bool = False) -> User:
@@ -1945,6 +2009,22 @@ class ConnectionState:
         if index.get(message.id) is message:
             del index[message.id]
         self._call_message_cache.pop(message.id, None)
+
+    def _remove_messages_from_cache(self, found: List[Message], ids: Set[int]) -> None:
+        # Bulk form of _remove_message_from_cache: one pass over the deque
+        # instead of one O(n) deque.remove() per deleted message
+        messages = self._messages
+        if messages is not None:
+            kept = [message for message in messages if message.id not in ids]
+            if len(kept) != len(messages):
+                messages.clear()  # in place: the deque object (and maxlen) stays the same
+                messages.extend(kept)
+        index = self._messages_index
+        call_cache = self._call_message_cache
+        for message in found:
+            if index.get(message.id) is message:
+                del index[message.id]
+            call_cache.pop(message.id, None)
 
     def _add_guild_from_data(self, data: GuildPayload) -> Guild:
         guild = self.create_guild(data)
@@ -2188,6 +2268,7 @@ class ConnectionState:
 
         self._gc_freeze_task = asyncio.create_task(freeze_later())
 
+    @_gc_paused
     def parse_ready(self, data: gw.ReadyEvent) -> None:
         if self._ready_task is not None:
             self._ready_task.cancel()
@@ -2267,6 +2348,7 @@ class ConnectionState:
         # Before parsing the rest, we wait for READY_SUPPLEMENTAL
         # This has voice state objects as well as an initial member cache
 
+    @_gc_paused
     def parse_ready_supplemental(self, extra_data: gw.ReadySupplementalEvent) -> None:
         data = self._ready_data
 
@@ -2707,22 +2789,24 @@ class ConnectionState:
         self.dispatch('raw_bulk_message_delete', raw)
         if found_messages:
             self.dispatch('bulk_message_delete', found_messages)
-            for msg in found_messages:
-                # self._messages won't be None here
-                self._remove_message_from_cache(msg)  # type: ignore
+            self._remove_messages_from_cache(found_messages, raw.message_ids)
 
     def _has_listener(self, *events: str) -> bool:
         # Checks whether any wait_for listener or event handler exists for the given events
         client = self.client
         listeners = client._listeners
+        handlers = client._event_handlers
         for event in events:
-            if listeners.get(event):
+            method = 'on_' + event
+            # Handlers seen by dispatch() are cached: the common "yes" is one dict
+            # hit. A stale entry only costs a false positive (some extra work)
+            if method in handlers or listeners.get(event):
                 return True
-            if hasattr(client, 'on_' + event):
+            if hasattr(client, method):
                 return True
             # ext.commands Bot.listen/cog listeners are stored separately
             extra_events = getattr(client, 'extra_events', None)
-            if extra_events and extra_events.get('on_' + event):
+            if extra_events and extra_events.get(method):
                 return True
         return False
 
@@ -2869,16 +2953,22 @@ class ConnectionState:
             return
         user_id = int(user['id'])
 
-        if guild is not None and guild.get_member(user_id) is None:
-            # Drop any stale presence left over from before the member was
-            # evicted; keeping it would leak memory and could serve stale data
-            self.remove_presence(user_id, guild_id)
-            _log.debug('PRESENCE_UPDATE referencing an unknown member ID: %s. Discarding.', user_id)
-            return
+        member = None
+        if guild is not None:
+            member = guild.get_member(user_id)
+            if member is None:
+                # Drop any stale presence left over from before the member was
+                # evicted; keeping it would leak memory and could serve stale data
+                self.remove_presence(user_id, guild_id)
+                _log.debug('PRESENCE_UPDATE referencing an unknown member ID: %s. Discarding.', user_id)
+                return
 
+        # The old/new comparison only feeds on_presence_update: skip the copy
+        # and compare when nothing listens (the cache is updated either way)
+        listening = self._has_listener('presence_update')
         presence = self.get_presence(user_id, guild_id)
         if presence is not None:
-            old_presence = Presence._copy(presence)
+            old_presence = Presence._copy(presence) if listening else presence
             presence._update(data, self, user_id)
         else:
             old_presence = Presence._offline()
@@ -2893,18 +2983,16 @@ class ConnectionState:
                 return
 
             user_update = relationship.user._update_self(user)  # type: ignore
-            if old_presence != presence:
+            if listening and old_presence != presence:
                 old_relationship = Relationship._copy(relationship, old_presence)
                 self.dispatch('presence_update', old_relationship, relationship)
         else:
-            member = guild.get_member(user_id)
-
             # Presence updates keep flowing for online members, so mark them as
             # recently used to protect them from cache eviction
             guild._touch_member(user_id)
 
             user_update = member._user._update_self(user)  # type: ignore
-            if old_presence != presence:
+            if listening and old_presence != presence:
                 old_member = Member._copy(member)  # type: ignore # Member existence was validated above
                 old_member._presence = old_presence
                 self.dispatch('presence_update', old_member, member)
@@ -3101,7 +3189,7 @@ class ConnectionState:
             # or all sessions are the same state
             # In the case it is "removed", we try to update the old one
             # Else, we create a new one with fake data
-            fake = data.get(self.session_id, list(data.values())[0])  # type: ignore
+            fake = data.get(self.session_id) or next(iter(data.values()))  # type: ignore
             if old_all is not None:
                 old = copy.copy(old_all)
                 old_all._update(fake)
@@ -3911,6 +3999,7 @@ class ConnectionState:
         else:
             self.dispatch('guild_join', guild)
 
+    @_gc_paused
     def parse_guild_create(self, data: gw.GuildCreateEvent):
         if 'properties' in data:
             data.update(data.pop('properties'))  # type: ignore
@@ -3923,11 +4012,11 @@ class ConnectionState:
             self.subscriptions._initial_thread_subscription(guild.id)
 
         if self._subscribe_guilds and not guild.unavailable:
-            asyncio.ensure_future(self.subscribe_guild(guild), loop=self.loop)
+            utils._spawn_background(self.subscribe_guild(guild), loop=self.loop)
 
         # Chunk if needed
         needs_chunking = self._guild_needs_chunking(guild)
-        asyncio.ensure_future(self._chunk_and_dispatch(guild, needs_chunking, data.get('unavailable')), loop=self.loop)
+        utils._spawn_background(self._chunk_and_dispatch(guild, needs_chunking, data.get('unavailable')), loop=self.loop)
 
     def parse_guild_update(self, data: gw.GuildUpdateEvent) -> None:
         guild = self._get_guild(int(data['id']))
@@ -4033,6 +4122,7 @@ class ConnectionState:
         else:
             _log.debug('GUILD_ROLE_UPDATE referencing an unknown guild ID: %s. Discarding.', data['guild_id'])
 
+    @_gc_paused
     def parse_guild_members_chunk(self, data: gw.GuildMembersChunkEvent) -> None:
         guild_id = int(data['guild_id'])
         guild = self._get_guild(guild_id)
@@ -4350,7 +4440,7 @@ class ConnectionState:
             voice = self._get_voice_client(guild.id if guild else self_id)
             if voice is not None:
                 coro = voice.on_voice_state_update(data)
-                asyncio.create_task(logging_coroutine(coro, info='Voice Protocol voice state update handler'))
+                utils._spawn_background(logging_coroutine(coro, info='Voice Protocol voice state update handler'))
 
         if guild is not None:
             member, before, after = guild._update_voice_state(data, channel_id)
@@ -4376,13 +4466,13 @@ class ConnectionState:
         vc = self._get_voice_client(key_id)
         if vc is not None:
             coro = vc.on_voice_server_update(data)
-            asyncio.create_task(logging_coroutine(coro, info='Voice Protocol voice server update handler'))
+            utils._spawn_background(logging_coroutine(coro, info='Voice Protocol voice server update handler'))
 
     def _dispatch_stream_protocol_event(self, stream_key: StreamKey, handler: str, *args: Any, info: str) -> None:
         stream = self._get_stream_client(stream_key)
         if stream is not None:
             coro = getattr(stream, handler)(*args)
-            asyncio.create_task(logging_coroutine(coro, info=info))
+            utils._spawn_background(logging_coroutine(coro, info=info))
 
     def parse_stream_create(self, data: gw.StreamCreateEvent) -> None:
         old, stream = self._store_stream(data)

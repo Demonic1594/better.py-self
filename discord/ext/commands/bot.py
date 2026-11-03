@@ -212,7 +212,7 @@ class BotBase(GroupMixin[None]):
         # super() will resolve to Client
         super().dispatch(event_name, *args, **kwargs)  # type: ignore
         ev = 'on_' + event_name
-        for event in self.extra_events.get(ev, []):
+        for event in self.extra_events.get(ev, ()):
             self._schedule_event(event, ev, *args, **kwargs)  # type: ignore
 
     @discord.utils.copy_doc(discord.Client.close)

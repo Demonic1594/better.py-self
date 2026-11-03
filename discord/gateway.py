@@ -32,7 +32,7 @@ import time
 import threading
 import traceback
 
-from typing import Any, Callable, Coroutine, Dict, List, Literal, TYPE_CHECKING, NamedTuple, Optional, Sequence, Tuple
+from typing import Any, Callable, Coroutine, Dict, List, Literal, TYPE_CHECKING, NamedTuple, Optional, Sequence, Tuple, Union
 
 from curl_cffi import CurlError, WebSocketError
 from curl_cffi.requests import AsyncWebSocket
@@ -219,42 +219,37 @@ class KeepAliveHandler:  # Inspired by enhanced-discord.py/Gnome
             ):
                 payload = self.get_time_spent_payload()
                 _log.debug(self.time_spent_msg)
-                try:
-                    total = 0
-                    while True:
-                        try:
-                            await asyncio.wait_for(self.ws.send_heartbeat(payload), timeout=10)
-                            break
-                        except asyncio.TimeoutError:
-                            total += 10
-
-                            stack = ''.join(traceback.format_stack())
-                            msg = f'{self.block_msg}\nLoop traceback (most recent call last):\n{stack}'
-                            _log.warning(msg, total)
-                except Exception:
-                    self.stop()
-                else:
-                    self._last_time_spent = time.perf_counter()
+                if not await self._send_guarded(payload):
+                    # The connection is gone: don't follow up with a heartbeat on it
+                    return
+                self._last_time_spent = time.perf_counter()
 
             data = self.get_heartbeat_payload()
             _log.debug(self.msg)
             # Stamp the send time before the send actually happens, otherwise a slow
             # send makes the measured latency smaller than it really is
             self._last_send = time.perf_counter()
-            try:
-                total = 0
-                while True:
-                    try:
-                        await asyncio.wait_for(self.ws.send_heartbeat(data), timeout=10)
-                        break
-                    except asyncio.TimeoutError:
-                        total += 10
+            await self._send_guarded(data)
 
-                        stack = ''.join(traceback.format_stack())
-                        msg = f'{self.block_msg}\nLoop traceback (most recent call last):\n{stack}'
-                        _log.warning(msg, total)
-            except Exception:
-                self.stop()
+    async def _send_guarded(self, payload: Dict[str, Any], /) -> bool:
+        """Sends a heartbeat-class payload, warning every 10s while the loop is blocked.
+
+        Returns ``False`` (after stopping the handler) if the send failed.
+        """
+        total = 0
+        try:
+            while True:
+                try:
+                    await asyncio.wait_for(self.ws.send_heartbeat(payload), timeout=10)
+                    return True
+                except asyncio.TimeoutError:
+                    total += 10
+                    stack = ''.join(traceback.format_stack())
+                    msg = f'{self.block_msg}\nLoop traceback (most recent call last):\n{stack}'
+                    _log.warning(msg, total)
+        except Exception:
+            self.stop()
+            return False
 
     def get_heartbeat_payload(self) -> Dict[str, Any]:
         reasons = ['foregrounded']
@@ -441,10 +436,14 @@ class DiscordWebSocket:
     def is_ratelimited(self) -> bool:
         return self._rate_limiter.is_ratelimited()
 
-    def debug_log_receive(self, data: Dict[str, Any], /) -> None:
+    def debug_log_receive(self, data: Union[str, bytes], /) -> None:
+        # Decompressed frames stay bytes for parsing; on_socket_raw_receive
+        # is documented to receive a str
+        if type(data) is bytes:
+            data = data.decode('utf-8')
         self._dispatch('socket_raw_receive', data)
 
-    def log_receive(self, _: Dict[str, Any], /) -> None:
+    def log_receive(self, _: Union[str, bytes], /) -> None:
         pass
 
     @classmethod
@@ -547,7 +546,19 @@ class DiscordWebSocket:
         event = event.upper()
         future = self.loop.create_future()
         entry = EventListener(event=event, predicate=predicate, result=result, future=future)
-        self._dispatch_listeners.append(entry)
+        listeners = self._dispatch_listeners
+        listeners.append(entry)
+
+        def _discard_if_cancelled(fut: asyncio.Future[Any], /) -> None:
+            # Callers wrap this in asyncio.wait_for(); on timeout the entry would
+            # otherwise linger until an event of the same name arrives (maybe never)
+            if fut.cancelled():
+                try:
+                    listeners.remove(entry)
+                except ValueError:
+                    pass
+
+        future.add_done_callback(_discard_if_cancelled)
         return future
 
     async def identify(self) -> None:
@@ -614,7 +625,7 @@ class DiscordWebSocket:
                 return
 
         self.log_receive(msg)
-        msg = utils._from_json(msg)
+        msg = utils._from_json_frame(msg)
 
         _log.debug('Gateway event: %s.', msg)
         event = msg.get('t')
@@ -727,15 +738,21 @@ class DiscordWebSocket:
                     removed.append(index)
                     continue
 
+                ret: Any = None
                 try:
                     valid = entry.predicate(data)
+                    if valid:
+                        ret = data if entry.result is None else entry.result(data)
                 except Exception as exc:
-                    future.set_exception(exc)
+                    # Deliver errors to the waiter; escaping here would end the
+                    # receive loop and force a reconnect
+                    if not future.done():
+                        future.set_exception(exc)
                     removed.append(index)
                 else:
                     if valid:
-                        ret = data if entry.result is None else entry.result(data)
-                        future.set_result(ret)
+                        if not future.done():
+                            future.set_result(ret)
                         removed.append(index)
 
             for index in reversed(removed):

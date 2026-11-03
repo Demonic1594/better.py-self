@@ -26,7 +26,6 @@ from __future__ import annotations
 
 from typing import List, Tuple, TypedDict, Any, TYPE_CHECKING, Callable, TypeVar, Literal, Optional, overload
 
-import array
 import ctypes
 import ctypes.util
 import logging
@@ -410,7 +409,8 @@ class Encoder(_OpusStruct):
 
         ret = _lib.opus_encode(self._state, pcm_ptr, frame_size, data, max_data_bytes)
 
-        return array.array('b', data[:ret]).tobytes()
+        # One copy straight out of the ctypes buffer (no array round trip)
+        return ctypes.string_at(data, ret)
 
 
 class Decoder(_OpusStruct):
@@ -499,4 +499,6 @@ class Decoder(_OpusStruct):
 
         ret = _lib.opus_decode(self._state, data, len(data) if data else 0, pcm_ptr, frame_size, fec)
 
-        return array.array('h', pcm[: ret * channel_count]).tobytes()
+        # Read the PCM buffer directly instead of building a list of Python
+        # ints (ret is never negative here: opus_decode's errcheck raises)
+        return ctypes.string_at(pcm, ret * channel_count * 2)

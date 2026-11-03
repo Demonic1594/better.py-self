@@ -70,19 +70,17 @@ class StringView:
         self.index = self.previous
 
     def skip_ws(self) -> bool:
-        pos = 0
-        while not self.eof:
-            try:
-                current = self.buffer[self.index + pos]
-                if not current.isspace():
-                    break
-                pos += 1
-            except IndexError:
-                break
+        # Bounded index loop: no per-character eof property call, and the end
+        # of the buffer is not found by raising IndexError
+        buffer = self.buffer
+        end = self.end
+        start = pos = self.index
+        while pos < end and buffer[pos].isspace():
+            pos += 1
 
-        self.previous = self.index
-        self.index += pos
-        return self.previous != self.index
+        self.previous = start
+        self.index = pos
+        return pos != start
 
     def skip_string(self, string: str) -> bool:
         strlen = len(string)
@@ -115,19 +113,14 @@ class StringView:
         return result
 
     def get_word(self) -> str:
-        pos = 0
-        while not self.eof:
-            try:
-                current = self.buffer[self.index + pos]
-                if current.isspace():
-                    break
-                pos += 1
-            except IndexError:
-                break
-        self.previous: int = self.index
-        result = self.buffer[self.index : self.index + pos]
-        self.index += pos
-        return result
+        buffer = self.buffer
+        end = self.end
+        start = pos = self.index
+        while pos < end and not buffer[pos].isspace():
+            pos += 1
+        self.previous: int = start
+        self.index = pos
+        return buffer[start:pos]
 
     def get_quoted_word(self) -> Optional[str]:
         current = self.current

@@ -185,6 +185,25 @@ def _load_aiohttp():
     return aiohttp
 
 
+def _retry_delay(tries: int, /) -> float:
+    # Linear backoff with jitter so concurrent retries don't fire in lockstep
+    return 1 + tries * 2 + uniform(0, 1)
+
+
+def _http_error(response: Any, data: Any, /) -> HTTPException:
+    """Maps a failed (non-retried) response to the matching exception."""
+    status = response.status
+    if status == 403:
+        return Forbidden(response, data)
+    if status == 404:
+        return NotFound(response, data)
+    if status >= 500:
+        return DiscordServerError(response, data)
+    if isinstance(data, dict) and 'captcha_key' in data:
+        return CaptchaRequired(response, data)  # type: ignore
+    return HTTPException(response, data)
+
+
 async def json_or_text(response: Union[aiohttp.ClientResponse, requests.Response]) -> Union[Dict[str, Any], str]:
     if hasattr(response, 'acontent'):
         # curl_cffi response
@@ -733,6 +752,7 @@ class HTTPClient:
         # one shot requests that don't have a bucket hash
         # When this reaches 256 elements, it will try to evict based off of expiry
         self._buckets: Dict[str, Ratelimit] = {}
+        self._next_bucket_sweep: float = 0.0
         self._global_over: asyncio.Event = MISSING
         # Coordinated global-lock release. With overlapping global/shared
         # cooldowns, the lock must stay cleared until the LONGEST active
@@ -845,7 +865,7 @@ class HTTPClient:
         )
         _log.info('Found TLS fingerprint target "%s".', headers.impersonate)
 
-        self.__session = requests.AsyncSession(impersonate=headers.impersonate, default_headers=False)  # pyright: ignore[reportArgumentType]
+        self.__session = requests.AsyncSession(impersonate=headers.impersonate, default_headers=False)
         self._started = True
 
     async def _ensure_asession(self) -> aiohttp.ClientSession:
@@ -895,9 +915,19 @@ class HTTPClient:
     def user_agent(self) -> str:
         return self.headers.user_agent
 
+    # Buckets only become evictable after 300s idle (Ratelimit.is_inactive),
+    # so rescanning the whole table on every new bucket mostly frees nothing.
+    # Sweep at most this often; the table stays bounded by ~330s of activity.
+    BUCKET_SWEEP_INTERVAL: ClassVar[float] = 30.0
+
     def _try_clear_expired_ratelimits(self) -> None:
         if len(self._buckets) < 256:
             return
+
+        now = time.monotonic()
+        if now < self._next_bucket_sweep:
+            return
+        self._next_bucket_sweep = now + self.BUCKET_SWEEP_INTERVAL
 
         keys = [key for key, bucket in self._buckets.items() if bucket.is_inactive()]
         for key in keys:
@@ -1264,35 +1294,26 @@ class HTTPClient:
                     # Unconditional retry
                     if response.status_code in {502, 504, 507, 522, 523, 524}:
                         failed += 1
-                        await asyncio.sleep(1 + tries * 2 + uniform(0, 1))
+                        await asyncio.sleep(_retry_delay(tries))
                         continue
 
                     # Usual error cases
-                    if response.status_code == 403:
-                        raise Forbidden(response, data)
-                    elif response.status_code == 404:
-                        raise NotFound(response, data)
-                    elif response.status_code >= 500:
-                        raise DiscordServerError(response, data)
-                    else:
-                        if isinstance(data, dict) and 'captcha_key' in data:
-                            raise CaptchaRequired(response, data)  # type: ignore
-                        raise HTTPException(response, data)
+                    raise _http_error(response, data)
 
                 # libcurl errors
                 except requests.RequestsError as e:
                     if tries < 4 and e.code in (23, 28, 35):
                         failed += 1
-                        await asyncio.sleep(1 + tries * 2 + uniform(0, 1))
+                        await asyncio.sleep(_retry_delay(tries))
                         continue
                     raise
 
                 # This is handling exceptions from the request
                 except OSError as e:
                     # Connection reset by peer
-                    if tries < 4 and e.errno in (54, 10054):
+                    if tries < 4 and e.errno in utils._CONNECTION_RESET_ERRNOS:
                         failed += 1
-                        await asyncio.sleep(1 + tries * 2 + uniform(0, 1))
+                        await asyncio.sleep(_retry_delay(tries))
                         continue
                     raise
 
@@ -1369,22 +1390,15 @@ class HTTPClient:
 
                     # Unconditional retry
                     if response.status in {500, 502, 504, 507, 522, 523, 524}:
-                        await asyncio.sleep(1 + tries * 2)
+                        await asyncio.sleep(_retry_delay(tries))
                         continue
 
                     # Usual error cases
-                    if response.status == 403:
-                        raise Forbidden(response, data)
-                    elif response.status == 404:
-                        raise NotFound(response, data)
-                    elif response.status >= 500:
-                        raise DiscordServerError(response, data)
-                    else:
-                        raise HTTPException(response, data)
+                    raise _http_error(response, data)
             except OSError as e:
                 # Connection reset by peer
-                if tries < 4 and e.errno in (54, 10054):
-                    await asyncio.sleep(1 + tries * 2)
+                if tries < 4 and e.errno in utils._CONNECTION_RESET_ERRNOS:
+                    await asyncio.sleep(_retry_delay(tries))
                     continue
                 raise
 

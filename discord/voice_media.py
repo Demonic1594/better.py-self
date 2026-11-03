@@ -24,7 +24,10 @@ DEALINGS IN THE SOFTWARE.
 
 from __future__ import annotations
 
+import array
 import math
+import operator
+import sys
 import struct
 import time
 
@@ -59,17 +62,31 @@ def _rtp_header_with_one_byte_extensions(header: bytes | bytearray, extension_pa
     return bytes(header_buffer)
 
 
+if sys.version_info >= (3, 12):
+
+    def _sum_of_squares(samples: array.array) -> int:
+        # Exact for ints, and avoids an intermediate int object per sample
+        return math.sumprod(samples, samples)
+
+else:
+
+    def _sum_of_squares(samples: array.array) -> int:
+        return sum(map(operator.mul, samples, samples))
+
+
 def _audio_level_from_pcm(data: bytes | bytearray | memoryview) -> int:
     raw = bytes(data)
     sample_bytes = len(raw) & ~1
     if sample_bytes == 0:
         return RTP_AUDIO_LEVEL_SILENCE
 
-    square_sum = 0
-    sample_count = 0
-    for (sample,) in struct.iter_unpack('<h', raw[:sample_bytes]):
-        square_sum += sample * sample
-        sample_count += 1
+    # Exact integer sum of squares, computed in C rather than a Python loop
+    # over every sample of every 20 ms frame
+    samples = array.array('h', raw[:sample_bytes])
+    if sys.byteorder == 'big':
+        samples.byteswap()  # PCM is little-endian
+    square_sum = _sum_of_squares(samples)
+    sample_count = len(samples)
 
     if square_sum == 0:
         return RTP_AUDIO_LEVEL_SILENCE

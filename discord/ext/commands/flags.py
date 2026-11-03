@@ -61,7 +61,7 @@ try:
         # So format 3 is the one we're typically used to
         annotate = get_annotate_from_class_namespace(namespace)
         if annotate is not None:
-            return call_annotate_function(annotate, 3)  # type: ignore
+            return call_annotate_function(annotate, 3)
         return namespace.get('__annotations__', {})
 
 except ImportError:
