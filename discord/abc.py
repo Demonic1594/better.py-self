@@ -198,9 +198,10 @@ async def _purge_helper(
         count += 1
         ret.append(message)
 
-    # Some messages remaining to poll
-    to_delete = ret[-count:]
-    await state._delete_messages(channel_id, to_delete, reason=reason)
+    # Some messages remaining to poll. With count == 0 (the last batch was just
+    # flushed), ret[-0:] is the whole list and every message was deleted again
+    if count:
+        await state._delete_messages(channel_id, ret[-count:], reason=reason)
     return ret
 
 
@@ -1487,11 +1488,14 @@ class GuildChannel:
                 and ch.category_id == parent_id
             ]
         else:
+            # category=None moves the channel to the top level: its new siblings
+            # are the uncategorised channels, not those of its current category
+            target_category = None if parent_id is None else self.category_id
             channels = [
                 ch
                 for ch in self.guild.channels
                 if ch._sorting_bucket == bucket
-                and ch.category_id == self.category_id
+                and ch.category_id == target_category
             ]
         # fmt: on
 

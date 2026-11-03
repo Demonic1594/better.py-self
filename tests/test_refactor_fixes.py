@@ -692,3 +692,186 @@ def test_file_size_counts_from_the_original_position():
     file = File(buffer, filename='tail.bin')
     assert file.size == 6, 'only bytes 4..10 are uploaded'
     assert buffer.tell() == 4, 'position restored'
+
+
+async def _guild_env():
+    import discord
+    from discord import Guild
+
+    client = discord.Client()
+    await client._async_setup_hook()
+    state = client._connection
+    state.user = discord.ClientUser(
+        state=state, data={'id': '5', 'username': 'me', 'discriminator': '0', 'global_name': None, 'avatar': None}
+    )
+    channels = [
+        {'id': '10', 'type': 4, 'name': 'cat', 'position': 0},
+        {'id': '11', 'type': 0, 'name': 'top-a', 'position': 0},
+        {'id': '12', 'type': 0, 'name': 'top-b', 'position': 1},
+        {'id': '13', 'type': 0, 'name': 'child-a', 'position': 0, 'parent_id': '10'},
+        {'id': '14', 'type': 0, 'name': 'child-b', 'position': 1, 'parent_id': '10'},
+    ]
+    guild = Guild(
+        state=state,
+        data={'id': '1', 'name': 'g', 'roles': [{'id': '1', 'name': '@everyone'}], 'channels': channels, 'member_count': 1},
+    )
+    state._guilds[1] = guild
+    return client, state, guild
+
+
+@pytest.mark.asyncio
+async def test_audit_logs_limit_counts_entries():
+    client, state, guild = await _guild_env()
+    calls = []
+
+    async def get_audit_logs(guild_id, *, limit, before=None, after=None, user_id=None, action_type=None):
+        calls.append(limit)
+        start = 10_000 - len(calls) * 100
+        entries = [{'id': str(start - i), 'action_type': 1, 'user_id': None, 'target_id': None} for i in range(limit)]
+        return {
+            'audit_log_entries': entries,
+            'users': [],
+            'webhooks': [],
+            'integrations': [],
+            'application_commands': [],
+            'auto_moderation_rules': [],
+            'threads': [],
+        }
+
+    state.http.get_audit_logs = get_audit_logs  # type: ignore[method-assign]
+    got = [entry async for entry in guild.audit_logs(limit=150)]
+    assert len(got) == 150, 'the limit used to be reduced by the number of response keys'
+    assert calls == [100, 50]
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_purge_does_not_redelete_flushed_batches():
+    from discord.abc import _purge_helper
+
+    deleted_batches = []
+
+    class Msg:
+        def __init__(self, i):
+            self.id = i
+            self.type = SimpleNamespace(is_deletable=lambda: True)
+
+    async def history(**kwargs):
+        for i in range(60):
+            yield Msg(i)
+
+    async def delete_messages(channel_id, messages, reason=None):
+        deleted_batches.append([m.id for m in messages])
+
+    channel = SimpleNamespace(id=1, history=history, _state=SimpleNamespace(_delete_messages=delete_messages))
+    # Messages 50..59 do not match: the 50 matches are flushed and nothing remains
+    result = await _purge_helper(channel, limit=None, check=lambda m: m.id < 50)  # type: ignore[arg-type]
+
+    assert len(result) == 50
+    assert deleted_batches == [list(range(50))], f'already-deleted messages were sent again: {deleted_batches}'
+
+
+@pytest.mark.asyncio
+async def test_move_to_top_level_uses_top_level_siblings():
+    client, state, guild = await _guild_env()
+    sent = []
+
+    async def bulk_channel_update(guild_id, payload, *, reason=None):
+        sent.extend(payload)
+
+    state.http.bulk_channel_update = bulk_channel_update  # type: ignore[method-assign]
+    child = guild.get_channel(13)
+    await child.move(category=None, end=True)  # type: ignore[union-attr]
+
+    ids = [entry['id'] for entry in sent]
+    assert ids == [11, 12, 13], f'positions must be computed among top-level channels, got {sent}'
+    assert sent[-1].get('parent_id', 'unset') is None
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_query_members_timeout_unregisters_request(monkeypatch):
+    import discord.state as state_module
+
+    client, state, guild = await _guild_env()
+
+    async def chunker(*args, **kwargs):
+        return None
+
+    async def instant_timeout(aw, timeout):
+        aw.close()
+        raise asyncio.TimeoutError
+
+    state.chunker = chunker  # type: ignore[assignment]
+    monkeypatch.setattr(state_module.asyncio, 'wait_for', instant_timeout)
+    with pytest.raises(asyncio.TimeoutError):
+        await state.query_members(guild, 'x', 5, None, False, False)
+    assert state._chunk_requests == {}, 'a timed-out request must not stay registered'
+    await client.close()
+
+
+class _EchoSettingsHTTP:
+    """edit() returns UserSettings parsed from exactly what would have been sent."""
+
+    async def edit_proto_settings(self, type, data, required_data_version=None):
+        return {'settings': data}
+
+
+def _blank_user_settings():
+    from discord.settings import UserSettings
+
+    return UserSettings(SimpleNamespace(http=_EchoSettingsHTTP()), '')  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_user_audio_settings_edit_roundtrips():
+    from discord.settings import AudioContext
+
+    settings = _blank_user_settings()
+    ctx = AudioContext(123, muted=True, volume=55.0)
+    new = await settings.edit(user_audio_settings=[ctx])  # raised AttributeError (s.id) before
+
+    (got,) = new.user_audio_settings
+    assert (got.user_id, got.muted, got.volume) == (123, True, 55.0)
+    assert abs((got.modified_at - ctx.modified_at).total_seconds()) < 1
+
+
+@pytest.mark.asyncio
+async def test_settings_missing_resets_instead_of_failing():
+    settings = _blank_user_settings()
+    reset = await settings.edit(restricted_guilds=[], soundboard_volume=MISSING_VALUE())  # type: ignore[arg-type]
+    assert not reset.settings.voice_and_video.HasField('soundboard_settings'), 'MISSING must reset, not set volume 0'
+    assert reset.soundboard_volume == 100.0
+    await settings.edit(restricted_guilds=MISSING_VALUE())  # used to raise TypeError
+
+
+def MISSING_VALUE():
+    from discord.utils import MISSING
+
+    return MISSING
+
+
+def test_guild_progress_default_collapsed_channels():
+    from discord.flags import HubProgressFlags, OnboardingProgressFlags
+    from discord.settings import GuildProgress
+
+    progress = GuildProgress(1, hub_progress=HubProgressFlags(), onboarding_progress=OnboardingProgressFlags())
+    assert progress._collapsed_channel_ids == []
+
+
+def test_holdout_bucket_zero_is_kept():
+    from discord.experiment import UserExperiment
+
+    holdout = UserExperiment.from_holdout(None, 1, 'exp', 1, 0)  # type: ignore[arg-type]
+    assert holdout.assignment == 0
+    assert UserExperiment.from_holdout(None, 1, 'exp', 1, None).assignment == -1  # type: ignore[arg-type]
+
+
+def test_mp4_is_detected_at_its_real_offset():
+    from discord import utils
+
+    mp4 = b'\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2mp41' + b'\x00' * 32
+    assert utils._get_mime_type_for_image(mp4, with_video=True) == 'video/mp4'
+    assert utils._get_mime_type_for_image(b'\x00\x00\x00\x1cftypmp42' + b'\x00' * 32, with_video=True) == 'video/mp4'
+    with pytest.raises(ValueError):
+        utils._get_mime_type_for_image(mp4, with_video=False)

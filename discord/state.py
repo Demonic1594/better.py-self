@@ -2152,6 +2152,10 @@ class ConnectionState:
         except asyncio.TimeoutError:
             _log.warning('Timed out waiting for chunks with query %r and limit %d for guild ID %d.', query, limit, guild_id)
             raise
+        finally:
+            # Removed on completion already; on a timeout or send error it would
+            # otherwise stay registered for the life of the process
+            self._chunk_requests.pop(request.nonce, None)
 
     async def search_recent_members(
         self,
@@ -2165,6 +2169,14 @@ class ConnectionState:
         self._chunk_requests[request.nonce] = request
 
         # Unlike query members, this OP is paginated
+        try:
+            return await self._search_recent_members_pages(guild_id, request, query, limit)
+        finally:
+            self._chunk_requests.pop(request.nonce, None)
+
+    async def _search_recent_members_pages(
+        self, guild_id: int, request: ChunkRequest, query: str, limit: Optional[int]
+    ) -> List[Member]:
         old_continuation_token = None
         continuation_token = None
         while True:
@@ -2189,7 +2201,6 @@ class ConnectionState:
             if continuation_token == old_continuation_token:
                 break
 
-        self._chunk_requests.pop(request.nonce, None)
         return list(request.buffer)
 
     async def _delay_ready(self) -> None:
