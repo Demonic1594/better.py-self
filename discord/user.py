@@ -1015,7 +1015,7 @@ class ClientUser(BaseUser):
             elif not isinstance(colour, Colour):
                 raise ValueError('`accent_colo(u)r` parameter was not a Colour')
             else:
-                args['accent_color'] = accent_color.value
+                args['accent_color'] = colour.value
 
         if email is not MISSING:
             args['email'] = email

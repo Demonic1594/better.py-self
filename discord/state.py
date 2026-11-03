@@ -2648,6 +2648,11 @@ class ConnectionState:
         # Private channel parsing
         for pm in data.get('private_channels', []) + extra_data.get('lazy_private_channels', []):
             factory, _ = _private_channel_factory(pm['type'])
+            if factory is None:
+                # A private channel type this version does not know: skipping it
+                # keeps READY_SUPPLEMENTAL (whose errors abort the connection) alive
+                _log.debug('Skipping private channel ID %s with unknown type %s in READY.', pm.get('id'), pm['type'])
+                continue
             if 'recipients' not in pm:
                 pm['recipients'] = [temp_users[int(u_id)] for u_id in pm.pop('recipient_ids')]  # type: ignore
             self._add_private_channel(factory(me=user, data=pm, state=self))  # type: ignore

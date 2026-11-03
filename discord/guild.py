@@ -4884,7 +4884,9 @@ class Guild(Hashable):
 
         channel = self.get_channel(int(data['channel']['id']))  # type: ignore
         data.update({'temporary': False, 'max_uses': 0, 'max_age': 0, 'uses': payload.get('uses', 0)})  # type: ignore
-        return Invite(state=self._state, data=payload, guild=self, channel=channel)  # type: ignore # We're faking a payload here
+        # Built from the full invite (merged with the vanity uses above): the vanity
+        # payload itself only carries the code and the use count
+        return Invite(state=self._state, data=data, guild=self, channel=channel)  # type: ignore # We're faking a payload here
 
     async def audit_logs(
         self,

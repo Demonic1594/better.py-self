@@ -124,19 +124,19 @@ class alias_flag_value(flag_value):
 
 def fill_with_flags(*, inverted: bool = False) -> Callable[[Type[BF]], Type[BF]]:
     def decorator(cls: Type[BF]) -> Type[BF]:
-        # fmt: off
-        cls.VALID_FLAGS = {
-            name: value.flag
-            for name, value in cls.__dict__.items()
-            if isinstance(value, flag_value)
-        }
-        # Precomputed for __iter__; mirrors the class-dict order and skips aliases
+        # Flags are collected along the MRO, base classes first, so a flag class
+        # that extends another (PrivateUserFlags extends PublicUserFlags) accepts
+        # and iterates the inherited flags too; a subclass can redefine a name.
+        members: Dict[str, flag_value] = {}
+        for klass in reversed(cls.__mro__):
+            for name, value in klass.__dict__.items():
+                if isinstance(value, flag_value):
+                    members[name] = value
+        cls.VALID_FLAGS = {name: value.flag for name, value in members.items()}
+        # Precomputed for __iter__; mirrors the definition order and skips aliases
         cls._ITER_FLAGS = tuple(
-            (name, value.flag)
-            for name, value in cls.__dict__.items()
-            if isinstance(value, flag_value) and not isinstance(value, alias_flag_value)
+            (name, value.flag) for name, value in members.items() if not isinstance(value, alias_flag_value)
         )
-        # fmt: on
 
         max_bits = max(cls.VALID_FLAGS.values()).bit_length()
         cls._INVERT_MASK = -1 + (2**max_bits)
@@ -775,6 +775,7 @@ class SystemChannelFlags(BaseFlags):
         """
         return 128
 
+    @flag_value
     def emoji_added(self):
         """:class:`bool`: Returns ``True`` if the system channel is used for
         emoji added notifications.
