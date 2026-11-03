@@ -537,3 +537,375 @@ def test_play_while_paused_stops_the_parked_player(monkeypatch):
 
     assert stopped == [True], 'the paused player thread would be orphaned'
     assert isinstance(client._player, FakePlayer)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_ratelimit_refreshes_sleep_the_window_once():
+    from discord.http import Ratelimit
+
+    bucket = Ratelimit(None, 1)
+    loop = asyncio.get_running_loop()
+    bucket.remaining = 0
+    bucket.reset_after = 0.05
+    bucket.expires = loop.time() + bucket.reset_after
+    resets = []
+    real_reset = Ratelimit.reset
+
+    def counting_reset(self):
+        resets.append(1)
+        real_reset(self)
+
+    Ratelimit.reset = counting_reset  # type: ignore[method-assign]
+    try:
+        start = loop.time()
+        await asyncio.gather(*(bucket._refresh() for _ in range(5)))
+        elapsed = loop.time() - start
+    finally:
+        Ratelimit.reset = real_reset  # type: ignore[method-assign]
+
+    assert len(resets) == 1, 'queued refreshes must not re-reset an already refreshed bucket'
+    assert elapsed < 0.05 * 2, f'5 queued refreshes slept {elapsed:.2f}s (stale windows re-slept)'
+
+
+@pytest.mark.asyncio
+async def test_voice_poller_logs_and_disconnects_on_unexpected_error(monkeypatch, caplog):
+    import logging
+
+    from discord.voice_state import ConnectionFlowState, VoiceConnectionState
+
+    conn = VoiceConnectionState.__new__(VoiceConnectionState)
+    conn._state = ConnectionFlowState.connected
+    disconnects = []
+
+    async def failing_loop(self, reconnect):
+        raise RuntimeError('voice server returned garbage')
+
+    async def fake_disconnect(self, *args, **kwargs):
+        disconnects.append(True)
+
+    monkeypatch.setattr(VoiceConnectionState, '_poll_voice_ws_loop', failing_loop)
+    monkeypatch.setattr(VoiceConnectionState, 'disconnect', fake_disconnect)
+
+    with caplog.at_level(logging.ERROR, logger='discord.voice_state'):
+        await conn._poll_voice_ws(True)  # must not raise out of the (never awaited) task
+
+    assert disconnects == [True]
+    assert any('poller stopped on an unexpected error' in r.getMessage() for r in caplog.records)
+
+
+def test_nonces_are_unique_within_a_millisecond():
+    from discord import utils
+
+    nonces = [utils._generate_nonce() for _ in range(5000)]
+    assert len(set(nonces)) == len(nonces), 'nonces made in the same ms used to collide'
+    # Still snowflake-shaped: the timestamp part decodes to now
+    created = utils.snowflake_time(int(nonces[-1]))
+    assert abs((utils.utcnow() - created).total_seconds()) < 5
+
+
+@pytest.mark.asyncio
+async def test_interaction_create_pops_its_nonce_context():
+    import discord
+
+    client = discord.Client()
+    await client._async_setup_hook()
+    state = client._connection
+    state.user = discord.ClientUser(
+        state=state, data={'id': '5', 'username': 'me', 'discriminator': '0', 'global_name': None, 'avatar': None}
+    )
+    channel = object()
+    state._interaction_cache['n1'] = (2, 'ping', channel)
+
+    seen = []
+    client.on_interaction = lambda i: seen.append(i) or asyncio.sleep(0)  # type: ignore[attr-defined]
+    state.parse_interaction_create({'id': '77', 'nonce': 'n1'})  # type: ignore[arg-type]
+
+    assert 'n1' not in state._interaction_cache, 'the cache must only hold in-flight interactions'
+    interaction = state._interactions[77]
+    assert interaction.channel is channel and interaction.name == 'ping'
+    await client.close()
+
+
+def test_boolean_option_strings_and_unknown_options(caplog):
+    import logging
+    from types import SimpleNamespace
+
+    from discord.commands import SlashMixin
+    from discord.enums import ApplicationCommandOptionType
+
+    opt = SimpleNamespace(name='flag', type=ApplicationCommandOptionType.boolean)
+    cmd = SimpleNamespace(options=[opt], name='cmd')
+    with caplog.at_level(logging.WARNING, logger='discord.commands'):
+        options, _, _ = SlashMixin._parse_kwargs(cmd, {'flag': 'false', 'flgg': True})  # type: ignore[arg-type]
+    assert options == [{'type': ApplicationCommandOptionType.boolean.value, 'name': 'flag', 'value': False}]
+    assert any("'flgg'" in r.getMessage() for r in caplog.records), 'unknown options must not vanish silently'
+
+
+def test_mixed_cloud_and_local_attachments_match_multipart_parts():
+    import io
+
+    from discord.file import CloudFile, File
+    from discord.http import handle_message_parameters
+
+    cloud = CloudFile('https://up/1', 'cloud.png', 'uploads/cloud.png', state=None)  # type: ignore[arg-type]
+    local = File(io.BytesIO(b'abc'), filename='local.txt')
+    params = handle_message_parameters(content='hi', files=[cloud, local])
+
+    form_names = [part['name'] for part in params.multipart]
+    payload = __import__('json').loads(params.multipart[0]['data'])
+    by_name = {a['filename']: a for a in payload['attachments']}
+    # The local file's id must name its multipart part; ids stay unique
+    assert f'files[{by_name["local.txt"]["id"]}]' in form_names
+    assert by_name['cloud.png']['uploaded_filename'] == 'uploads/cloud.png'
+    assert len({a['id'] for a in payload['attachments']}) == 2
+    params.__exit__(None, None, None)
+
+
+@pytest.mark.asyncio
+async def test_cloud_file_from_file_keeps_spoiler():
+    import io
+
+    from discord.file import CloudFile, File
+
+    uploaded = []
+
+    async def upload_to_cloud(url, file):
+        uploaded.append(url)
+
+    state = SimpleNamespace(http=SimpleNamespace(upload_to_cloud=upload_to_cloud))
+    file = File(io.BytesIO(b'x'), filename='secret.png', spoiler=True)
+    cloud = await CloudFile.from_file(
+        file=file,
+        state=state,  # type: ignore[arg-type]
+        data={'upload_url': 'https://up/2', 'upload_filename': 'uploads/secret.png', 'id': 0},  # type: ignore[typeddict-item]
+    )
+    assert cloud.spoiler is True and cloud.filename == 'SPOILER_secret.png'
+
+
+def test_file_size_counts_from_the_original_position():
+    import io
+
+    from discord.file import File
+
+    buffer = io.BytesIO(b'0123456789')
+    buffer.seek(4)
+    file = File(buffer, filename='tail.bin')
+    assert file.size == 6, 'only bytes 4..10 are uploaded'
+    assert buffer.tell() == 4, 'position restored'
+
+
+async def _guild_env():
+    import discord
+    from discord import Guild
+
+    client = discord.Client()
+    await client._async_setup_hook()
+    state = client._connection
+    state.user = discord.ClientUser(
+        state=state, data={'id': '5', 'username': 'me', 'discriminator': '0', 'global_name': None, 'avatar': None}
+    )
+    channels = [
+        {'id': '10', 'type': 4, 'name': 'cat', 'position': 0},
+        {'id': '11', 'type': 0, 'name': 'top-a', 'position': 0},
+        {'id': '12', 'type': 0, 'name': 'top-b', 'position': 1},
+        {'id': '13', 'type': 0, 'name': 'child-a', 'position': 0, 'parent_id': '10'},
+        {'id': '14', 'type': 0, 'name': 'child-b', 'position': 1, 'parent_id': '10'},
+    ]
+    guild = Guild(
+        state=state,
+        data={'id': '1', 'name': 'g', 'roles': [{'id': '1', 'name': '@everyone'}], 'channels': channels, 'member_count': 1},
+    )
+    state._guilds[1] = guild
+    return client, state, guild
+
+
+@pytest.mark.asyncio
+async def test_audit_logs_limit_counts_entries():
+    client, state, guild = await _guild_env()
+    calls = []
+
+    async def get_audit_logs(guild_id, *, limit, before=None, after=None, user_id=None, action_type=None):
+        calls.append(limit)
+        start = 10_000 - len(calls) * 100
+        entries = [{'id': str(start - i), 'action_type': 1, 'user_id': None, 'target_id': None} for i in range(limit)]
+        return {
+            'audit_log_entries': entries,
+            'users': [],
+            'webhooks': [],
+            'integrations': [],
+            'application_commands': [],
+            'auto_moderation_rules': [],
+            'threads': [],
+        }
+
+    state.http.get_audit_logs = get_audit_logs  # type: ignore[method-assign]
+    got = [entry async for entry in guild.audit_logs(limit=150)]
+    assert len(got) == 150, 'the limit used to be reduced by the number of response keys'
+    assert calls == [100, 50]
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_purge_does_not_redelete_flushed_batches():
+    from discord.abc import _purge_helper
+
+    deleted_batches = []
+
+    class Msg:
+        def __init__(self, i):
+            self.id = i
+            self.type = SimpleNamespace(is_deletable=lambda: True)
+
+    async def history(**kwargs):
+        for i in range(60):
+            yield Msg(i)
+
+    async def delete_messages(channel_id, messages, reason=None):
+        deleted_batches.append([m.id for m in messages])
+
+    channel = SimpleNamespace(id=1, history=history, _state=SimpleNamespace(_delete_messages=delete_messages))
+    # Messages 50..59 do not match: the 50 matches are flushed and nothing remains
+    result = await _purge_helper(channel, limit=None, check=lambda m: m.id < 50)  # type: ignore[arg-type]
+
+    assert len(result) == 50
+    assert deleted_batches == [list(range(50))], f'already-deleted messages were sent again: {deleted_batches}'
+
+
+@pytest.mark.asyncio
+async def test_move_to_top_level_uses_top_level_siblings():
+    client, state, guild = await _guild_env()
+    sent = []
+
+    async def bulk_channel_update(guild_id, payload, *, reason=None):
+        sent.extend(payload)
+
+    state.http.bulk_channel_update = bulk_channel_update  # type: ignore[method-assign]
+    child = guild.get_channel(13)
+    await child.move(category=None, end=True)  # type: ignore[union-attr]
+
+    ids = [entry['id'] for entry in sent]
+    assert ids == [11, 12, 13], f'positions must be computed among top-level channels, got {sent}'
+    assert sent[-1].get('parent_id', 'unset') is None
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_query_members_timeout_unregisters_request(monkeypatch):
+    import discord.state as state_module
+
+    client, state, guild = await _guild_env()
+
+    async def chunker(*args, **kwargs):
+        return None
+
+    async def instant_timeout(aw, timeout):
+        aw.close()
+        raise asyncio.TimeoutError
+
+    state.chunker = chunker  # type: ignore[assignment]
+    monkeypatch.setattr(state_module.asyncio, 'wait_for', instant_timeout)
+    with pytest.raises(asyncio.TimeoutError):
+        await state.query_members(guild, 'x', 5, None, False, False)
+    assert state._chunk_requests == {}, 'a timed-out request must not stay registered'
+    await client.close()
+
+
+class _EchoSettingsHTTP:
+    """edit() returns UserSettings parsed from exactly what would have been sent."""
+
+    async def edit_proto_settings(self, type, data, required_data_version=None):
+        return {'settings': data}
+
+
+def _blank_user_settings():
+    from discord.settings import UserSettings
+
+    return UserSettings(SimpleNamespace(http=_EchoSettingsHTTP()), '')  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_user_audio_settings_edit_roundtrips():
+    from discord.settings import AudioContext
+
+    settings = _blank_user_settings()
+    ctx = AudioContext(123, muted=True, volume=55.0)
+    new = await settings.edit(user_audio_settings=[ctx])  # raised AttributeError (s.id) before
+
+    (got,) = new.user_audio_settings
+    assert (got.user_id, got.muted, got.volume) == (123, True, 55.0)
+    assert abs((got.modified_at - ctx.modified_at).total_seconds()) < 1
+
+
+@pytest.mark.asyncio
+async def test_settings_missing_resets_instead_of_failing():
+    settings = _blank_user_settings()
+    reset = await settings.edit(restricted_guilds=[], soundboard_volume=MISSING_VALUE())  # type: ignore[arg-type]
+    assert not reset.settings.voice_and_video.HasField('soundboard_settings'), 'MISSING must reset, not set volume 0'
+    assert reset.soundboard_volume == 100.0
+    await settings.edit(restricted_guilds=MISSING_VALUE())  # used to raise TypeError
+
+
+def MISSING_VALUE():
+    from discord.utils import MISSING
+
+    return MISSING
+
+
+def test_guild_progress_default_collapsed_channels():
+    from discord.flags import HubProgressFlags, OnboardingProgressFlags
+    from discord.settings import GuildProgress
+
+    progress = GuildProgress(1, hub_progress=HubProgressFlags(), onboarding_progress=OnboardingProgressFlags())
+    assert progress._collapsed_channel_ids == []
+
+
+def test_holdout_bucket_zero_is_kept():
+    from discord.experiment import UserExperiment
+
+    holdout = UserExperiment.from_holdout(None, 1, 'exp', 1, 0)  # type: ignore[arg-type]
+    assert holdout.assignment == 0
+    assert UserExperiment.from_holdout(None, 1, 'exp', 1, None).assignment == -1  # type: ignore[arg-type]
+
+
+def test_mp4_is_detected_at_its_real_offset():
+    from discord import utils
+
+    mp4 = b'\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2mp41' + b'\x00' * 32
+    assert utils._get_mime_type_for_image(mp4, with_video=True) == 'video/mp4'
+    assert utils._get_mime_type_for_image(b'\x00\x00\x00\x1cftypmp42' + b'\x00' * 32, with_video=True) == 'video/mp4'
+    with pytest.raises(ValueError):
+        utils._get_mime_type_for_image(mp4, with_video=False)
+
+
+@pytest.mark.asyncio
+async def test_voice_connect_fails_after_exhausting_retries(monkeypatch):
+    import discord.voice_state as vs
+    from discord.errors import ConnectionClosed
+    from discord.voice_state import ConnectionFlowState, VoiceConnectionState
+
+    conn = VoiceConnectionState.__new__(VoiceConnectionState)
+    conn._state = ConnectionFlowState.got_both_voice_updates
+    conn.endpoint = 'voice.example'
+    attempts, disconnects = [], []
+
+    async def noop(*args, **kwargs):
+        return None
+
+    async def failing_ws(self, resume):
+        attempts.append(resume)
+        raise ConnectionClosed(4006)
+
+    async def record_disconnect(self, *, force=True, cleanup=True, wait=False):
+        disconnects.append(cleanup)
+
+    monkeypatch.setattr(VoiceConnectionState, '_voice_connect', noop)
+    monkeypatch.setattr(VoiceConnectionState, '_wait_for_state', noop)
+    monkeypatch.setattr(VoiceConnectionState, '_connect_websocket', failing_ws)
+    monkeypatch.setattr(VoiceConnectionState, 'disconnect', record_disconnect)
+    monkeypatch.setattr(vs.asyncio, 'sleep', noop)
+
+    with pytest.raises(ConnectionClosed):
+        await conn._inner_connect(reconnect=True, self_deaf=False, self_mute=False, self_video=False, resume=False)
+
+    assert len(attempts) == 5
+    assert disconnects == [False, False, False, False, True], 'retries soft-disconnect; the final failure cleans up'

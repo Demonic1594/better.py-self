@@ -848,7 +848,8 @@ class UserExperiment:
         self._name = name
         self.hash = hash
         self.revision = revision or 0
-        self.assignment = bucket or -1
+        # Bucket 0 is a real bucket: only a missing one means "unassigned"
+        self.assignment = bucket if bucket is not None else -1
 
         # Most of these fields are defaults
         self.override = False

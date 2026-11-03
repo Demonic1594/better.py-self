@@ -2011,9 +2011,14 @@ class Message(PartialMessage, Hashable):
         self.id: int = int(data['id'])
         self._state: ConnectionState = state
         self.webhook_id: Optional[int] = utils._get_as_snowflake(data, 'webhook_id')
-        self.reactions: List[Reaction] = [Reaction(message=self, data=d) for d in data.get('reactions', [])]
-        self.attachments: List[Attachment] = [Attachment(data=a, state=self._state) for a in data.get('attachments', [])]
-        self.embeds: List[Embed] = [Embed.from_dict(a) for a in data.get('embeds', [])]
+        # Most messages have none of these: skip the comprehension (and a
+        # throwaway default list) for the empty case
+        raw = data.get('reactions')
+        self.reactions: List[Reaction] = [Reaction(message=self, data=d) for d in raw] if raw else []
+        raw = data.get('attachments')
+        self.attachments: List[Attachment] = [Attachment(data=a, state=state) for a in raw] if raw else []
+        raw = data.get('embeds')
+        self.embeds: List[Embed] = [Embed.from_dict(a) for a in raw] if raw else []
         self.activity: Optional[MessageActivityPayload] = data.get('activity')
         self._edited_timestamp: Optional[datetime.datetime] = utils.parse_time(data.get('edited_timestamp'))
         self.type: MessageType = try_enum(MessageType, data['type'])
@@ -2025,7 +2030,8 @@ class Message(PartialMessage, Hashable):
         self.nonce: Optional[Union[int, str]] = data.get('nonce')
         self.position: Optional[int] = data.get('position')
         self.application_id: Optional[int] = utils._get_as_snowflake(data, 'application_id')
-        self.stickers: List[StickerItem] = [StickerItem(data=d, state=state) for d in data.get('sticker_items', [])]
+        raw = data.get('sticker_items')
+        self.stickers: List[StickerItem] = [StickerItem(data=d, state=state) for d in raw] if raw else []
         self.call: Optional[CallMessage] = None
         self.interaction: Optional[Interaction] = None
         # Set by Messageable.pins
@@ -2278,6 +2284,8 @@ class Message(PartialMessage, Hashable):
 
     def _handle_mentions(self, mentions: List[UserWithMemberPayload]) -> None:
         self.mentions = r = []
+        if not mentions:
+            return
         guild = self.guild
         state = self._state
         if not isinstance(guild, Guild):
@@ -2300,7 +2308,7 @@ class Message(PartialMessage, Hashable):
 
     def _handle_mention_roles(self, role_mentions: List[int]) -> None:
         self.role_mentions = r = []
-        if isinstance(self.guild, Guild):
+        if role_mentions and isinstance(self.guild, Guild):
             for role_id in map(int, role_mentions):
                 role = self.guild.get_role(role_id)
                 if role is not None:
@@ -2326,6 +2334,8 @@ class Message(PartialMessage, Hashable):
 
     def _handle_components(self, data: List[ComponentPayload]) -> None:
         self.components = []
+        if not data:
+            return
         for component_data in data:
             component = _component_factory(component_data, self)
             if component is not None:

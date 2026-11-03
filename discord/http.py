@@ -418,12 +418,20 @@ def handle_message_parameters(
         files = [a for a in attachments if isinstance(a, _FileBase)]
 
     if attachments is not MISSING:
-        file_index = 0
+        # A local File's id must equal its multipart index (files[N], numbered
+        # over local files only, below); cloud uploads are referenced by their
+        # uploaded filename, so they take the ids after the local ones. Numbering
+        # both together mismatched ids and parts when they were mixed.
+        local_index = 0
+        cloud_index = sum(1 for a in attachments if isinstance(a, File))
         attachments_payload = []
         for attachment in attachments:
-            if isinstance(attachment, _FileBase):
-                attachments_payload.append(attachment.to_dict(file_index))
-                file_index += 1
+            if isinstance(attachment, File):
+                attachments_payload.append(attachment.to_dict(local_index))
+                local_index += 1
+            elif isinstance(attachment, _FileBase):
+                attachments_payload.append(attachment.to_dict(cloud_index))
+                cloud_index += 1
             else:
                 attachments_payload.append(attachment.to_dict())
 
@@ -640,7 +648,14 @@ class Ratelimit:
     async def _refresh(self) -> None:
         error = self._max_ratelimit_timeout and self.reset_after > self._max_ratelimit_timeout
         exception = RateLimited(self.reset_after) if error else None
+        window = self.expires
         async with self._sleeping:
+            if self.expires != window:
+                # Another refresh (or a newer response) already moved the bucket on
+                # while we queued for the lock: sleeping out the stale window again
+                # and re-resetting would only add latency and drop newer state.
+                # The caller's acquire loop re-checks against the fresh expiry.
+                return
             if not error:
                 await asyncio.sleep(self.reset_after)
 

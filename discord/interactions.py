@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Optional, Union
 
 from .enums import InteractionFailureReason, InteractionType, try_enum
 from .mixins import Hashable
-from .utils import MISSING, cached_slot_property, find
+from .utils import MISSING, find
 
 if TYPE_CHECKING:
     from .channel import DMChannel, TextChannel, VoiceChannel
@@ -186,16 +186,25 @@ class Interaction(Hashable):
             return self.successful
         raise TypeError('Interaction has not been resolved yet')
 
-    @cached_slot_property('_cs_message')
+    @property
     def message(self) -> Optional[Message]:
         """Optional[:class:`Message`]: Returns the message that is the response to this interaction.
         May not exist or be cached.
         """
+        try:
+            return self._cs_message
+        except AttributeError:
+            pass
 
         def predicate(message: Message) -> bool:
             return message.interaction is not None and message.interaction.id == self.id
 
-        return find(predicate, self._state.client.cached_messages)
+        message = find(predicate, self._state.client.cached_messages)
+        if message is not None:
+            # Only cache a hit: the response message often arrives after the
+            # interaction, and caching None made it unreachable for good
+            self._cs_message = message
+        return message
 
     @property
     def guild(self) -> Optional[Guild]:

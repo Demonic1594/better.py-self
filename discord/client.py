@@ -217,6 +217,7 @@ if TYPE_CHECKING:
         heartbeat_timeout: Optional[float]
         assume_unsync_clock: bool
         enable_debug_events: bool
+        eager_dispatch: bool
         sync_presence: bool
         captcha_handler: Optional[Callable[[CaptchaRequired, Client], Awaitable[str]]]
         max_ratelimit_timeout: Optional[float]
@@ -375,6 +376,23 @@ class Client:
         30 seconds). This makes slow event handlers visible instead of
         silently accumulating queued events. Use ``0`` to disable.
         This defaults to ``1000``.
+
+        .. versionadded:: 2.2
+    eager_dispatch: :class:`bool`
+        Whether to start event handler tasks eagerly (Python 3.12+). An eager
+        handler runs immediately, inside the dispatch, up to its first ``await``
+        instead of waiting for the next event loop iteration; a handler that
+        returns without awaiting never needs a scheduled task at all. This
+        lowers per-event overhead, especially for handlers that usually
+        return early (e.g. an ``on_message`` that ignores most messages).
+
+        Handlers still run as independent tasks with the same error handling,
+        but they start before the code that dispatched them continues, so
+        code that relies on handlers being deferred to a later loop iteration
+        may observe a different ordering. On Python versions before 3.12 this
+        option is ignored (with a warning).
+
+        This defaults to ``False``.
 
         .. versionadded:: 2.2
     persistence_path: Optional[Union[:class:`str`, :class:`os.PathLike`]]
@@ -571,6 +589,11 @@ class Client:
         self._dispatch_completed: int = 0
         self._last_backlog_warning: float = float('-inf')
         self._dispatch_backlog_warning: int = cast(int, options.pop('dispatch_backlog_warning', 1000))
+        eager_dispatch = bool(options.pop('eager_dispatch', False))
+        if eager_dispatch and sys.version_info < (3, 12):
+            _log.warning('eager_dispatch requires Python 3.12 or newer; event handlers will be scheduled normally.')
+            eager_dispatch = False
+        self._eager_dispatch: bool = eager_dispatch
 
         throttle_window = options.pop('throttle_window', None)
         throttle_window = 300.0 if throttle_window is None else float(throttle_window)
@@ -1040,8 +1063,14 @@ class Client:
         **kwargs: Any,
     ) -> asyncio.Task:
         wrapped = self._run_event(coro, event_name, *args, **kwargs)
-        # Schedules the task
-        task = self.loop.create_task(wrapped, name=f'discord.py: {event_name}')
+        loop = self.loop
+        # Eager start only on the loop's own thread: on 3.12/3.13 eagerly
+        # starting a task from another thread corrupts the loop's current-task
+        # bookkeeping (CPython gh-155338)
+        if self._eager_dispatch and asyncio._get_running_loop() is loop:
+            task = asyncio.Task(wrapped, loop=loop, name=f'discord.py: {event_name}', eager_start=True)  # type: ignore
+        else:
+            task = loop.create_task(wrapped, name=f'discord.py: {event_name}')
         self._track_dispatch(task)
         return task
 

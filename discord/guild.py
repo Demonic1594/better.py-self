@@ -4961,7 +4961,9 @@ class Guild(Hashable):
 
             if data and entries:
                 if limit is not None:
-                    limit -= len(data)
+                    # Count entries, not the response's top-level keys (port of
+                    # the upstream discord.py fix): the limit was effectively ignored
+                    limit -= len(entries)
 
                 before = Object(id=int(entries[-1]['id']))
 
@@ -4977,7 +4979,9 @@ class Guild(Hashable):
 
             if data and entries:
                 if limit is not None:
-                    limit -= len(data)
+                    # Count entries, not the response's top-level keys (port of
+                    # the upstream discord.py fix): the limit was effectively ignored
+                    limit -= len(entries)
 
                 after = Object(id=int(entries[-1]['id']))
 
