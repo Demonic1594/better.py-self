@@ -490,7 +490,6 @@ async def _snapshot_with_two_guilds(path):
 
 @pytest.mark.asyncio
 async def test_close_before_fresh_ready_keeps_the_replayed_snapshot(tmp_path):
-
     path = tmp_path / 'cache.bin'
     await _snapshot_with_two_guilds(path)
     before = path.read_bytes()
