@@ -759,6 +759,9 @@ def _ocast(value: Any, type: Any):
     return type(value)
 
 
+_MP4_BRANDS = (b'isom', b'iso2', b'mp41', b'mp42', b'avc1', b'M4V ')
+
+
 def _get_mime_type_for_image(data: bytes, with_video: bool = False, fallback: bool = False) -> str:
     if data.startswith(b'\x89\x50\x4e\x47\x0d\x0a\x1a\x0a'):
         return 'image/png'
@@ -768,7 +771,8 @@ def _get_mime_type_for_image(data: bytes, with_video: bool = False, fallback: bo
         return 'image/gif'
     elif data.startswith(b'RIFF') and data[8:12] == b'WEBP':
         return 'image/webp'
-    elif data.startswith(b'\x66\x74\x79\x70\x69\x73\x6f\x6d') and with_video:
+    elif with_video and data[4:8] == b'ftyp' and data[8:12] in _MP4_BRANDS:
+        # MP4 starts with a 4-byte box size; the 'ftyp' box type and brand follow
         return 'video/mp4'
     else:
         if fallback:
