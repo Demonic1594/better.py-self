@@ -692,7 +692,7 @@ class Guild(Hashable):
         generates no events can be evicted first. Call this to keep a hot member
         in the cache. It does nothing if the member is not cached.
 
-        .. versionadded:: 2.2
+        .. versionadded:: 2.3
 
         Parameters
         -----------

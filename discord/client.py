@@ -553,7 +553,7 @@ class Client:
         current instant, or a larger value for long-running pressure
         monitoring. Negative values raise :exc:`ValueError`.
 
-        .. versionadded:: 2.2
+        .. versionadded:: 2.3
     preferred_rtc_regions: List[:class:`str`]
 
         A list of preferred RTC regions to connect to. This overrides Discord's suggested list.
@@ -884,7 +884,7 @@ class Client:
 
         These must be fetched first with :meth:`fetch_frecency_settings`.
 
-        .. versionadded:: 2.2
+        .. versionadded:: 2.3
         """
         return self._connection.frecency_settings
 
@@ -1269,7 +1269,7 @@ class Client:
         Events share the ``throttle_window`` retention of
         :meth:`http_throttle_events`, and ``window`` works the same way.
 
-        .. versionadded:: 2.2
+        .. versionadded:: 2.3
         """
         horizon = self.http._throttle_window if window is None else window
         if horizon < 0:
@@ -4953,7 +4953,7 @@ class Client:
             Unlike :attr:`settings`, the frecency settings cache is not populated by default.
             You must call this method at least once to populate the cache.
 
-        .. versionadded:: 2.2
+        .. versionadded:: 2.3
 
         Raises
         -------

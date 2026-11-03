@@ -34,6 +34,12 @@ functionality unless explicitly asked.
 - Before writing an unfamiliar feature, look at how comparable open-source
   projects solve it and outline the trade-offs before implementing.
 
+- Commits are authored as Demonic1594
+  (`137410379+Demonic1594@users.noreply.github.com`; set `git config user.name`
+  and `user.email` in the clone). Do not add Claude attribution to commits: no
+  `Co-Authored-By: Claude` or `Claude-Session` trailers. The owner does not
+  want Claude listed as a repository contributor.
+
 ## Checks (match CI)
 
 - `ruff format --check && ruff check`

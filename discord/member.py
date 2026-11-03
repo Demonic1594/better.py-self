@@ -907,7 +907,7 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
     def guild_display_name_style(self) -> Optional[DisplayNameStyle]:
         """Optional[:class:`DisplayNameStyle`]: Returns the member's display name style in the guild.
 
-        .. versionadded:: 2.2
+        .. versionadded:: 2.3
         """
         if self._display_name_style is None:
             return None
@@ -918,7 +918,7 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
     def global_display_name_style(self) -> Optional[DisplayNameStyle]:
         """Optional[:class:`DisplayNameStyle`]: Returns the user's global display name style.
 
-        .. versionadded:: 2.2
+        .. versionadded:: 2.3
         """
         return self._user.display_name_style
 
@@ -928,7 +928,7 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
 
         This will return the guild display name style if available, otherwise it will return the global display name style.
 
-        .. versionadded:: 2.2
+        .. versionadded:: 2.3
         """
         return self.guild_display_name_style or self.global_display_name_style
 
@@ -936,7 +936,7 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
     def guild_collectibles(self) -> List[Collectible]:
         """List[:class:`Collectible`]: Returns the member's guild collectibles.
 
-        .. versionadded:: 2.2
+        .. versionadded:: 2.3
         """
         if self._collectibles is None:
             return []
@@ -949,7 +949,7 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
         This will return the guild specific collectibles if available, otherwise it will
         return the user's collectibles.
 
-        .. versionadded:: 2.2
+        .. versionadded:: 2.3
         """
         return self.guild_collectibles or self._user.collectibles()
 
@@ -1075,7 +1075,7 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
             You can only change your own guild avatar.
 
             .. versionadded:: 2.0
-            .. versionchanged:: 2.2
+            .. versionchanged:: 2.3
 
                 You can now pass a :class:`RecentAvatar` to set a recent user avatar as the guild avatar.
         banner: Optional[:class:`bytes`]
@@ -1096,39 +1096,39 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
             The member's new display name font. Pass ``None`` to remove the font.
             You can only change your own display name font.
 
-            .. versionadded:: 2.2
+            .. versionadded:: 2.3
         display_name_effect: Optional[:class:`NameEffect`]
             The member's new display name effect. Pass ``None`` to remove the effect.
             You can only change your own display name effect.
 
-            .. versionadded:: 2.2
+            .. versionadded:: 2.3
         display_name_colours: Optional[List[:class:`Colour`]]
             The member's new display name colours. Pass ``None`` to remove the colours.
             You can only change your own display name colours.
 
-            .. versionadded:: 2.2
+            .. versionadded:: 2.3
         avatar_decoration_sku_id: Optional[:class:`int`]
             The member's new avatar decoration SKU ID. Pass ``None`` to remove the decoration.
             You can only change your own avatar decoration.
 
-            .. versionadded:: 2.2
+            .. versionadded:: 2.3
         nameplate_sku_id: Optional[:class:`int`]
             The member's new nameplate SKU ID. Pass ``None`` to remove the nameplate.
             You can only change your own nameplate.
 
-            .. versionadded:: 2.2
+            .. versionadded:: 2.3
         pronouns: Optional[:class:`str`]
             The member's new pronouns. Pass ``None`` to remove the pronouns.
             You can only change your own pronouns.
 
-            .. versionadded:: 2.2
+            .. versionadded:: 2.3
 
         avatar_description: Optional[:class:`str`]
             The description of the user's newly-uploaded avatar, used for displaying in recent avatars.
             Formatted typically as "{filename}, added {date}".
             Not applicable when setting a :class:`RecentAvatar`.
 
-            ... versionadded:: 2.2
+            ... versionadded:: 2.3
 
         reason: Optional[:class:`str`]
             The reason for editing this member. Shows up on the audit log.
