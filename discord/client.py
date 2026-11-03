@@ -273,6 +273,9 @@ class LocationInfo(NamedTuple):
 # A gateway session that stayed up at least this long before failing is treated as
 # healthy: its failure starts a fresh backoff instead of continuing an old one
 _HEALTHY_SESSION_SECONDS: float = 60.0
+# Reconnect requests (RECONNECT op, invalid session, close codes) that follow one another
+# without a healthy session in between: after this many, back off instead of looping
+_QUICK_RECONNECTS: int = 3
 
 
 def _reconnectable_errors() -> Tuple[Type[BaseException], ...]:
@@ -1561,6 +1564,7 @@ class Client:
         # fresh backoff and one immediate resume after a connection reset.
         connected_at: Optional[float] = None
         immediate_resume_available = True
+        reconnect_streak = 0
         while not self.is_closed():
             try:
                 coro = DiscordWebSocket.from_client(self, **ws_params)
@@ -1572,8 +1576,22 @@ class Client:
             except ReconnectWebSocket as e:
                 _log.debug('Got a request to %s the websocket.', e.op)
                 self.dispatch('disconnect')
-                if e.delay:
-                    await asyncio.sleep(e.delay)
+                if connected_at is not None and time.monotonic() - connected_at >= _HEALTHY_SESSION_SECONDS:
+                    reconnect_streak = 0
+                    backoff = ExponentialBackoff()
+                else:
+                    reconnect_streak += 1
+                connected_at = None
+                delay = e.delay
+                if reconnect_streak > _QUICK_RECONNECTS:
+                    # Discord (or a proxy in between) keeps asking and no session settles:
+                    # reconnecting at once each time would burn the identify budget
+                    delay = max(delay, backoff.delay())
+                    _log.warning(
+                        'The gateway asked to %s %d times in a row; waiting %.1fs first.', e.op, reconnect_streak, delay
+                    )
+                if delay:
+                    await asyncio.sleep(delay)
                     if self.is_closed():
                         return
                 # Without a session id there is nothing to RESUME: identify instead
@@ -1601,6 +1619,7 @@ class Client:
                     # The last session was healthy: forget earlier failures
                     backoff = ExponentialBackoff()
                     immediate_resume_available = True
+                    reconnect_streak = 0
                 connected_at = None
 
                 # A connection reset by the peer is usually a blip: resume at once, once.
@@ -1654,7 +1673,9 @@ class Client:
         Closes the connection to Discord.
         """
         if self._closing_task:
-            return await self._closing_task
+            # Shielded: a caller that gives up waiting (wait_for(client.close(), 5)) must not
+            # cancel the shutdown itself, or a retried close() would just re-raise CancelledError
+            return await asyncio.shield(self._closing_task)
 
         async def _close():
             for voice in self.voice_clients:
@@ -1671,21 +1692,35 @@ class Client:
                 except Exception:
                     _log.warning('Failed to write the cache persistence file on close.', exc_info=True)
 
-            if self.ws is not None and self.ws.open:
-                await self.ws.close(code=1000)
+            # Stop the ready sequence and the subscription ticker so neither fires
+            # (dispatching `ready`, re-arming the GC freeze) on a closed client
+            state = self._connection
+            if state._ready_task is not None:
+                state._ready_task.cancel()
+            state.subscriptions.blocked = True
 
-            await self.http.close()
+            try:
+                if self.ws is not None and self.ws.open:
+                    try:
+                        await self.ws.close(code=1000)
+                    except Exception:
+                        _log.debug('Ignoring an error while closing the gateway.', exc_info=True)
 
-            # A closed client must not keep the process-wide GC freeze held
-            self._connection._release_gc_freeze()
+                try:
+                    await self.http.close()
+                except Exception:
+                    _log.warning('Closing the HTTP client failed.', exc_info=True)
+            finally:
+                # A closed client must not keep the process-wide GC freeze held
+                self._connection._release_gc_freeze()
 
-            if self._ready is not MISSING:
-                self._ready.clear()
+                if self._ready is not MISSING:
+                    self._ready.clear()
 
-            self.loop = MISSING
+                self.loop = MISSING
 
         self._closing_task = asyncio.create_task(_close())
-        await self._closing_task
+        await asyncio.shield(self._closing_task)
 
     def clear(self) -> None:
         """Clears the internal state of the bot.

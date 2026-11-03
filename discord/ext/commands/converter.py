@@ -913,7 +913,11 @@ else:
             match = discord.utils.TIMESTAMP_PATTERN.match(argument)
             if not match:
                 raise BadTimestampArgument(argument)
-            return datetime.datetime.fromtimestamp(int(match[1]), tz=datetime.timezone.utc)
+            try:
+                return datetime.datetime.fromtimestamp(int(match[1]), tz=datetime.timezone.utc)
+            except (OverflowError, OSError, ValueError):
+                # A timestamp too large for a datetime is just a bad argument
+                raise BadTimestampArgument(argument) from None
 
 
 class ScheduledEventConverter(IDConverter[discord.ScheduledEvent]):
@@ -1190,6 +1194,9 @@ else:
 
             if self.annotation is str:
                 count = len(value)
+            elif count != count and (self.min is not None or self.max is not None):
+                # NaN compares False to everything, so it would slip past both bounds
+                raise RangeError(converted, minimum=self.min, maximum=self.max)
 
             if (self.min is not None and count < self.min) or (self.max is not None and count > self.max):
                 raise RangeError(converted, minimum=self.min, maximum=self.max)

@@ -22,6 +22,10 @@ functionality unless explicitly asked.
 
 ## Working preferences
 
+- Always open a pull request for each round of changes and merge it once CI
+  is green (merge commit, pinned to the tested head SHA). Do not wait to be
+  asked. Start the next round on the designated branch restarted from the
+  updated `master`.
 - When reading through the whole codebase, or delegating code reading/mapping
   to subagents, explicitly run the subagents on the **haiku** model (any
   effort from low to high). Compensate with thorough, specific prompts:
