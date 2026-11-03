@@ -831,6 +831,11 @@ class HTTPClient:
         self._throttle_events: Dict[str, deque] = {}
         # How long a throttle event remains visible in telemetry
         self._throttle_window: float = throttle_window
+        # Transport-level retries per route key (5xx responses, libcurl and
+        # connection-reset errors), as (monotonic time, reason) pairs. These
+        # retries are also invisible to callers; a request that took seconds
+        # longer than usual is otherwise undiagnosable.
+        self._retry_events: Dict[str, deque] = {}
 
     def _prune_throttle_events(self) -> None:
         # Drops throttle events older than the window so counts reflect
@@ -839,10 +844,28 @@ class HTTPClient:
         # allocation-free on the common path.
         now = time.monotonic()
         window = self._throttle_window
-        for events in self._throttle_events.values():
-            if events and now - events[0][0] > window:
-                while events and now - events[0][0] > window:
-                    events.popleft()
+        for store in (self._throttle_events, self._retry_events):
+            for events in store.values():
+                if events and now - events[0][0] > window:
+                    while events and now - events[0][0] > window:
+                        events.popleft()
+
+    def _record_retry(self, route_key: str, reason: str, tries: int) -> float:
+        """Records and logs a transport-level retry; returns the delay to sleep."""
+        delay = _retry_delay(tries)
+        _log.warning(
+            '%s failed (%s); retrying in %.2f seconds (attempt %d of 5).',
+            route_key,
+            reason,
+            delay,
+            tries + 2,
+        )
+        events = self._retry_events.get(route_key)
+        if events is None:
+            events = self._retry_events[route_key] = deque(maxlen=64)
+        events.append((time.monotonic(), reason))
+        self._prune_throttle_events()
+        return delay
 
     def _get_base_headers(self) -> Dict[str, str]:
         # Caches the static per-request headers; rebuilt if the headers context is replaced
@@ -1351,7 +1374,7 @@ class HTTPClient:
                     # Unconditional retry
                     if response.status_code in {502, 504, 507, 522, 523, 524}:
                         failed += 1
-                        await asyncio.sleep(_retry_delay(tries))
+                        await asyncio.sleep(self._record_retry(route_key, f'HTTP {response.status_code}', tries))
                         continue
 
                     # Usual error cases
@@ -1361,7 +1384,7 @@ class HTTPClient:
                 except requests.RequestsError as e:
                     if tries < 4 and e.code in (23, 28, 35):
                         failed += 1
-                        await asyncio.sleep(_retry_delay(tries))
+                        await asyncio.sleep(self._record_retry(route_key, f'curl error {e.code}', tries))
                         continue
                     raise
 
@@ -1370,7 +1393,7 @@ class HTTPClient:
                     # Connection reset by peer
                     if tries < 4 and e.errno in utils._CONNECTION_RESET_ERRNOS:
                         failed += 1
-                        await asyncio.sleep(_retry_delay(tries))
+                        await asyncio.sleep(self._record_retry(route_key, f'connection error (errno {e.errno})', tries))
                         continue
                     raise
 
@@ -1447,7 +1470,9 @@ class HTTPClient:
 
                     # Unconditional retry
                     if response.status in {500, 502, 504, 507, 522, 523, 524}:
-                        await asyncio.sleep(_retry_delay(tries))
+                        delay = _retry_delay(tries)
+                        _log.warning('Upload PUT failed (HTTP %s); retrying in %.2f seconds.', response.status, delay)
+                        await asyncio.sleep(delay)
                         continue
 
                     # Usual error cases
@@ -1455,7 +1480,9 @@ class HTTPClient:
             except OSError as e:
                 # Connection reset by peer
                 if tries < 4 and e.errno in utils._CONNECTION_RESET_ERRNOS:
-                    await asyncio.sleep(_retry_delay(tries))
+                    delay = _retry_delay(tries)
+                    _log.warning('Upload PUT failed (errno %s); retrying in %.2f seconds.', e.errno, delay)
+                    await asyncio.sleep(delay)
                     continue
                 raise
 

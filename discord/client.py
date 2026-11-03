@@ -1253,6 +1253,42 @@ class Client:
             }
         return summary
 
+    def http_retry_events(self, *, window: Optional[float] = None) -> Dict[str, Dict[str, Any]]:
+        """Returns a summary of transport-level HTTP retries, keyed by route.
+
+        Besides 429 throttles (see :meth:`http_throttle_events`), the library
+        silently retries requests that fail with a 5xx gateway error or a
+        connection error (timeout, reset), waiting a few seconds between
+        attempts. A request that took seconds longer than usual with no 429
+        recorded was most likely retried here. Each route maps to a dict with
+        ``count`` (retries inside the window, bounded per route),
+        ``last_after_s`` (seconds since the most recent retry) and
+        ``last_reason`` (for example ``'HTTP 502'`` or ``'curl error 28'``).
+        Each retry is also logged as a warning.
+
+        Events share the ``throttle_window`` retention of
+        :meth:`http_throttle_events`, and ``window`` works the same way.
+
+        .. versionadded:: 2.2
+        """
+        horizon = self.http._throttle_window if window is None else window
+        if horizon < 0:
+            raise ValueError('window must be greater than or equal to 0')
+        now = time.monotonic()
+        summary: Dict[str, Dict[str, Any]] = {}
+        for route, events in self.http._retry_events.items():
+            count = 0
+            latest = None
+            for event in events:  # chronological: the last match is the newest
+                if now - event[0] <= horizon:
+                    count += 1
+                    latest = event
+            if latest is None:
+                continue
+            at, reason = latest
+            summary[route] = {'count': count, 'last_after_s': now - at, 'last_reason': reason}
+        return summary
+
     def dispatch(self, event: str, /, *args: Any, **kwargs: Any) -> None:
         if self.loop is _loop or self.loop is MISSING:
             # The client is not running (or was closed): dispatching would

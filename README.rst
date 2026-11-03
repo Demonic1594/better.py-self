@@ -58,6 +58,9 @@ for the full tuning guide):
   wire-level 429 the library absorbed internally (sleep + retry) is
   recorded per route and pushed as an event, so real throttle pressure is
   visible without instrumenting the HTTP session
+- ``Client.http_retry_events()`` — the same for requests retried after a
+  5xx or a connection error (each retry is also logged), so a slow request
+  with no 429 behind it can be explained
 - ``examples/lane_governor.py`` — a drop-in pacing governor implementing
   the validated three-lane recipe (serialized account-global
   send/react/click lanes, x2 backoff, bounded probe-down, shared-scope
