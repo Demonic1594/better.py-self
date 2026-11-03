@@ -189,8 +189,15 @@ class File(_FileBase):
                 _, filename = os.path.split(fp)
             else:
                 filename = getattr(fp, 'name', 'untitled')
+                if isinstance(filename, str):
+                    # A file opened by path reports that full path as its name;
+                    # only the basename belongs in the upload (the rest would
+                    # leak the local directory layout to Discord)
+                    filename = os.path.basename(filename) or 'untitled'
+                else:
+                    filename = 'untitled'
 
-        super().__init__(filename, spoiler=spoiler, description=description, title=title, remix=remix)  # type: ignore
+        super().__init__(filename, spoiler=spoiler, description=description, title=title, remix=remix)
 
     @cached_slot_property('_cs_md5')
     def md5(self):

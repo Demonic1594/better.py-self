@@ -11,6 +11,31 @@ Changelog
 This page keeps a detailed human friendly rendering of what's new and changed
 in specific versions.
 
+.. _vp2p3p1_unreleased:
+
+Unreleased
+----------
+
+Behaviour Changes
+~~~~~~~~~~~~~~~~~
+
+- A :class:`File` made from an open file object uses only the file's base name as its filename. It used to send the full local path (for example ``/home/user/private/report.txt``) as the attachment name.
+- Naive datetimes passed as ``before`` to :meth:`abc.Messageable.pins` and ``archived_threads`` are read as local time, as :meth:`abc.Messageable.history` already does. They were sent without an offset, so Discord read them as UTC.
+- Unexpected errors from :meth:`Message.delete` with ``delay`` (and ``delete_after``) are logged as warnings instead of surfacing as "Task exception was never retrieved".
+
+Fixes
+~~~~~
+
+- :meth:`ScheduledEvent.users` with ``before`` or ``after`` raised :exc:`KeyError`, and with ``limit=None`` it stopped at the user count from when the event was fetched.
+- :meth:`abc.Messageable.search` re-applied ``offset`` on every page, skipping that many results each time, and failed when a page ended with an empty entry.
+- :meth:`abc.Messageable.greet` with ``mention_author`` modified the :class:`AllowedMentions` object it was given.
+- ``nonce=0`` (or any falsy nonce) was silently dropped from sent messages.
+- :meth:`Embed.from_dict` shared the input's field list, so :meth:`Embed.add_field` modified the caller's dict.
+- A member chunk or query reply that arrived before the caller started waiting was lost, and the call waited for its 30 second timeout.
+- :class:`~ext.commands.Greedy` arguments followed by trailing whitespace received a phantom ``None`` argument, which raised outside the command error handling for most converters.
+- :func:`ext.tasks.loop` raised :exc:`TypeError` when ``time`` mixed aware times from different time zones.
+- Cloud uploads no longer assume file index 11 when Discord omits an attachment's ``id``.
+
 .. _vp2p3p0:
 
 v2.3.0

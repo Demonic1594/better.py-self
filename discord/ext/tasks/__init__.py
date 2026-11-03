@@ -725,7 +725,11 @@ class Loop(Generic[LF]):
                 )
             ret.append(t if t.tzinfo is not None else t.replace(tzinfo=utc))
 
-        ret = sorted(set(ret))  # de-dupe and sort times
+        # De-dupe and sort. Aware times in different zones (for example a
+        # ZoneInfo time next to a UTC one) cannot be compared directly, so order
+        # them by the instant they fall on today
+        today = datetime.datetime.now(utc).date()
+        ret = sorted(set(ret), key=lambda t: datetime.datetime.combine(today, t).astimezone(utc))
         return ret
 
     @overload

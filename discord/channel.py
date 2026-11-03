@@ -978,7 +978,8 @@ class TextChannel(discord.abc.Messageable, discord.abc.GuildChannel, Hashable):
             if joined:
                 before_timestamp = str(utils.time_snowflake(before, high=False))
             else:
-                before_timestamp = before.isoformat()
+                # Naive datetimes are local time, as in history()
+                before_timestamp = before.astimezone(datetime.timezone.utc).isoformat()
         elif before is not None:
             if joined:
                 before_timestamp = str(before.id)
@@ -3162,7 +3163,8 @@ class ForumChannel(discord.abc.GuildChannel, Hashable):
         before_timestamp = None
 
         if isinstance(before, datetime.datetime):
-            before_timestamp = before.isoformat()
+            # Naive datetimes are local time, as in history()
+            before_timestamp = before.astimezone(datetime.timezone.utc).isoformat()
         elif before is not None:
             before_timestamp = utils.snowflake_time(before.id).isoformat()
 

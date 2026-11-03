@@ -755,6 +755,11 @@ class Command(_BaseCommand, Generic[CogT, P, T]):
             previous = view.index
 
             view.skip_ws()
+            if view.eof:
+                # Only trailing whitespace was left: there is no further word,
+                # and converting None made Greedy[str] collect 'None' and other
+                # converters raise outside the command error handling
+                break
             try:
                 ctx.current_argument = argument = view.get_quoted_word()
                 value = await run_converters(ctx, converter, argument, param)  # type: ignore
