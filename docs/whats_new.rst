@@ -20,6 +20,7 @@ Behaviour Changes
 ~~~~~~~~~~~~~~~~~
 
 - Debug logging no longer stores credentials. Raw gateway events, HTTP request and response bodies, and voice payloads are logged with the values of sensitive keys (``token``, ``auth_token``, ``analytics_token``, ``secret_key``, ``password``, ``new_password``, ``email``, ``phone`` and similar) replaced by ``[redacted]``. Webhook and interaction tokens are masked in logged URLs (including the 429 and deferred-request warnings) and rate-limit keys, and pre-signed upload URLs are masked too. Before, enabling DEBUG logging to a file recorded the READY payload's tokens, profile-edit passwords and the voice encryption key. The ``on_socket_raw_receive`` event (``enable_debug_events``) is unchanged and still delivers raw data to your own handler.
+- :class:`SystemChannelFlags` now includes :attr:`~SystemChannelFlags.emoji_added` (bit 256). Like the other system channel flags it is stored inverted, so a new ``SystemChannelFlags()`` has every notification turned off, including emoji notifications: its raw :attr:`~SystemChannelFlags.value` is 511, not 255. Code that builds flags from scratch for :meth:`Guild.edit` now also turns off emoji-added notifications unless it sets ``emoji_added=True``. Start from :attr:`Guild.system_channel_flags` to keep the current settings.
 
 Fixes
 ~~~~~

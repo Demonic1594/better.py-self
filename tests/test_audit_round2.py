@@ -201,3 +201,24 @@ def test_long_help_lines_are_split_instead_of_raising():
     help_command.add_command_formatting(cmd)  # must not raise
     help_command.paginator.close_page()
     assert ''.join(help_command.paginator.pages).count('y') == 5000
+
+
+def test_long_multiline_help_keeps_line_and_word_boundaries():
+    """A help text longer than a page is split at its own lines, as before, and a
+    single over-long line is cut at a space rather than mid-word."""
+    words = 'alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima'
+    paginator = commands.Paginator(max_size=2000)
+    _add_help_line(paginator, '\n'.join([words] * 80), empty=True)
+    paginator.close_page()
+    lines = [line for page in paginator.pages for line in page.split('\n') if line and not line.startswith('```')]
+    assert lines == [words] * 80
+
+    paginator = commands.Paginator(max_size=100)
+    _add_help_line(paginator, ' '.join([words] * 5))
+    paginator.close_page()
+    vocabulary = set(words.split())
+    for page in paginator.pages:
+        assert len(page) <= 100
+        for line in page.split('\n'):
+            if line and not line.startswith('```'):
+                assert set(line.split()) <= vocabulary  # no word was cut in half

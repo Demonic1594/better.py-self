@@ -242,22 +242,28 @@ def _add_help_line(paginator: Paginator, line: str = '', *, empty: bool = False)
     """Adds a help line, splitting one that is longer than a page.
 
     :meth:`Paginator.add_line` raises for a single line longer than a page; a
-    long docstring paragraph or argument default made ``!help`` fail outright.
-    The help commands split such a line into page-sized pieces instead.
+    long docstring or argument default made ``!help`` fail outright. Text that
+    does not fit is added line by line instead (as the help commands always did
+    for multi-line help), and only a line that is itself longer than a page is
+    cut into page-sized pieces, at the last space where there is one.
     """
     try:
         paginator.add_line(line, empty=empty)
+        return
     except RuntimeError:
-        try:
-            limit = paginator.max_size - paginator._prefix_len - paginator._suffix_len - 2 * paginator._linesep_len
-        except AttributeError:
-            raise
+        limit = paginator.max_size - paginator._prefix_len - paginator._suffix_len - 2 * paginator._linesep_len
         if limit <= 0:
             raise
-        for start in range(0, len(line), limit):
-            paginator.add_line(line[start : start + limit])
-        if empty:
-            paginator.add_line('')
+    for part in line.splitlines() or ['']:
+        while len(part) > limit:
+            cut = part.rfind(' ', 0, limit + 1)
+            if cut <= 0:
+                cut = limit
+            paginator.add_line(part[:cut])
+            part = part[cut:].lstrip(' ')
+        paginator.add_line(part)
+    if empty:
+        paginator.add_line('')
 
 
 def _not_overridden(f: FuncT) -> FuncT:
