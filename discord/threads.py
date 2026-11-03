@@ -184,8 +184,10 @@ class Thread(Messageable, Hashable):
         self.last_message_id: Optional[int] = _get_as_snowflake(data, 'last_message_id')
         self.last_pin_timestamp: Optional[datetime] = parse_time(data.get('last_pin_timestamp'))
         self.slowmode_delay: int = data.get('rate_limit_per_user', 0)
-        self.message_count: int = data['message_count']
-        self.member_count: int = data['member_count']
+        # `.get` like _update() below: one thread missing a count aborted the whole
+        # THREAD_LIST_SYNC batch (or THREAD_CREATE) it arrived in
+        self.message_count: int = data.get('message_count', 0)
+        self.member_count: int = data.get('member_count', 0)
         self.total_message_sent: int = data.get('total_message_sent', 0)
         self._member_ids: List[Union[str, int]] = data.get('member_ids_preview', [])
         self._flags: int = data.get('flags', 0)

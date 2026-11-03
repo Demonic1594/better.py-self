@@ -2917,7 +2917,17 @@ class ConnectionState:
         cached_message = self._get_message(utils._get_as_snowflake(data, 'id'))
 
         if cached_message is not None:
-            if self._has_listener('message_edit', 'raw_message_edit'):
+            if self._has_listener('message_edit', 'raw_message_edit') and not ('type' in data and 'content' in data):
+                # A partial update (an embed-only unfurl, say) cannot build a Message of its own:
+                # the constructor needs `type` and `content`, so it raised and dropped the event
+                # without even updating the cache. Apply it to the cached message instead.
+                older_message = copy.copy(cached_message)
+                cached_message._update(data)
+                raw = RawMessageUpdateEvent(data=data, message=cached_message)
+                raw.cached_message = older_message
+                self.dispatch('raw_message_edit', raw)
+                self.dispatch('message_edit', older_message, cached_message)
+            elif self._has_listener('message_edit', 'raw_message_edit'):
                 # channel would be the correct type here
                 updated_message = Message(channel=channel, data=data, state=self)  # type: ignore
 

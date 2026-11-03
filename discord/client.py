@@ -662,7 +662,8 @@ class Client:
     ) -> None:
         # This avoids double-calling a user-provided .close()
         if self._closing_task:
-            await self._closing_task
+            # Shielded like close(): a cancelled runner must not cancel the shutdown it waits for
+            await asyncio.shield(self._closing_task)
         else:
             await self.close()
 
@@ -1508,8 +1509,11 @@ class Client:
         if not isinstance(token, str):
             raise TypeError(f'expected token to be a str, received {token.__class__!r} instead')
 
+        token = token.strip()
+        if not token:
+            raise LoginFailure('Improper token has been passed (the token is empty).')
         state = self._connection
-        data = await state.http.static_login(token.strip())
+        data = await state.http.static_login(token)
         state.analytics_token = data.get('analytics_token', '')
         state.user = ClientUser(state=state, data=data)
         state._users[state.user.id] = state.user  # type: ignore
@@ -1683,7 +1687,7 @@ class Client:
                     await voice.disconnect(force=True)
                 except Exception:
                     # If an error happens during disconnects, disregard it
-                    pass
+                    _log.debug('Ignoring an error while disconnecting voice during close.', exc_info=True)
 
             if self._connection.persistence_path is not None:
                 # Persist the session's caches on clean shutdown
@@ -1730,7 +1734,8 @@ class Client:
         cache cleared.
         """
         self._closing_task = None
-        self._ready.clear()
+        if self._ready is not MISSING:
+            self._ready.clear()
         self._connection.clear(full=True)
         self.http.clear()
 
@@ -1753,6 +1758,11 @@ class Client:
         TypeError
             An unexpected keyword argument was received.
         """
+        if self.is_closed():
+            # connect() returns at once on a closed client; logging in first would only
+            # make a supervisor loop (`while True: client.run(token)`) spin silently
+            _log.warning('start() was called on a closed Client; create a new Client (or call clear()) to run again.')
+            return
         await self.login(token)
         await self.connect(reconnect=reconnect)
 
@@ -3588,6 +3598,11 @@ class Client:
         if activity is not MISSING and activities is not MISSING:
             raise TypeError('Cannot pass both activity and activities')
         ws = self.ws
+        if ws is None:
+            raise ClientException(
+                'change_presence() needs a connected gateway. Pass status=/activity= to the Client '
+                'to set the initial presence, or call it from on_ready.'
+            )
 
         skip_activities = False
         if activities is MISSING:
