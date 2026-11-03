@@ -246,6 +246,15 @@ Upstream issue and PR triage (2026-11-03)
     server), and the unmerged feature PRs #896 (frecency settings) and #934
     (profile editing), which are still in review upstream.
 
+Ported unmerged upstream PRs (2026-11-03)
+    #896 (frecency settings) and #934 (display name styles, collectibles,
+    pronouns, profile editing) were ported before upstream merged them. If
+    upstream merges different versions, reconcile against theirs. Our
+    deviations: ``Member`` keeps its raw-timestamp change detection and adds
+    ``_display_name_style``/``_collectibles`` to the ``_update`` comparison;
+    ``ClientUser.edit`` keeps ``avatar_decoration`` (deprecated) where #934
+    removed it.
+
 Post-merge checklist
 ---------------------
 
