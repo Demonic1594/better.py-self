@@ -212,7 +212,8 @@ class File(_FileBase):
     def size(self) -> int:
         self.fp.seek(0, os.SEEK_END)
         try:
-            return self.fp.tell()
+            # The upload (and md5) cover _original_pos..end, not the whole stream
+            return self.fp.tell() - self._original_pos
         finally:
             self.reset()
 
@@ -302,6 +303,7 @@ class CloudFile(_FileBase):
             file._filename,
             data['upload_filename'],
             state=state,
+            spoiler=file.spoiler,
             description=file.description,
             title=file.title,
             remix=file.remix,

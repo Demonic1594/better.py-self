@@ -462,3 +462,74 @@ async def test_raw_payloads_are_released_after_the_snapshot_write(tmp_path):
     size = path.stat().st_size
     assert await state._write_persistence() is False
     assert path.stat().st_size == size
+
+
+async def _snapshot_with_two_guilds(path):
+    c1 = Client(persistence_path=path)
+    await c1._async_setup_hook()
+    state1 = c1._connection
+    state1.user = discord.ClientUser(state=state1, data=up(5))
+    ready = ready_payload()
+    ready['guilds'] = [guild_payload(1, 6), guild_payload(2, 3)]
+    await drive_ready(c1, ready)
+    await wait_for_snapshot(state1, path)
+    return c1
+
+
+@pytest.mark.asyncio
+async def test_close_before_fresh_ready_keeps_the_replayed_snapshot(tmp_path):
+    import zlib
+
+    path = tmp_path / 'cache.bin'
+    await _snapshot_with_two_guilds(path)
+    before = path.read_bytes()
+
+    # Session 2: replay, then shut down before the fresh READY arrives
+    c2 = Client(persistence_path=path)
+    await c2._async_setup_hook()
+    state2 = c2._connection
+    state2.user = discord.ClientUser(state=state2, data=up(5))
+    assert await state2._replay_persistence()
+    assert await state2._write_persistence() is False, 'nothing new to persist before the fresh READY'
+
+    assert path.read_bytes() == before, 'the warm-cache snapshot must survive a close before READY'
+    import json
+
+    assert len(json.loads(zlib.decompress(path.read_bytes()))['guilds']) == 2
+
+
+@pytest.mark.asyncio
+async def test_oversized_snapshot_is_not_written(tmp_path, monkeypatch, caplog):
+    import logging
+
+    import discord.state as state_module
+
+    monkeypatch.setattr(state_module, 'PERSISTENCE_MAX_BYTES', 64)
+    path = tmp_path / 'cache.bin'
+    c1 = Client(persistence_path=path)
+    await c1._async_setup_hook()
+    state1 = c1._connection
+    state1.user = discord.ClientUser(state=state1, data=up(5))
+    ready = ready_payload()
+    ready['guilds'] = [guild_payload(1, 6)]
+    with caplog.at_level(logging.WARNING, logger='discord.state'):
+        await drive_ready(c1, ready)
+        assert await state1._write_persistence() is False
+    assert not path.exists(), 'replay would reject it, so it must not be written'
+    assert any('over the' in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_older_write_never_replaces_a_newer_snapshot(tmp_path):
+    path = tmp_path / 'cache.bin'
+    c1 = await _snapshot_with_two_guilds(path)
+    state1 = c1._connection
+    newest = path.read_bytes()
+    assert state1._persistence_written == state1._persistence_generation >= 1
+
+    # Simulate a cancelled, older write whose thread finishes last: it must be skipped
+    state1._persistence_written = state1._persistence_generation + 5
+    state1._persistence_ready = {'user': up(5), 'v': 9}  # type: ignore[assignment]
+    await state1._write_persistence()
+    assert path.read_bytes() == newest
+    assert not list(tmp_path.glob('.persist-*.tmp')), 'temp file cleaned up'
