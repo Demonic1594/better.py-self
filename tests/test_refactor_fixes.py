@@ -374,3 +374,166 @@ async def test_webhook_gives_up_without_a_final_sleep(monkeypatch):
         await adapter.request(route, session=Session())  # type: ignore[arg-type]
 
     assert len(sleeps) == 4, f'5 attempts need 4 backoffs, not 5: {sleeps}'
+
+
+@pytest.mark.asyncio
+async def test_max_concurrency_wait_never_exceeds_limit():
+    from discord.ext.commands import BucketType
+    from discord.ext.commands.cooldowns import MaxConcurrency
+
+    mc = MaxConcurrency(1, per=BucketType.default, wait=True)
+    running = 0
+    peak = 0
+
+    async def job(release_first: asyncio.Event | None = None):
+        nonlocal running, peak
+        await mc.acquire(None)  # type: ignore[arg-type]
+        running += 1
+        peak = max(peak, running)
+        await asyncio.sleep(0)
+        running -= 1
+        await mc.release(None)  # type: ignore[arg-type]
+
+    await mc.acquire(None)  # A holds the slot
+    b = asyncio.ensure_future(job())  # B waits
+    await asyncio.sleep(0)
+    await mc.release(None)  # A releases: B is woken but has not resumed yet
+    c = asyncio.ensure_future(job())  # C arrives in that window
+    await asyncio.gather(b, c)
+
+    assert peak == 1, 'two holders ran at once with max_concurrency(1)'
+    assert mc._mapping == {}, 'every slot returned and the entry cleaned up'
+
+
+@pytest.mark.asyncio
+async def test_max_concurrency_cancelled_woken_waiter_passes_slot_on():
+    from discord.ext.commands import BucketType
+    from discord.ext.commands.cooldowns import MaxConcurrency
+
+    mc = MaxConcurrency(1, per=BucketType.default, wait=True)
+    await mc.acquire(None)  # type: ignore[arg-type]
+    b = asyncio.ensure_future(mc.acquire(None))  # type: ignore[arg-type]
+    c = asyncio.ensure_future(mc.acquire(None))  # type: ignore[arg-type]
+    await asyncio.sleep(0)
+    await mc.release(None)  # type: ignore[arg-type]  # wakes b
+    b.cancel()  # cancelled after being woken, before resuming
+    await asyncio.sleep(0)
+    await asyncio.wait_for(c, 1)  # c must get the slot b gave up
+    await mc.release(None)  # type: ignore[arg-type]
+    assert mc._mapping == {}
+
+
+def test_stringview_scan_equivalence():
+    import random
+
+    from discord.ext.commands.view import StringView
+
+    rng = random.Random(3)
+    alphabet = ['a', ' ', '\t', '\n', '　', '\x1c', 'é', '"']
+    for _ in range(2000):
+        text = ''.join(rng.choice(alphabet) for _ in range(rng.randrange(0, 12)))
+        view = StringView(text)
+        words = []
+        while not view.eof:
+            view.skip_ws()
+            word = view.get_word()
+            if word:
+                words.append(word)
+        assert words == text.split(), text
+
+
+def test_audio_level_matches_reference():
+    import math
+    import random
+    import struct
+
+    from discord.voice_media import RTP_AUDIO_LEVEL_SILENCE as SILENCE, _audio_level_from_pcm
+
+    def reference(data: bytes) -> int:  # the original per-sample implementation
+        sample_bytes = len(data) & ~1
+        if sample_bytes == 0:
+            return SILENCE
+        square_sum = count = 0
+        for (sample,) in struct.iter_unpack('<h', data[:sample_bytes]):
+            square_sum += sample * sample
+            count += 1
+        if square_sum == 0:
+            return SILENCE
+        ratio = min(math.sqrt(square_sum / count) / 32767.0, 1.0)
+        if ratio <= 0:
+            return SILENCE
+        return min(SILENCE, max(0, round(-20.0 * math.log10(ratio))))
+
+    rng = random.Random(5)
+    for _ in range(500):
+        size = rng.choice([0, 1, 2, 3, 100, 3840, 3841])
+        amp = rng.choice([0, 1, 50, 3000, 32767])
+        data = (
+            bytes(rng.randrange(256) for _ in range(size))
+            if amp == 32767
+            else b''.join(struct.pack('<h', rng.randint(-amp, amp)) for _ in range(size // 2))
+        )
+        assert _audio_level_from_pcm(data) == reference(data)
+
+
+def test_opus_roundtrip_bytes_unchanged():
+    import array
+    import ctypes
+
+    from discord import opus
+
+    try:
+        opus._load_default()
+    except Exception:
+        pass
+    if not opus.is_loaded():
+        pytest.skip('libopus not available')
+
+    encoder = opus.Encoder()
+    decoder = opus.Decoder()
+    pcm = bytes(range(256)) * (encoder.FRAME_SIZE * 4 // 256)  # one 20 ms stereo frame
+    packet = encoder.encode(pcm, encoder.SAMPLES_PER_FRAME)
+    assert type(packet) is bytes and 0 < len(packet) < len(pcm)
+
+    decoded = decoder.decode(packet)
+    assert type(decoded) is bytes and len(decoded) == encoder.FRAME_SIZE
+    # Same bytes the old list -> array('h') -> tobytes() route produced
+    as_shorts = array.array('h', decoded)
+    assert array.array('h', list(as_shorts)).tobytes() == decoded
+    assert ctypes.sizeof(ctypes.c_int16) == 2
+
+
+def test_play_while_paused_stops_the_parked_player(monkeypatch):
+    import discord.voice_client as vc_module
+    from discord.player import AudioSource
+
+    stopped = []
+
+    class ParkedPlayer:
+        def stop(self):
+            stopped.append(True)
+
+    class FakePlayer:
+        def __init__(self, source, client, *, after=None):
+            self.source = source
+
+        def start(self):
+            pass
+
+    class OpusSource(AudioSource):
+        def read(self):
+            return b''
+
+        def is_opus(self):
+            return True
+
+    monkeypatch.setattr(vc_module, 'AudioPlayer', FakePlayer)
+    client = vc_module.VoiceClient.__new__(vc_module.VoiceClient)
+    client._player = ParkedPlayer()  # paused: is_playing() is False
+    monkeypatch.setattr(vc_module.VoiceClient, 'is_connected', lambda self: True)
+    monkeypatch.setattr(vc_module.VoiceClient, 'is_playing', lambda self: False)
+
+    client.play(OpusSource())
+
+    assert stopped == [True], 'the paused player thread would be orphaned'
+    assert isinstance(client._player, FakePlayer)

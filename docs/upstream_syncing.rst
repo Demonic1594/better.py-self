@@ -148,7 +148,25 @@ Threads / embeds / components (``discord/threads.py``, ...)
     ``_COMPONENT_CLASSES`` component factory; ``__slots__`` on small
     high-cardinality classes.
 
+Webhooks (``discord/webhook/async_.py``, ``discord/webhook/sync.py``)
+    ``AsyncDeferredLock`` / ``DeferredLock`` release in ``finally`` (a
+    cancelled deferral sleep used to leave the webhook lock held); the
+    final attempt gives up without sleeping; backoff uses
+    ``http._retry_delay``; resets use ``utils._CONNECTION_RESET_ERRNOS``
+    (also used by ``HTTPClient``). ``HTTPClient`` maps failed responses
+    through ``_http_error``. ``utils._parse_ratelimit_header`` returns 0
+    instead of raising when both reset headers are missing.
+
+Voice (``discord/voice_client.py``, ``discord/voice_media.py``, ``discord/opus.py``)
+    ``play()`` stops a paused player before replacing it; the RTP audio
+    level is computed with ``array``/``math.sumprod``; ``Encoder.encode`` /
+    ``Decoder.decode`` return the ctypes buffers' bytes directly.
+
 Extensions
+    ``StringView.skip_ws`` / ``get_word`` are bounded index loops (same
+    ``str.isspace`` semantics); ``_Semaphore`` counts woken-but-not-resumed
+    waiters as active so ``MaxConcurrency(wait=True)`` cannot drop the
+    mapping entry and exceed its limit.
     Cooldown mappings use lazy per-key expiry with a size-triggered sweep;
     converters memoize the module remapping; ``Command.signature`` caches
     (invalidated in ``update()``); task loops cache timezone conversions
