@@ -34,6 +34,12 @@ functionality unless explicitly asked.
 - Before writing an unfamiliar feature, look at how comparable open-source
   projects solve it and outline the trade-offs before implementing.
 
+- Before opening any PR, run the `pre-pr-review` skill: local CI gates, then the
+  `repo-reviewer` subagent on the full branch diff until it approves, with the verdict
+  recorded in the PR body. Both live on the `claude-review-tools` branch (`.claude/` is
+  gitignored here). Restore them with
+  `git fetch origin claude-review-tools && git checkout origin/claude-review-tools -- .claude && git reset -q .claude`.
+
 - Commits are authored as Demonic1594
   (`137410379+Demonic1594@users.noreply.github.com`; set `git config user.name`
   and `user.email` in the clone). Do not add Claude attribution to commits: no
