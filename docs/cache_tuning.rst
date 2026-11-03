@@ -128,5 +128,7 @@ belonging to a different account are ignored automatically.
 
 The snapshot contains the raw gateway ``READY`` payload, so treat it as a
 secret. It is written atomically with owner-only (``0600``) permissions; keep
-it out of version control and shared directories. Decompression is capped at
-1 GiB, and oversized or corrupt files are ignored in favour of a cold start.
+it out of version control and shared directories. A snapshot larger than
+256 MiB (decompressed) is not written at all, and a warning is logged, since
+replay would reject it on every startup anyway. Oversized or corrupt files
+that already exist are ignored in favour of a cold start.
