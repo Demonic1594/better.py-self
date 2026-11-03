@@ -45,6 +45,10 @@ Behaviour Changes
 - Gateway session invalidation: after an invalid session, the client waits a random 1-5 seconds before resuming (``d`` true) or re-identifying (``d`` false), as Discord asks, instead of reconnecting at once. A re-identify starts at the default gateway rather than the one the dead session used.
 - Close codes 4007 (invalid sequence) and 4009 (session timed out) re-identify immediately instead of trying a RESUME Discord will reject.
 - A RESUME is only attempted when a session id is known; otherwise the client identifies.
+- Reconnect requests that keep arriving without a healthy session in between (after three in a row) now back off instead of reconnecting immediately each time.
+- :meth:`Client.close` is no longer cancelled by a caller that stops waiting for it (``asyncio.wait_for(client.close(), ...)``); a later call completes normally. A failure closing the gateway no longer skips closing the HTTP client, and the ready sequence is cancelled so ``on_ready`` does not fire on a closed client.
+- A failed guild subscription send is retried with a growing delay (up to 30 seconds) and logged, instead of retrying twice a second with debug-level logging only.
+- Editing a message with more than 10 ``attachments`` (:meth:`Message.edit`, and webhook message edits) raises :exc:`ValueError` up front, as sending already did for ``files``, instead of failing with an HTTP error.
 
 Fixes
 ~~~~~
@@ -61,6 +65,15 @@ Fixes
 - Interaction-related caches could evict in-flight entries, and :attr:`Interaction.message` no longer caches a ``None`` lookup.
 - MP4 files were not detected as video.
 - ``UserExperiment.from_holdout`` treated bucket 0 as unassigned.
+- A subscription flush that kept failing could recurse until :exc:`RecursionError` (about 1000 failed sends) when the pending batch was close to the size limit.
+- A member chunk request that failed to send, or that belonged to a session that was reset, stayed registered, so every later :meth:`Guild.chunk` call joined it and waited forever. Pending requests now fail with :exc:`ClientException` when the session resets.
+- ``READY`` waited for each stalled guild's chunk timeout one after another; the timeouts now run from a common start, so many stalled guilds delay it by at most the longest one.
+- Building an :exc:`HTTPException` from an unusual error payload (a list or string where an object was expected, a non-numeric ``payment_id``) could raise a different exception and hide the real HTTP error.
+- JSON responses with a ``charset`` in their content type were returned as text, and an unknown charset raised :exc:`LookupError` instead of returning the body.
+- A rate-limit response with a JSON list as its body, or a deferred ``202`` with a very large ``retry_after``, no longer crashes or stalls the route; the latter honours ``max_ratelimit_timeout``.
+- :attr:`Member.top_role` raised :exc:`TypeError` when the ``@everyone`` role was not cached, and :class:`~ext.commands.Range` accepted ``nan``. The ``Timestamp`` converter raises :exc:`~ext.commands.BadArgument` for timestamps too large to represent.
+- A failure in a :meth:`ext.tasks.Loop.before_loop` coroutine now reaches the loop's error handler instead of being lost.
+- Requests built with a ``None`` ID now log a warning naming the missing parameter.
 
 .. _vp2p2p0:
 
