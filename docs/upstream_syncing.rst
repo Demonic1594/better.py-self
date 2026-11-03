@@ -194,6 +194,24 @@ Guild / channel / files / settings
     not written, and writes are generation-ordered under
     ``_persistence_write_lock``.
 
+Lifecycle, audio and messages
+    ``Client.start`` warns and returns on a closed client; ``Client.login``
+    rejects an empty token; ``Client.__aexit__`` shields the close task;
+    ``Client.change_presence`` raises ``ClientException`` before the gateway
+    exists. ``HTTPClient.startup`` is serialised by ``_startup_lock`` (the
+    work is in ``_startup``), ``HTTPClient.clear`` resets ``_started``, and
+    ``static_login`` restores the previous token on any failure.
+    ``utils.setup_logging`` replaces the handler a previous call installed
+    (marked ``_discord_setup_logging``); ``utils.parse_time`` accepts a
+    trailing ``Z`` on Python 3.10. In ``ext.commands.Bot.reload_extension`` a
+    failed rollback is logged and the old module's references are removed.
+    ``Message.__init__`` always sets ``guild_id``; ``parse_message_update``
+    applies a partial update (no ``type``/``content``) to the cached message.
+    ``Thread._from_data`` reads the counts with ``.get``. In ``player.py``
+    ``_pipe_writer`` closes stdin when its source raises, ``_pipe_reader``
+    stops at EOF, ``_kill_process`` waits at most 5 seconds, and
+    ``_probe_codec_fallback`` uses ``subprocess.run`` with a timeout.
+
 Extensions
     ``StringView.skip_ws`` / ``get_word`` are bounded index loops (same
     ``str.isspace`` semantics); ``_Semaphore`` counts woken-but-not-resumed

@@ -2045,6 +2045,9 @@ class Message(PartialMessage, Hashable):
         guild = getattr(channel, 'guild', MISSING)
         if guild is not MISSING:
             self.guild = guild
+            # Documented (via PartialMessage) but only ever set in the branch below, so it
+            # raised AttributeError for every message in a guild channel
+            self.guild_id: Optional[int] = guild.id if guild is not None else getattr(channel, 'guild_id', None)
         else:
             guild_id = utils._get_as_snowflake(data, 'guild_id')
             if guild_id is not None:

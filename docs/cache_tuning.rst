@@ -132,3 +132,22 @@ it out of version control and shared directories. A snapshot larger than
 256 MiB (decompressed) is not written at all, and a warning is logged, since
 replay would reject it on every startup anyway. Oversized or corrupt files
 that already exist are ignored in favour of a cold start.
+
+The final snapshot is written by a clean :meth:`Client.close`. :meth:`Client.run`
+handles ``KeyboardInterrupt`` (Ctrl+C) but not ``SIGTERM``, which is what
+``docker stop`` and systemd send, so a process stopped that way exits without
+closing the client and skips that last write. If you run under such a
+supervisor, close the client from your own signal handler:
+
+.. code-block:: python3
+
+    import asyncio
+    import signal
+
+    async def main():
+        async with client:
+            loop = asyncio.get_running_loop()
+            loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.ensure_future(client.close()))
+            await client.start(token)
+
+    asyncio.run(main())

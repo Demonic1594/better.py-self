@@ -816,6 +816,7 @@ class HTTPClient:
 
         self.headers: HeadersContext = headers_context
         self._started: bool = False
+        self._startup_lock: asyncio.Lock = asyncio.Lock()
         self._base_headers: Optional[Dict[str, str]] = None
         self._base_headers_src: Optional[HeadersContext] = None
         self._timezone_failed: bool = False
@@ -876,13 +877,22 @@ class HTTPClient:
     def clear(self) -> None:
         if self.__session and self.__session._closed:
             self.__session = MISSING
+            # The next request must build a new session; with _started still True it
+            # skipped startup() and failed on the MISSING sentinel
+            self._started = False
         if self.__asession is not MISSING and self.__asession and self.__asession.closed:
             self.__asession = MISSING
 
     async def startup(self) -> None:
         if self._started:
             return
+        # Two first requests racing here (a REST call and ws_connect, say) both awaited
+        # headers_context(); the second then replaced the first one's session unclosed
+        async with self._startup_lock:
+            if not self._started:
+                await self._startup()
 
+    async def _startup(self) -> None:
         self._global_over = asyncio.Event()
         self._global_over.set()
         self._global_until = 0.0
@@ -1492,6 +1502,10 @@ class HTTPClient:
             self.token = old_token
             if exc.status == 401:
                 raise LoginFailure('Improper token has been passed') from exc
+            raise
+        except BaseException:
+            # A network error or a cancellation must not leave an unverified token set
+            self.token = old_token
             raise
 
         self.ack_token = None

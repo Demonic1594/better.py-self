@@ -221,13 +221,13 @@ class BotBase(GroupMixin[None]):
             try:
                 await self.unload_extension(extension)
             except Exception:
-                _log.debug('Failed to unload extension %r during close.', extension, exc_info=True)
+                _log.warning('Failed to unload extension %r during close.', extension, exc_info=True)
 
         for cog in tuple(self.__cogs):
             try:
                 await self.remove_cog(cog)
             except Exception:
-                _log.debug('Failed to remove cog %r during close.', cog, exc_info=True)
+                _log.warning('Failed to remove cog %r during close.', cog, exc_info=True)
 
         await super().close()  # type: ignore
 
@@ -769,7 +769,8 @@ class BotBase(GroupMixin[None]):
             try:
                 await func(self)
             except Exception:
-                _log.debug('Extension %r teardown raised an exception.', key, exc_info=True)
+                # An extension that fails to clean up (a DB pool, a file) is worth knowing about
+                _log.warning('Extension %r teardown raised an exception.', key, exc_info=True)
         finally:
             self.__extensions.pop(key, None)
             sys.modules.pop(key, None)
@@ -970,8 +971,18 @@ class BotBase(GroupMixin[None]):
             # if the load failed, the remnants should have been
             # cleaned from the load_extension function call
             # so let's load it from our old compiled library.
-            await lib.setup(self)
-            self.__extensions[name] = lib
+            try:
+                await lib.setup(self)
+                self.__extensions[name] = lib
+            except Exception:
+                # The old setup() failed too (a cog_load that needs a service that is down,
+                # say). Whatever it registered before failing must not stay behind, or the
+                # extension could be neither loaded nor unloaded until restart.
+                _log.exception('Could not restore extension %r after a failed reload; it is now unloaded.', name)
+                try:
+                    await self._remove_module_references(lib.__name__)
+                except Exception:
+                    _log.warning('Cleaning up extension %r after a failed reload also failed.', name, exc_info=True)
 
             # revert sys.modules back to normal and raise back to caller
             sys.modules.update(modules)

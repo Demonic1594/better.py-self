@@ -309,7 +309,13 @@ def parse_time(timestamp: Optional[str]) -> Optional[datetime.datetime]: ...
 
 def parse_time(timestamp: Optional[str]) -> Optional[datetime.datetime]:
     if timestamp:
-        return datetime.datetime.fromisoformat(timestamp)
+        try:
+            return datetime.datetime.fromisoformat(timestamp)
+        except ValueError:
+            # Python 3.10's fromisoformat rejects a trailing "Z" (UTC); later versions accept it
+            if timestamp.endswith(('Z', 'z')):
+                return datetime.datetime.fromisoformat(timestamp[:-1] + '+00:00')
+            raise
     return None
 
 
@@ -1722,6 +1728,12 @@ def setup_logging(
 
     handler.setFormatter(formatter)
     logger.setLevel(level)
+    # run() calls this every time: replace the handler a previous call installed,
+    # or every later run() in the same process doubles each log line
+    for existing in list(logger.handlers):
+        if getattr(existing, '_discord_setup_logging', False):
+            logger.removeHandler(existing)
+    handler._discord_setup_logging = True  # type: ignore[attr-defined]
     logger.addHandler(handler)
 
 
