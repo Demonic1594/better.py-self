@@ -569,6 +569,17 @@ class MemberSidebar:
     async def wrapper(self):
         try:
             await self.scrape()
+            if not self.buffer and (self.guild._member_count or 0) > 1:
+                # Discord answered the subscription without a SYNC for any
+                # requested range (seen with INVALIDATE-only replies), so there
+                # is nothing to return. Say so rather than return [] silently.
+                _log.warning(
+                    'Member list scraping for guild ID %s got no member list from Discord (no SYNC for the '
+                    'requested ranges in channel(s) %s); returning no members. Retrying later or passing '
+                    'channels explicitly may help.',
+                    self.guild.id,
+                    ', '.join(map(str, self.channels)),
+                )
         except asyncio.CancelledError:
             pass
         except Exception as exc:

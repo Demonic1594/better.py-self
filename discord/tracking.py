@@ -405,16 +405,24 @@ class HeadersContext:
         """
         try:
             data = await asyncio.wait_for(
-                cls.fetch_api_properties(session, 'web', proxy=proxy, proxy_auth=proxy_auth), timeout=3
+                # The info API can be slow to answer; 3 seconds sent healthy
+                # logins down the slower manual fallback (dolfies/discord.py-self#939)
+                cls.fetch_api_properties(session, 'web', proxy=proxy, proxy_auth=proxy_auth),
+                timeout=10,
             )
         except Exception:
             _log.info('Info API temporarily down. Falling back to manual retrieval...')
         else:
+            properties = data['properties']
+            browser = (properties.get('browser') or 'chrome').lower()
+            if browser not in ('chrome', 'edge', 'firefox', 'safari'):
+                _log.warning('Info API returned an unknown browser %r; impersonating Chrome.', browser)
+                browser = 'chrome'
             return cls(
-                platform='Windows',
-                browser_type='chrome',
-                browser_major_version=int(data['properties']['browser_version'].split('.')[0]),
-                super_properties=data['properties'],
+                platform=properties.get('os') or 'Windows',
+                browser_type=browser,
+                browser_major_version=int(properties['browser_version'].split('.')[0]),
+                super_properties=properties,
                 encoded_super_properties=data.get('encoded'),
                 extra_gateway_properties=data.get('extra_gateway_properties'),
             )
@@ -635,6 +643,7 @@ class HeadersContext:
 
         async with session.post(
             f'https://cordapi.dolfi.es/api/v2/properties/{type.lower()}',
+            params=params,
             proxy=proxy,
             proxy_auth=_resolve_proxy_auth(proxy_auth, session),
             headers={'User-Agent': f'discord.py-self/{__version__} curl_cffi/{curl_cffi.__version__}'},  # type: ignore

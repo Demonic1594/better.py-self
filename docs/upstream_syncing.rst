@@ -231,6 +231,21 @@ Extensions
     (invalidated in ``update()``); task loops cache timezone conversions
     and tolerate unhashable tzinfo.
 
+Upstream issue and PR triage (2026-11-03)
+    Upstream ``master`` was unchanged since the recorded sync. Open items
+    reviewed: #939 (info API params never sent, timeout, hardcoded
+    platform) ported into ``tracking.py`` with an unknown-browser guard;
+    #907 (member list scraping without a SYNC) now logs a warning in
+    ``MemberSidebar.wrapper`` (the scrape already returned, it did not hang
+    here); #946 is documented behaviour (``sync_presence`` vs
+    ``change_presence(edit_settings=...)``), clarified in the docs. Not taken:
+    #937 (the reported capability value would disable
+    ``user_settings_proto``/``client_state_v2``/``dedupe_user_objects`` our
+    parsers rely on, and the report is internally inconsistent), #945 (voice
+    disconnect after hours: no close codes or root cause; needs a live voice
+    server), and the unmerged feature PRs #896 (frecency settings) and #934
+    (profile editing), which are still in review upstream.
+
 Post-merge checklist
 ---------------------
 

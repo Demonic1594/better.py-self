@@ -115,7 +115,7 @@ Installing
 
 **Python 3.10 or higher is required.**
 
-This fork is private and is not published to PyPI. Install it from the
+This fork is not published to PyPI. Install it from the
 repository, or from the `v2.2.0 release
 <https://github.com/Demonic1594/better.py-self/releases/tag/v2.2.0>`_
 wheel:
@@ -278,8 +278,7 @@ You can find more examples in the examples directory, including
 Contributing
 -------------
 
-This is a private fork. If you have access, contributions are welcome —
-read the `contribution guide
+Contributions are welcome. Read the `contribution guide
 <https://github.com/Demonic1594/better.py-self/blob/master/.github/CONTRIBUTING.md>`_
 first. For merging upstream changes, follow the
 `upstream syncing guide

@@ -523,6 +523,12 @@ class Client:
         Whether to keep presences up-to-date across clients.
         The default behavior is ``True`` (what the client does).
 
+        This controls whether this session follows status and custom status
+        changes made on your other clients, and whether the initial presence
+        is saved to your settings. It does not affect :meth:`change_presence`,
+        which updates your settings (and so every client) unless you pass
+        ``edit_settings=False``.
+
         .. versionadded:: 2.0
     captcha_handler: Optional[Callable[[:class:`.CaptchaRequired`, :class:`.Client`], Awaitable[:class:`str`]]
         A function that solves captcha challenges.
@@ -3580,6 +3586,7 @@ class Client:
             Whether to update user settings with the new status and/or
             custom activity. This will broadcast the change and cause
             all connected (official) clients to change presence as well.
+            This is independent of the ``sync_presence`` client option.
 
             This should be set to ``False`` for idle changes.
 
