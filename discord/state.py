@@ -201,7 +201,88 @@ PERSISTENCE_DEFAULT_MAX_AGE: float = 14 * 24 * 3600  # seconds
 PERSISTENCE_MAX_BYTES: int = (
     256 * 1024 * 1024
 )  # maximum decompressed snapshot size (256 MiB; ~100x a realistic large snapshot)
+# Snapshot format written by this version: newline-delimited JSON records (a
+# header, then one record per guild) in a single zlib stream. Version 1 (one
+# JSON document) is still read.
+PERSISTENCE_FORMAT_VERSION: int = 2
+# How long replay may run on the event loop before yielding to other tasks
+PERSISTENCE_REPLAY_SLICE: float = 0.01
 ST = TypeVar('ST', bound=StreamProtocol)
+
+
+class _SnapshotReader:
+    """Streams JSON records out of a zlib-compressed persistence snapshot.
+
+    Records are separated by newlines, so a version 2 snapshot is decoded one
+    guild at a time and never needs the whole account in memory at once. A
+    version 1 snapshot is a single JSON document without newlines and comes
+    back as one record. The decompressed total is capped at
+    :data:`PERSISTENCE_MAX_BYTES` so a hostile file cannot exhaust memory.
+
+    The methods block (file IO, decompression, JSON parsing): run them in a
+    worker thread.
+    """
+
+    __slots__ = ('_fp', '_decompressor', '_buffer', '_scan', '_total', '_eof')
+
+    READ_SIZE = 1024 * 1024
+    OUTPUT_SIZE = 8 * 1024 * 1024
+
+    def __init__(self, path: Union[str, os.PathLike]) -> None:
+        self._fp = open(path, 'rb')
+        self._decompressor = zlib.decompressobj()
+        self._buffer = bytearray()
+        self._scan = 0  # buffer offset already searched for a newline
+        self._total = 0
+        self._eof = False
+
+    def close(self) -> None:
+        self._fp.close()
+
+    def _append(self, data: bytes) -> None:
+        self._total += len(data)
+        if self._total > PERSISTENCE_MAX_BYTES:
+            raise ValueError('persistence file exceeds the maximum allowed size')
+        self._buffer += data
+
+    def _fill(self) -> None:
+        decompressor = self._decompressor
+        data = decompressor.unconsumed_tail
+        if not data:
+            if decompressor.eof:
+                # End of the zlib stream; anything after it is ignored
+                self._eof = True
+                return
+            data = self._fp.read(self.READ_SIZE)
+            if not data:
+                self._append(decompressor.flush())
+                self._eof = True
+                return
+        self._append(decompressor.decompress(data, self.OUTPUT_SIZE))
+
+    def next_record(self) -> Any:
+        """Returns the next decoded record, or ``None`` at the end of the snapshot."""
+        buffer = self._buffer
+        while True:
+            index = buffer.find(b'\n', self._scan)
+            if index >= 0:
+                line = buffer[:index]
+                del buffer[: index + 1]
+                self._scan = 0
+                if line.strip():
+                    return utils._from_json(line)
+                continue
+            self._scan = len(buffer)
+            if self._eof:
+                if not buffer:
+                    return None
+                # The last record (or a whole version 1 document): parse the
+                # buffer in place rather than copying it
+                record = utils._from_json(buffer)
+                buffer.clear()
+                self._scan = 0
+                return record
+            self._fill()
 
 
 class ChunkRequest:
@@ -2571,29 +2652,41 @@ class ConnectionState:
             payload_ready_source = self._persistence_ready
             self._persistence_generation += 1
             generation = self._persistence_generation
-            payload = {
-                'version': 1,
+            header = {
+                'version': PERSISTENCE_FORMAT_VERSION,
                 'saved_at': datetime.datetime.now(datetime.timezone.utc).timestamp(),
                 'user_id': self.self_id,
                 'ready': {k: v for k, v in payload_ready_source.items() if k in self._PERSIST_READY_KEYS},
-                'guilds': list(self._persistence_guild_payloads.values()),
             }
+            guild_payloads = list(self._persistence_guild_payloads.values())
 
             def _write() -> Optional[int]:
-                raw = utils._to_json(payload).encode('utf-8')
-                if len(raw) > PERSISTENCE_MAX_BYTES:
-                    # Replay rejects anything this large: writing it would only
-                    # waste IO on every READY and never be used
-                    return len(raw)
-                blob = zlib.compress(raw, 1)
+                # One record per line, encoded and compressed as it goes: the
+                # whole snapshot never exists as a single string in memory
                 directory = os.path.dirname(os.path.abspath(os.fspath(path)))
                 # mkstemp creates the file with mode 0600 and a unique name
                 fd, tmp = tempfile.mkstemp(dir=directory, prefix='.persist-', suffix='.tmp')
+                oversized: Optional[int] = None
                 try:
                     with os.fdopen(fd, 'wb') as fp:
-                        fp.write(blob)
-                        fp.flush()
-                        os.fsync(fp.fileno())
+                        compressor = zlib.compressobj(1)
+                        total = 0
+                        for record in (header, *guild_payloads):
+                            line = utils._to_json(record).encode('utf-8') + b'\n'
+                            total += len(line)
+                            if total > PERSISTENCE_MAX_BYTES:
+                                # Replay rejects anything this large: writing it
+                                # would only waste IO on every READY
+                                oversized = total
+                                break
+                            fp.write(compressor.compress(line))
+                        if oversized is None:
+                            fp.write(compressor.flush())
+                            fp.flush()
+                            os.fsync(fp.fileno())
+                    if oversized is not None:
+                        os.unlink(tmp)
+                        return oversized
                     with self._persistence_write_lock:
                         if generation < self._persistence_written:
                             # A newer snapshot already landed: never replace it
@@ -2628,13 +2721,13 @@ class ConnectionState:
                 return False
             if oversized is not None:
                 _log.warning(
-                    'Not writing the cache persistence file: the snapshot is %.1f MiB, over the %.0f MiB '
-                    'limit replay accepts. Persistence is effectively disabled for this account.',
-                    oversized / 2**20,
+                    'Not writing the cache persistence file: the snapshot is over the %.0f MiB limit replay '
+                    'accepts (stopped at %.1f MiB). Persistence is effectively disabled for this account.',
                     PERSISTENCE_MAX_BYTES / 2**20,
+                    oversized / 2**20,
                 )
                 return False
-            _log.debug('Wrote cache persistence to %s (%d guilds).', path, len(payload['guilds']))
+            _log.debug('Wrote cache persistence to %s (%d guilds).', path, len(guild_payloads))
             # The raw READY and guild payloads were only kept to be written. Hold
             # no second copy of every guild's members/presences for the process
             # lifetime (eviction could never free it); a later READY re-captures.
@@ -2651,45 +2744,29 @@ class ConnectionState:
         if path is None:
             return False
 
-        def _read() -> Optional[dict]:
-            try:
-                with open(path, 'rb') as fp:
-                    blob = fp.read()
-            except FileNotFoundError:
-                return None
-            except Exception:
-                _log.warning('Failed to read the cache persistence file.', exc_info=True)
-                return None
-            try:
-                # Bound the decompressed size so a corrupt/hostile file can't
-                # exhaust memory. Decompress in chunks so the peak allocation
-                # stays near the cap instead of ~2x with a single max_length call.
-                decompressor = zlib.decompressobj()
-                chunk_size = 8 * 1024 * 1024
-                pieces = []
-                total = 0
-                data_in = blob
-                while data_in:
-                    out = decompressor.decompress(data_in, chunk_size)
-                    total += len(out)
-                    if total > PERSISTENCE_MAX_BYTES:
-                        raise ValueError('persistence file exceeds the maximum allowed size')
-                    pieces.append(out)
-                    data_in = decompressor.unconsumed_tail
-                    if not out and not data_in:
-                        break
-                pieces.append(decompressor.flush())
-                raw = b''.join(pieces)
-                if len(raw) > PERSISTENCE_MAX_BYTES:
-                    raise ValueError('persistence file exceeds the maximum allowed size')
-                return utils._from_json(raw)
-            except Exception:
-                _log.warning('Cache persistence file is corrupt; ignoring it.', exc_info=True)
-                return None
-
-        data = await asyncio.to_thread(_read)
-        if not isinstance(data, dict) or data.get('version') != 1:
+        try:
+            reader = _SnapshotReader(path)
+        except FileNotFoundError:
             return False
+        except Exception:
+            _log.warning('Failed to read the cache persistence file.', exc_info=True)
+            return False
+        try:
+            return await self._replay_snapshot(reader)
+        finally:
+            reader.close()
+
+    async def _replay_snapshot(self, reader: _SnapshotReader) -> bool:
+        try:
+            data = await asyncio.to_thread(reader.next_record)
+        except Exception:
+            _log.warning('Cache persistence file is corrupt; ignoring it.', exc_info=True)
+            return False
+        if not isinstance(data, dict) or data.get('version') not in (1, PERSISTENCE_FORMAT_VERSION):
+            return False
+        # Version 2 streams one guild per record after this header; version 1
+        # carries every guild inside this one document
+        streamed = data['version'] == PERSISTENCE_FORMAT_VERSION
 
         # Guard against stale snapshots (older than 14 days) and account mismatches
         saved_at = data.get('saved_at', 0)
@@ -2718,9 +2795,12 @@ class ConnectionState:
                 _log.warning('Cache persistence file belongs to a different account; ignoring it.')
                 return False
 
-        guild_payloads = data.get('guilds', [])
-        if not isinstance(guild_payloads, list):
-            guild_payloads = []
+        guild_payloads: List[Any] = []
+        if not streamed:
+            guild_payloads = data.get('guilds', [])
+            if not isinstance(guild_payloads, list):
+                guild_payloads = []
+        del data
 
         # Replay through the normal parsing paths; parse_ready on an empty
         # state clears nothing of value and dispatches no events
@@ -2773,15 +2853,34 @@ class ConnectionState:
                     continue
 
             # Guild caches (the merged payloads with members/presences); malformed
-            # guild entries are skipped individually
-            for guild_data in guild_payloads:
+            # guild entries are skipped individually. Each payload is released
+            # once its objects exist, and the loop gets a turn every few ms so a
+            # large replay cannot stall other clients in the same process.
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + PERSISTENCE_REPLAY_SLICE
+            index = 0
+            while True:
+                if streamed:
+                    guild_data = await asyncio.to_thread(reader.next_record)
+                    if guild_data is None:
+                        break
+                else:
+                    if index >= len(guild_payloads):
+                        break
+                    guild_data = guild_payloads[index]
+                    guild_payloads[index] = None
+                    index += 1
                 try:
                     guild = self._add_guild_from_data(guild_data)
                 except Exception:
                     _log.debug('Skipping malformed guild payload in the persistence snapshot.', exc_info=True)
-                    continue
+                    guild = None
+                del guild_data
                 if guild is not None:
                     self._persistence_guild_ids.add(guild.id)
+                if loop.time() >= deadline:
+                    await asyncio.sleep(0)
+                    deadline = loop.time() + PERSISTENCE_REPLAY_SLICE
 
             self._persistence_loaded = True
             _log.info('Replayed cache persistence: %d guilds loaded.', len(self._persistence_guild_ids))

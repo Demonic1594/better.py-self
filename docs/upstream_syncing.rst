@@ -212,6 +212,15 @@ Lifecycle, audio and messages
     stops at EOF, ``_kill_process`` waits at most 5 seconds, and
     ``_probe_codec_fallback`` uses ``subprocess.run`` with a timeout.
 
+Persistence format
+    Snapshots are version 2: newline-delimited JSON (a header record, then one
+    record per guild) in a single zlib stream, written incrementally by
+    ``_write_persistence``. ``_SnapshotReader`` streams records with the
+    256 MiB decompression cap; version 1 single-document snapshots are still
+    read. ``_replay_snapshot`` releases each guild payload once replayed and
+    yields every ``PERSISTENCE_REPLAY_SLICE`` seconds. Upstream has no
+    persistence, so this does not conflict.
+
 Extensions
     ``StringView.skip_ws`` / ``get_word`` are bounded index loops (same
     ``str.isspace`` semantics); ``_Semaphore`` counts woken-but-not-resumed
