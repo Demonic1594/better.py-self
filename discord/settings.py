@@ -914,7 +914,8 @@ class UserSettings(_ProtoSettings):
         voice_and_video = {}
         if 'soundboard_volume' in kwargs:
             voice_and_video['soundboard_settings'] = (
-                {'volume': kwargs.pop('soundboard_volume')} if kwargs['soundboard_volume'] is not MISSING else {}
+                # MISSING resets to the default; an empty message would set volume 0
+                {'volume': kwargs.pop('soundboard_volume')} if kwargs['soundboard_volume'] is not MISSING else MISSING
             )
         for field in (
             'afk_timeout',
@@ -1015,7 +1016,11 @@ class UserSettings(_ProtoSettings):
         ):
             if field in kwargs:
                 if field.endswith('_guilds'):
-                    privacy[field.replace('_guilds', '_guild_ids')] = [g.id for g in kwargs.pop(field)]
+                    # MISSING resets the field (documented); it is not iterable
+                    guilds = kwargs.pop(field)
+                    privacy[field.replace('_guilds', '_guild_ids')] = (
+                        [g.id for g in guilds] if guilds is not MISSING else MISSING
+                    )
                 else:
                     privacy[field] = kwargs.pop(field)
 
@@ -1082,13 +1087,13 @@ class UserSettings(_ProtoSettings):
         audio_context_settings = {}
         if 'user_audio_settings' in kwargs:
             audio_context_settings['user'] = (
-                {s.id: s.to_dict() for s in kwargs.pop('user_audio_settings')}
+                {str(s.user_id): s._to_settings_dict() for s in kwargs.pop('user_audio_settings')}
                 if kwargs['user_audio_settings'] is not MISSING
                 else MISSING
             )
         if 'stream_audio_settings' in kwargs:
             audio_context_settings['stream'] = (
-                {s.id: s.to_dict() for s in kwargs.pop('stream_audio_settings')}
+                {str(s.user_id): s._to_settings_dict() for s in kwargs.pop('stream_audio_settings')}
                 if kwargs['stream_audio_settings'] is not MISSING
                 else MISSING
             )
@@ -1426,7 +1431,7 @@ class GuildProgress:
         self._onboarding_progress = onboarding_progress.value
         self.recents_dismissed_at: Optional[datetime] = recents_dismissed_at
         self._dismissed_contents = self._pack_dismissed_contents(dismissed_contents or [])
-        self._collapsed_channel_ids = [channel.id for channel in collapsed_channels] or []
+        self._collapsed_channel_ids = [channel.id for channel in collapsed_channels or ()]
 
     def __repr__(self) -> str:
         return f'<GuildProgress guild_id={self.guild_id} hub_progress={self.hub_progress!r} onboarding_progress={self.onboarding_progress!r}>'
@@ -1604,6 +1609,15 @@ class AudioContext:
             'muted': self.muted,
             'volume': self.volume,
             'modified_at': self.modified_at.isoformat(),
+        }
+
+    def _to_settings_dict(self) -> Dict[str, Any]:
+        # The AudioContextSetting protobuf shape (see _from_settings): no user_id
+        # field (it is the map key) and modified_at as fixed64 milliseconds
+        return {
+            'muted': self.muted,
+            'volume': self.volume,
+            'modified_at': str(int(self.modified_at.timestamp() * 1000)),
         }
 
     def copy(self) -> Self:

@@ -86,7 +86,9 @@ Connection state (``discord/state.py``)
       ``_write_persistence`` / ``_replay_persistence``, and the
       ``Client.login`` / ``Client.close`` hooks.
     - ``Client.dispatch`` handler cache (handler lookup uses ``getattr``
-      with a default, never a raised ``AttributeError``) and re-entrancy guards, dispatch
+      with a default, never a raised ``AttributeError``) and re-entrancy guards;
+      ``_schedule_event`` eager-starts handler tasks when the opt-in
+      ``eager_dispatch`` option is set (Python 3.12+, loop thread only), dispatch
       backlog tracking (``_track_dispatch``), ``_schedule_gc_freeze``,
       and ``CacheStats`` / ``_build_cache_stats``.
 
@@ -122,7 +124,9 @@ HTTP (``discord/http.py``, ``discord/tracking.py``, ``discord/client.py``)
     ``json_or_text`` duck-types curl/aiohttp responses; route keys are
     precomputed; the static header template is cached
     (``_get_base_headers``); the timezone header is resolved once; retry
-    sleeps have jitter. The idle-bucket sweep in
+    sleeps have jitter. ``Ratelimit._refresh`` returns early if the bucket's
+    window moved on while it queued for ``_sleeping`` (no stale re-sleep or
+    second reset). The idle-bucket sweep in
     ``_try_clear_expired_ratelimits`` runs at most every
     ``BUCKET_SWEEP_INTERVAL`` seconds instead of on every new bucket. Telemetry from the live rate studies: per-route
     latency EWMA (``_route_latencies``, exposed as
@@ -158,9 +162,37 @@ Webhooks (``discord/webhook/async_.py``, ``discord/webhook/sync.py``)
     instead of raising when both reset headers are missing.
 
 Voice (``discord/voice_client.py``, ``discord/voice_media.py``, ``discord/opus.py``)
-    ``play()`` stops a paused player before replacing it; the RTP audio
+    ``play()`` stops a paused player before replacing it;
+    ``VoiceConnectionState._poll_voice_ws`` wraps ``_poll_voice_ws_loop`` so
+    an unexpected error is logged and disconnects cleanly; ``_inner_connect``
+    disconnects and re-raises after its fifth failed handshake instead of
+    reporting success; the RTP audio
     level is computed with ``array``/``math.sumprod``; ``Encoder.encode`` /
     ``Decoder.decode`` return the ctypes buffers' bytes directly.
+
+Interactions, nonces and chunk requests
+    ``utils._generate_nonce`` fills the snowflake's low 22 bits from a
+    process-wide counter (same-millisecond nonces collided).
+    ``parse_interaction_create`` / the autocomplete response handler pop
+    their nonce context; ``_pop_interaction`` also clears
+    ``_interaction_cache``. ``query_members`` / ``search_recent_members``
+    unregister their ``ChunkRequest`` in ``finally``. Slash command option
+    parsing logs unknown option names and maps "false"/"0"/"no" strings to
+    ``False`` for booleans. ``Interaction.message`` caches hits only.
+
+Guild / channel / files / settings
+    ``Guild.audit_logs`` subtracts ``len(entries)`` from the limit (ported
+    from Rapptz/discord.py). ``GuildChannel.move(category=None)`` takes its
+    siblings from the uncategorised channels. ``_purge_helper`` skips the
+    final delete when nothing is left. ``handle_message_parameters``
+    numbers local ``File`` ids by multipart index and cloud files after them;
+    ``CloudFile.from_file`` keeps ``spoiler``; ``File.size`` is measured from
+    the original position. ``UserSettings.edit`` encodes audio contexts with
+    ``AudioContext._to_settings_dict`` and treats ``MISSING`` as a reset for
+    the ``*_guilds`` privacy fields and ``soundboard_volume``.
+    Persistence: a replayed READY is not re-captured, oversized snapshots are
+    not written, and writes are generation-ordered under
+    ``_persistence_write_lock``.
 
 Extensions
     ``StringView.skip_ws`` / ``get_word`` are bounded index loops (same

@@ -33,6 +33,7 @@ import gc
 import logging
 import os
 import tempfile
+import threading
 import time
 from typing import (
     ClassVar,
@@ -1306,6 +1307,12 @@ class ConnectionState:
         self._persistence_ready: Optional[gw.ReadyEvent] = None
         self._persistence_guild_payloads: Dict[int, GuildPayload] = {}
         self._persistence_loaded: bool = False
+        # Write ordering that survives cancellation: a cancelled to_thread() wait
+        # releases _persistence_lock while its thread still runs, so the rename
+        # itself is ordered by generation under a thread lock
+        self._persistence_generation: int = 0
+        self._persistence_written: int = 0
+        self._persistence_write_lock: threading.Lock = threading.Lock()
         self._persistence_guild_ids: Set[int] = set()
         # Cache effectiveness accounting (see ConnectionState.cache_stats)
         self._member_hits: int = 0
@@ -1807,6 +1814,8 @@ class ConnectionState:
         nonce = data.get('nonce', interaction.nonce)
         if nonce is not None:
             self._application_command_autocomplete_cache.pop(nonce, None)
+            # Present when INTERACTION_CREATE never arrived (terminal-event fallback)
+            self._interaction_cache.pop(nonce, None)
 
     def _get_interaction_from_terminal_event(self, data: Mapping[str, Any]) -> Optional[Interaction]:
         interaction_id = int(data['id'])
@@ -2143,6 +2152,10 @@ class ConnectionState:
         except asyncio.TimeoutError:
             _log.warning('Timed out waiting for chunks with query %r and limit %d for guild ID %d.', query, limit, guild_id)
             raise
+        finally:
+            # Removed on completion already; on a timeout or send error it would
+            # otherwise stay registered for the life of the process
+            self._chunk_requests.pop(request.nonce, None)
 
     async def search_recent_members(
         self,
@@ -2156,6 +2169,14 @@ class ConnectionState:
         self._chunk_requests[request.nonce] = request
 
         # Unlike query members, this OP is paginated
+        try:
+            return await self._search_recent_members_pages(guild_id, request, query, limit)
+        finally:
+            self._chunk_requests.pop(request.nonce, None)
+
+    async def _search_recent_members_pages(
+        self, guild_id: int, request: ChunkRequest, query: str, limit: Optional[int]
+    ) -> List[Member]:
         old_continuation_token = None
         continuation_token = None
         while True:
@@ -2180,7 +2201,6 @@ class ConnectionState:
             if continuation_token == old_continuation_token:
                 break
 
-        self._chunk_requests.pop(request.nonce, None)
         return list(request.buffer)
 
     async def _delay_ready(self) -> None:
@@ -2492,6 +2512,8 @@ class ConnectionState:
                 return False
 
             payload_ready_source = self._persistence_ready
+            self._persistence_generation += 1
+            generation = self._persistence_generation
             payload = {
                 'version': 1,
                 'saved_at': datetime.datetime.now(datetime.timezone.utc).timestamp(),
@@ -2500,8 +2522,13 @@ class ConnectionState:
                 'guilds': list(self._persistence_guild_payloads.values()),
             }
 
-            def _write() -> None:
-                blob = zlib.compress(utils._to_json(payload).encode('utf-8'), 1)
+            def _write() -> Optional[int]:
+                raw = utils._to_json(payload).encode('utf-8')
+                if len(raw) > PERSISTENCE_MAX_BYTES:
+                    # Replay rejects anything this large: writing it would only
+                    # waste IO on every READY and never be used
+                    return len(raw)
+                blob = zlib.compress(raw, 1)
                 directory = os.path.dirname(os.path.abspath(os.fspath(path)))
                 # mkstemp creates the file with mode 0600 and a unique name
                 fd, tmp = tempfile.mkstemp(dir=directory, prefix='.persist-', suffix='.tmp')
@@ -2510,7 +2537,13 @@ class ConnectionState:
                         fp.write(blob)
                         fp.flush()
                         os.fsync(fp.fileno())
-                    os.replace(tmp, path)
+                    with self._persistence_write_lock:
+                        if generation < self._persistence_written:
+                            # A newer snapshot already landed: never replace it
+                            os.unlink(tmp)
+                            return None
+                        os.replace(tmp, path)
+                        self._persistence_written = generation
                     # fsync the directory so the rename itself is durable
                     try:
                         dir_fd = os.open(directory, os.O_RDONLY)
@@ -2529,11 +2562,20 @@ class ConnectionState:
                     except OSError:
                         pass
                     raise
+                return None
 
             try:
-                await asyncio.to_thread(_write)
+                oversized = await asyncio.to_thread(_write)
             except Exception:
                 _log.warning('Failed to write the cache persistence file.', exc_info=True)
+                return False
+            if oversized is not None:
+                _log.warning(
+                    'Not writing the cache persistence file: the snapshot is %.1f MiB, over the %.0f MiB '
+                    'limit replay accepts. Persistence is effectively disabled for this account.',
+                    oversized / 2**20,
+                    PERSISTENCE_MAX_BYTES / 2**20,
+                )
                 return False
             _log.debug('Wrote cache persistence to %s (%d guilds).', path, len(payload['guilds']))
             # The raw READY and guild payloads were only kept to be written. Hold
@@ -2625,9 +2667,12 @@ class ConnectionState:
 
         # Replay through the normal parsing paths; parse_ready on an empty
         # state clears nothing of value and dispatches no events
-        self._persistence_ready = None  # not re-capturable; the fresh READY will be
         try:
             self.parse_ready(ready)  # type: ignore
+            # parse_ready captures its READY for persistence; a replayed one must not
+            # be: if the client closes before the fresh READY arrives, the close-time
+            # write would replace the snapshot with this READY and zero guilds
+            self._persistence_ready = None
 
             # Relationships and private channels (normally parsed in the
             # supplemental). The snapshot is a file on disk: unlike gateway
@@ -4629,7 +4674,14 @@ class ConnectionState:
             # Most likely user is messing around with the raw API
             return
 
-        type, name, channel = self._interaction_cache.get(data['nonce'], (0, None, None))
+        # Each nonce gets one INTERACTION_CREATE: pop it so the bounded cache only
+        # ever holds in-flight interactions (it used to keep the last 50, so a
+        # burst could evict entries that were still waiting for this event)
+        context = self._interaction_cache.pop(data['nonce'], None)
+        if context is None:
+            _log.debug('INTERACTION_CREATE for an unknown nonce %s; channel and name are unavailable.', data['nonce'])
+            context = (0, None, None)
+        type, name, channel = context
         i = Interaction._from_self(channel, type=type, user=self.user, name=name, **data)  # type: ignore # self.user is always present here
         self._add_interaction(i)
         self.dispatch('interaction', i)
@@ -4661,7 +4713,8 @@ class ConnectionState:
         from .commands import ApplicationCommandAutocomplete
 
         nonce = data['nonce']
-        context = self._application_command_autocomplete_cache.get(nonce)
+        # One response per request: pop so the bounded cache holds only pending ones
+        context = self._application_command_autocomplete_cache.pop(nonce, None)
         if context is None:
             _log.warning('APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE referencing an unknown nonce: %s. Discarding.', nonce)
             return
