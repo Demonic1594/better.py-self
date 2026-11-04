@@ -12,7 +12,7 @@ __title__ = 'discord.py-self'
 __author__ = 'Dolfies'
 __license__ = 'MIT'
 __copyright__ = 'Copyright 2015-present Rapptz and 2021-present Dolfies'
-__version__ = '2.3.1'
+__version__ = '2.3.2'
 
 __path__ = __import__('pkgutil').extend_path(__path__, __name__)
 
@@ -101,7 +101,7 @@ class _VersionInfo(NamedTuple):
     serial: int
 
 
-version_info: _VersionInfo = _VersionInfo(major=2, minor=3, micro=1, releaselevel='final', serial=0)
+version_info: _VersionInfo = _VersionInfo(major=2, minor=3, micro=2, releaselevel='final', serial=0)
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 

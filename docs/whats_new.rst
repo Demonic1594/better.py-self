@@ -11,10 +11,10 @@ Changelog
 This page keeps a detailed human friendly rendering of what's new and changed
 in specific versions.
 
-.. _vp2p3p2_unreleased:
+.. _vp2p3p2:
 
-Unreleased
-----------
+v2.3.2
+-------
 
 New Features
 ~~~~~~~~~~~~
@@ -23,7 +23,7 @@ Ported from Rapptz/discord.py:
 
 - :attr:`Message.interaction_metadata` and :class:`MessageInteractionMetadata`: which command, button or modal produced an application's message, who used it, and the user or message a context-menu command ran on. Discord sends this in place of the data :attr:`Message.interaction` reads, which keeps working.
 - :func:`on_raw_presence_update` and :class:`RawPresenceUpdateEvent`: presence updates including members the cache does not hold. Opt in with the new ``enable_raw_presences`` option of :class:`Client` (default ``False``), since presence updates are the most frequent event.
-- :meth:`Member.fetch_voice` fetches a member's voice state from the API instead of the cache.
+- :meth:`Member.fetch_voice` fetches a member's voice state from the API instead of the cache. Discord only serves that endpoint to bot accounts, so on a user account it returns the cached voice state, or raises :exc:`ClientException` with ``fallback_to_cache=False``.
 - Soundboard and voice channel effects:
 
   - :class:`SoundboardSound` and :class:`SoundboardDefaultSound`, :meth:`Client.request_soundboard_sounds` (asks the gateway for guilds' sounds, as the official client does when the soundboard is opened, and caches them), :attr:`Guild.soundboard_sounds`, :meth:`Guild.fetch_soundboard_sounds`, :meth:`Guild.create_soundboard_sound`, :meth:`SoundboardSound.edit`, :meth:`SoundboardSound.delete`, :meth:`Client.fetch_soundboard_default_sounds` and :meth:`VoiceChannel.send_sound`.
