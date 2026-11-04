@@ -771,6 +771,7 @@ _SENSITIVE_KEYS: FrozenSet[str] = frozenset(
         'ticket',
         'captcha_key',
         'payment_source_token',
+        'billing_address_token',
         'purchase_token',
         'two_way_link_code',
     }

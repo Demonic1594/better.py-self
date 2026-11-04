@@ -11,6 +11,16 @@ Changelog
 This page keeps a detailed human friendly rendering of what's new and changed
 in specific versions.
 
+.. _vp2p3p3_unreleased:
+
+Unreleased
+----------
+
+Fixes
+~~~~~
+
+- DEBUG logs now redact ``billing_address_token``, which :meth:`Client.create_payment_source` sends. It used to be logged in clear.
+
 .. _vp2p3p2:
 
 v2.3.2

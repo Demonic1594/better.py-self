@@ -1,4 +1,4 @@
-## Contributing to discord.py
+## Contributing to better.py-self
 
 First off, thanks for taking the time to contribute. It makes the library substantially better. :+1:
 
@@ -8,9 +8,9 @@ The following is a set of guidelines for contributing to the repository. These a
 
 Generally speaking questions are better suited in our resources below.
 
-- [The official Telegram](https://t.me/dpy_self_discussions)
-- [The FAQ in the documentation](https://discordpy-self.readthedocs.io/en/latest/faq.html)
-- [The discussions tab](https://github.com/dolfies/discord.py-self/discussions/categories/help)
+- [The wiki](https://github.com/Demonic1594/better.py-self/blob/master/wiki/README.md), especially its troubleshooting page
+- [The FAQ in the documentation](https://github.com/Demonic1594/better.py-self/blob/master/docs/faq.rst)
+- The upstream discord.py-self community ([Telegram](https://t.me/dpy_self_discussions), [discussions](https://github.com/dolfies/discord.py-self/discussions/categories/help)) for general usage questions
 
 Please try your best not to ask questions in our issue tracker. Most of them don't belong there unless they provide value to a larger audience.
 
@@ -32,6 +32,19 @@ If the bug report is missing this information then it'll take us longer to fix t
 ## Submitting a Pull Request
 
 Submitting a pull request is fairly simple, just make sure it focuses on a single aspect and doesn't manage to have scope creep and it's probably good to go. It would be incredibly lovely if the style is consistent to that found in the project. This project follows PEP-8 guidelines (mostly) with a column limit of 125.
+
+### Checks
+
+These match CI, and every pull request must pass them:
+
+- `ruff format --check && ruff check`, with ruff 0.12 (the version CI pins)
+- `PYRIGHT_PYTHON_FORCE_VERSION=1.1.394 pyright discord`, with 0 errors
+- `python -m pytest -q`. Tests must stay offline: no network, and no real tokens or IDs.
+- `cd docs && sphinx-build -b html -n -T -W --keep-going . _build`. Warnings are errors, so every reference must resolve.
+
+When a change touches caches, models or parsers, also run `python tests/memory_bench.py --members 50000` before and after the change, and put both numbers in the PR. For hot paths or persistence, run `python tools/stress_bench.py`.
+
+The public API stays the same: nothing is removed or renamed, and new parameters are optional. Every change users can observe gets an entry in the topmost (unreleased) section of `docs/whats_new.rst`. A change that ports or rejects something from upstream is recorded in `docs/upstream_syncing.rst`.
 
 ### AI Contributions
 

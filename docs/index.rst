@@ -4,16 +4,25 @@ Welcome to discord.py-self
 .. image:: /images/snake.svg
 .. image:: /images/snake_dark.svg
 
-discord.py-self is a modern, easy to use, feature-rich, and async ready API wrapper
-for the Discord user APIs.
+better.py-self is a drop-in fork of discord.py-self, a modern, easy to use,
+feature-rich and async-ready API wrapper for the Discord user APIs. It keeps
+the same public API and adds bounded, tunable caches, faster hot paths,
+credential-safe logging and features ported from Rapptz/discord.py.
 
 **Features:**
 
 - Modern Pythonic API using ``async``\/``await`` syntax
-- Sane rate limit handling that prevents 429s
-- Command extension to aid with bot creation
-- Easy to use with an object oriented design
-- Optimised for both speed and memory
+- Rate limit handling that accounts for user-account behaviour, with every
+  absorbed 429 and retry visible (:meth:`discord.Client.http_throttle_events`,
+  :meth:`discord.Client.http_retry_events`)
+- The large caches (members, presences, threads, messages) are capped, with
+  LRU eviction, and observable through :meth:`discord.Client.cache_stats`
+  (see :doc:`cache_tuning`)
+- Opt-in cache persistence for fast restarts (``persistence_path``)
+- Soundboard, voice channel effects, interaction metadata and raw presence
+  events (new in v2.3.2; see :doc:`whats_new`)
+- DEBUG logs that redact tokens, passwords and other known credential fields (see :doc:`logging`)
+- A command extension for self-bots, and an extension for background tasks
 - Prevents detection of user account automation
 
 Getting started
@@ -25,6 +34,8 @@ Is this your first time using the library? This is the place to get started!
 - **First steps:** :doc:`intro` | :doc:`quickstart` | :doc:`logging`
 - **Working with Discord:** :doc:`authenticating` | :doc:`guild_subscriptions`
 - **Memory and caches:** :doc:`cache_tuning`
+- **What's planned:** :doc:`roadmap`
+- **In-depth guides:** the :resource:`wiki <wiki>`
 - **Examples:** Many examples are available in the :resource:`repository <examples>`
 
 | **Obligatory note:**
@@ -77,6 +88,7 @@ If you're looking for something related to the project itself, it's here.
   :maxdepth: 1
 
   whats_new
+  roadmap
   version_guarantees
   migrating_from_dpy
   migrating
