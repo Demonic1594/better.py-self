@@ -1282,8 +1282,10 @@ Members
     covers members the cache does not hold (for example ones evicted by the
     member cache cap) and does not compare the old presence with the new one.
 
-    The library only builds the payload when something listens for this
-    event, so it costs nothing otherwise.
+    This event is opt-in: pass ``enable_raw_presences=True`` to :class:`Client`.
+    Presence updates are the most frequent event, so the payload is not built
+    otherwise. It fires for each ``PRESENCE_UPDATE`` (including those in a
+    ``PRESENCES_REPLACE``), the same updates :func:`on_presence_update` covers.
 
     .. versionadded:: 2.3.2
 

@@ -588,10 +588,10 @@ class RawJoinRequestDeleteEvent(_RawReprMixin):
 class RawPresenceUpdateEvent(_RawReprMixin):
     """Represents the payload for a :func:`on_raw_presence_update` event.
 
-    Unlike :func:`on_presence_update`, this is dispatched for every presence
-    update, including users whose member is not cached (for example after the
-    member cache evicted them, see :ref:`cache_tuning`) and guilds that are not
-    cached.
+    Unlike :func:`on_presence_update`, this is dispatched for presence updates
+    of users whose member is not cached (for example after the member cache
+    evicted them, see :ref:`cache_tuning`) and for guilds that are not cached.
+    It is opt-in: pass ``enable_raw_presences=True`` to :class:`Client`.
 
     .. versionadded:: 2.3.2
 

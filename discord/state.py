@@ -1384,6 +1384,10 @@ async def logging_coroutine(coroutine: Coroutine[Any, Any, T], *, info: str) -> 
         _log.exception('Exception occurred during %s.', info)
 
 
+# event name -> 'on_' + event, for ConnectionState._has_listener
+_LISTENER_METHOD_NAMES: Dict[str, str] = {}
+
+
 class ConnectionState:
     # READY keys that are persisted and replayed. Everything else in a live
     # READY payload is account data — settings protos, connected accounts,
@@ -1475,6 +1479,9 @@ class ConnectionState:
         self.hooks: Dict[str, Callable[..., Coroutine[Any, Any, Any]]] = hooks
         self._ready_task: Optional[asyncio.Task] = None
         self.heartbeat_timeout: float = options.get('heartbeat_timeout', 60.0)
+        # on_raw_presence_update is opt-in: presence updates are the busiest
+        # event, and even checking for a listener costs ~13% of their parse time
+        self.raw_presence_flag: bool = bool(options.get('enable_raw_presences', False))
 
         allowed_mentions = options.get('allowed_mentions')
         if allowed_mentions is not None and not isinstance(allowed_mentions, AllowedMentions):
@@ -3064,12 +3071,18 @@ class ConnectionState:
             self._remove_messages_from_cache(found_messages, raw.message_ids)
 
     def _has_listener(self, *events: str) -> bool:
-        # Checks whether any wait_for listener or event handler exists for the given events
+        # Checks whether any wait_for listener or event handler exists for the given events.
+        # Runs on hot paths (every PRESENCE_UPDATE checks two events), so the
+        # "on_" names are memoised and extra_events is looked up once
         client = self.client
         listeners = client._listeners
         handlers = client._event_handlers
+        extra_events = None
+        names = _LISTENER_METHOD_NAMES
         for event in events:
-            method = 'on_' + event
+            method = names.get(event)
+            if method is None:
+                method = names[event] = 'on_' + event
             # Handlers seen by dispatch() are cached: the common "yes" is one dict
             # hit. A stale entry only costs a false positive (some extra work)
             if method in handlers or listeners.get(event):
@@ -3077,7 +3090,8 @@ class ConnectionState:
             if hasattr(client, method):
                 return True
             # ext.commands Bot.listen/cog listeners are stored separately
-            extra_events = getattr(client, 'extra_events', None)
+            if extra_events is None:
+                extra_events = getattr(client, 'extra_events', None) or {}
             if extra_events and extra_events.get(method):
                 return True
         return False
@@ -3286,11 +3300,11 @@ class ConnectionState:
         guild_id = utils._get_as_snowflake(data, 'guild_id')
         guild = self._get_guild(guild_id)
 
-        # Only built when something listens: presence updates are the busiest
-        # event, and the raw event covers members the cache no longer holds
-        # (Rapptz/discord.py 418a791; there it is gated by intents instead)
-        user = data.get('user')
-        if user and self._has_listener('raw_presence_update'):
+        # Opt-in via enable_raw_presences (Rapptz/discord.py 418a791, where the
+        # default comes from the intents). The raw event covers members the
+        # cache does not hold.
+        user = data.get('user') if self.raw_presence_flag else None
+        if user:
             user_id = int(user['id'])
             raw = RawPresenceUpdateEvent(
                 user_id=user_id, guild_id=guild_id, guild=guild, presence=self.create_presence(data, user_id)

@@ -217,6 +217,7 @@ if TYPE_CHECKING:
         heartbeat_timeout: Optional[float]
         assume_unsync_clock: bool
         enable_debug_events: bool
+        enable_raw_presences: bool
         eager_dispatch: bool
         sync_presence: bool
         captcha_handler: Optional[Callable[[CaptchaRequired, Client], Awaitable[str]]]
@@ -296,6 +297,7 @@ _KNOWN_CLIENT_OPTIONS: frozenset = frozenset(
         'activities', 'activity', 'afk', 'allowed_mentions', 'apm_tracing', 'assume_unsync_clock',
         'canary', 'captcha_handler', 'case_insensitive', 'chunk_guilds_at_startup', 'debug_options',
         'default_ratelimit_limit', 'dispatch_backlog_warning', 'eager_dispatch', 'enable_debug_events',
+        'enable_raw_presences',
         'gc_freeze', 'guild_subscriptions', 'heartbeat_timeout', 'idle_since', 'installation_id',
         'max_guild_presence_cache', 'max_member_cache', 'max_messages', 'max_presence_cache',
         'max_ratelimit_timeout', 'max_thread_cache', 'max_total_member_cache', 'max_total_thread_cache',
@@ -538,6 +540,13 @@ class Client:
         To enable these events, this must be set to ``True``. Defaults to ``False``.
 
         .. versionadded:: 2.0
+    enable_raw_presences: :class:`bool`
+        Whether to dispatch :func:`on_raw_presence_update`, which covers every
+        presence update, including members the member cache does not hold.
+        Defaults to ``False``: presence updates are the most frequent event,
+        so the payload is not built unless asked for.
+
+        .. versionadded:: 2.3.2
     sync_presence: :class:`bool`
         Whether to keep presences up-to-date across clients.
         The default behavior is ``True`` (what the client does).

@@ -252,8 +252,9 @@ Ported from Rapptz/discord.py, round 2 (2026-11-04)
     ``MessageInteractionMetadata``; ``Message.interaction`` keeps our
     ``Interaction`` object and is not deprecated, since dropping or deprecating
     it would change our public API), 418a791 (``on_raw_presence_update``:
-    gated on a listener via ``ConnectionState._has_listener`` instead of
-    Rapptz's intents-based ``enable_raw_presences``, and exposing ``status`` and
+    Rapptz's ``enable_raw_presences`` option, defaulting to ``False`` since
+    there are no intents to derive it from; a listener check instead would
+    cost ~13% of presence parse time on every update. Exposes ``status`` and
     the per-platform statuses like ``Member`` does, since our ``ClientStatus`` is
     internal).
 

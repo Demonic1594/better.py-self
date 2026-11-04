@@ -103,7 +103,7 @@ def _presence(user_id, guild_id):
 async def test_raw_presence_update_covers_uncached_members():
     """418a7915: on_raw_presence_update fires even when the member is not cached,
     which on_presence_update cannot (here: an evicted or never-cached member)."""
-    client = await _ready_client()
+    client = await _ready_client(enable_raw_presences=True)
     ready = ready_payload()
     ready['guilds'] = [guild_payload(1, n_members=2)]
     await drive_ready(client, ready)
@@ -125,8 +125,8 @@ async def test_raw_presence_update_covers_uncached_members():
 
 
 @pytest.mark.asyncio
-async def test_raw_presence_update_costs_nothing_without_a_listener(monkeypatch):
-    """The raw payload is only built when something listens for it."""
+async def test_raw_presence_update_is_opt_in(monkeypatch):
+    """Without enable_raw_presences nothing is built or dispatched, even with a listener."""
     client = await _ready_client()
     ready = ready_payload()
     ready['guilds'] = [guild_payload(1, n_members=2)]
@@ -135,5 +135,12 @@ async def test_raw_presence_update_costs_nothing_without_a_listener(monkeypatch)
     built = []
     original = state.create_presence
     monkeypatch.setattr(state, 'create_presence', lambda data, user_id: built.append(user_id) or original(data, user_id))
+    seen = []
+
+    async def on_raw_presence_update(payload):
+        seen.append(payload)
+
+    client.event(on_raw_presence_update)
     state.parse_presence_update(_presence(999, 1))  # type: ignore[arg-type]
-    assert built == []
+    await discord.utils.asyncio.sleep(0)
+    assert built == [] and seen == []
