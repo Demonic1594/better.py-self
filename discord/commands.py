@@ -2268,6 +2268,10 @@ class OptionChoice:
             self.value = int(data['value'])
         elif type is ApplicationCommandOptionType.number:
             self.value = float(data['value'])
+        else:
+            # Discord only sends choices for the three types above; keep the raw
+            # value for anything else rather than leaving the slot unset
+            self.value = data['value']
 
     def __str__(self) -> str:
         return self.name

@@ -23,12 +23,16 @@ DEALINGS IN THE SOFTWARE.
 """
 
 from __future__ import annotations
+
+import logging
 from typing import Any, Collection, Iterator, List, Optional, TYPE_CHECKING, Tuple
 
 from .asset import Asset, AssetMixin
 from .utils import SnowflakeList, snowflake_time, MISSING
 from .partial_emoji import _EmojiTag, PartialEmoji
 from .user import User
+
+_log = logging.getLogger(__name__)
 
 # fmt: off
 __all__ = (
@@ -188,7 +192,12 @@ class Emoji(_EmojiTag, AssetMixin):
             return False
         if not self._roles:
             return True
-        emoji_roles, my_roles = self._roles, self.guild.me._roles  # type: ignore # Should just error ATP
+        me = self.guild.me
+        if me is None:
+            # Our own member is not cached yet, so our roles are unknown
+            _log.debug('Cannot check role-locked emoji ID %s: own member not cached in guild ID %s.', self.id, self.guild.id)
+            return False
+        emoji_roles, my_roles = self._roles, me._roles
         return any(my_roles.has(role_id) for role_id in emoji_roles)
 
     async def delete(self, *, reason: Optional[str] = None) -> None:

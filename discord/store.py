@@ -972,7 +972,8 @@ class SKUPrice:
             'amount': data.get('price_tier') or 0,
             'sale_amount': data.get('sale_price_tier'),
         }
-        if payload['sale_amount'] is not None:
+        # A free SKU has no meaningful sale percentage (and would divide by zero)
+        if payload['sale_amount'] is not None and payload['amount']:
             payload['sale_percentage'] = int((1 - (payload['sale_amount'] / payload['amount'])) * 100)
         return cls(payload)
 

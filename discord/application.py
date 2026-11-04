@@ -952,13 +952,13 @@ class ManifestLabel(Hashable):
     def __new__(cls, *, data: ManifestLabelPayload, application_id: Optional[int] = None) -> Union[ManifestLabel, int]:
         if data.get('name') is None:
             return int(data['id'])
-        if application_id is not None:
-            data['application_id'] = application_id
         return super().__new__(cls)
 
-    def __init__(self, *, data: ManifestLabelPayload, **kwargs) -> None:
+    def __init__(self, *, data: ManifestLabelPayload, application_id: Optional[int] = None) -> None:
         self.id: int = int(data['id'])
-        self.application_id: int = int(data['application_id'])
+        # The keyword wins, as it did when it was written into the payload, but
+        # the caller's dict is no longer modified
+        self.application_id: int = int(application_id if application_id is not None else data['application_id'])
         self.name: Optional[str] = data.get('name')
 
     def __repr__(self) -> str:

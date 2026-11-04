@@ -246,6 +246,18 @@ Upstream issue and PR triage (2026-11-03)
     server), and the unmerged feature PRs #896 (frecency settings) and #934
     (profile editing), which are still in review upstream.
 
+Audit fixes, round 5 (2026-11-04)
+    Upstream bugs fixed here: ``_remove_guild`` drops the guild's streams;
+    ``_update_voice_state`` (state and guild) does not cache a channel-less
+    state; ``_remove_private_channel`` drops the call; READY_SUPPLEMENTAL and
+    ``parse_guild_members_chunk`` skip malformed entries; ``Emoji.is_usable``
+    without our member; ``poll_result`` system content without embeds;
+    ``OptionChoice`` of other types; ``SKUPrice.from_private`` with a zero
+    price; ``ManifestLabel`` no longer writes into the payload;
+    ``HeadersContext.default`` falls back when the info API omits the browser
+    version; ``sane_wait_for`` cancels the tasks it created on timeout. Left as
+    upstream: a repeated CALL_CREATE still replaces the call object.
+
 Audit fixes, round 4 (2026-11-04)
     Docs and packaging only: install instructions point at this fork,
     ``ESRBRating``/``PromotionType`` are exported (dolfies/discord.py-self

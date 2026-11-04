@@ -1824,7 +1824,10 @@ class ConnectionState:
             # if we're here then add it into the cache
             after = VoiceState(data=data, channel=channel)
             before = VoiceState(data=data, channel=None)
-            self._voice_states[user_id] = after
+            # A leave for a user we never saw join has nothing to cache: storing
+            # a channel-less state would leak one entry per such event
+            if channel is not None:
+                self._voice_states[user_id] = after
 
         return user, before, after
 
@@ -2102,7 +2105,12 @@ class ConnectionState:
         for sticker in guild.stickers:
             self._stickers.pop(sticker.id, None)
 
-        del guild
+        # Streams in this guild's channels can no longer be watched or ended
+        guild_id = guild.id
+        for streams in (self._streams, self._stream_server_updates):
+            stale = [key for key in streams if key.guild_id == guild_id]
+            for key in stale:
+                del streams[key]
 
     def create_guild(self, guild: BaseGuildPayload, /) -> Guild:
         return Guild(data=guild, state=self)
@@ -2157,6 +2165,8 @@ class ConnectionState:
 
     def _remove_private_channel(self, channel: PrivateChannel) -> None:
         self._private_channels.pop(channel.id, None)
+        # A call can outlive its channel when no CALL_DELETE follows the delete
+        self._calls.pop(channel.id, None)
         if isinstance(channel, DMChannel):
             recipient = channel.recipient
             if recipient is not None:
@@ -2669,9 +2679,16 @@ class ConnectionState:
                 # keeps READY_SUPPLEMENTAL (whose errors abort the connection) alive
                 _log.debug('Skipping private channel ID %s with unknown type %s in READY.', pm.get('id'), pm['type'])
                 continue
-            if 'recipients' not in pm:
-                pm['recipients'] = [temp_users[int(u_id)] for u_id in pm.pop('recipient_ids')]  # type: ignore
-            self._add_private_channel(factory(me=user, data=pm, state=self))  # type: ignore
+            try:
+                if 'recipients' not in pm:
+                    pm['recipients'] = [temp_users[int(u_id)] for u_id in pm.pop('recipient_ids')]  # type: ignore
+                channel = factory(me=user, data=pm, state=self)  # type: ignore
+            except (KeyError, IndexError, TypeError, ValueError):
+                # A malformed entry (e.g. a DM with no recipient) must not abort
+                # READY_SUPPLEMENTAL, whose errors drop the connection
+                _log.warning('Skipping malformed private channel ID %s in READY.', pm.get('id'), exc_info=True)
+                continue
+            self._add_private_channel(channel)  # type: ignore
 
         # Disloses
         self.disclose = data.get('disclose', [])
@@ -4418,7 +4435,14 @@ class ConnectionState:
         if guild is None:
             return
 
-        members = [Member(guild=guild, data=member, state=self) for member in data.get('members', [])]
+        members = []
+        for member_data in data.get('members', []):
+            try:
+                members.append(Member(guild=guild, data=member_data, state=self))
+            except (KeyError, TypeError, ValueError):
+                # One malformed entry must not lose the whole chunk (and leave
+                # its request waiting for the timeout)
+                _log.warning('Skipping a malformed member in a chunk for guild ID %s.', guild_id, exc_info=True)
         _log.debug('Processed a chunk for %s members in guild ID %s.', len(members), guild_id)
 
         if presences:

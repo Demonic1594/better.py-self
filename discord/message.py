@@ -2695,12 +2695,12 @@ class Message(PartialMessage, Hashable):
                 return f'{self.author.name} has purchased {guild_product_purchase.product_name}!'
 
         if self.type is MessageType.poll_result:
-            embed = self.embeds[0]  # Will always have 1 embed
-            poll_title = utils.get(
-                embed.fields,
-                name='poll_question_text',
-            )
-            return f"{self.author.display_name}'s poll {poll_title.value} has closed."  # type: ignore
+            # The result embed normally carries the question, but an edit can
+            # clear the embeds, so do not assume it is there
+            poll_title = utils.get(self.embeds[0].fields, name='poll_question_text') if self.embeds else None
+            if poll_title is None:
+                return f"{self.author.display_name}'s poll has closed."
+            return f"{self.author.display_name}'s poll {poll_title.value} has closed."
 
         if self.type is MessageType.emoji_added:
             return f'{self.author.name} added a new emoji, {self.content}'

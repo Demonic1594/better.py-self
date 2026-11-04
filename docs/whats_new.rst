@@ -25,6 +25,12 @@ Behaviour Changes
 - The first time each cache (members, threads, presences) evicts entries because it reached its cap, the library logs it once at INFO, naming the cache.
 - The package declares ``yarl`` (imported directly; it was only installed through aiohttp) and requires ``discord_protos`` 1.2.117 or newer, the oldest 1.x release, on which every :class:`UserSettings` property reads.
 - The package metadata uses a PEP 639 license expression (``License-Expression: MIT``) instead of the deprecated license classifier; building from source needs setuptools 77 or newer.
+- :attr:`Member.voice` (and the user equivalent for private calls) is ``None`` after a voice "leave" for a user the client never saw join; it used to be a voice state with no channel.
+- :attr:`DMChannel.call` and :attr:`GroupChannel.call` are ``None`` once the channel is deleted, even if Discord sends no CALL_DELETE.
+- Streams in a guild are forgotten when the client leaves or is removed from that guild.
+- A private channel that READY_SUPPLEMENTAL sends malformed is left out of :attr:`Client.private_channels` (with a warning) instead of aborting the connection, and a malformed member is left out of its member chunk the same way.
+- ``HeadersContext.default`` uses its manual fallback, instead of raising, when the info API answers without a browser version.
+- Fetching manifest labels no longer adds ``application_id`` to the payload dicts it was given.
 - :class:`SystemChannelFlags` now includes :attr:`~SystemChannelFlags.emoji_added` (bit 256). Like the other system channel flags it is stored inverted, so a new ``SystemChannelFlags()`` has every notification turned off, including emoji notifications: its raw :attr:`~SystemChannelFlags.value` is 511, not 255. Code that builds flags from scratch for :meth:`Guild.edit` now also turns off emoji-added notifications unless it sets ``emoji_added=True``. Start from :attr:`Guild.system_channel_flags` to keep the current settings.
 
 Fixes
@@ -46,6 +52,18 @@ Fixes
 - :class:`ESRBRating` and :class:`PromotionType` were documented under ``discord`` but not exported from it. They are now.
 - The installation docs installed the upstream library from PyPI. They now install this fork from its repository, and list the voice extra's real dependencies.
 - The quickstart described its own example backwards (it responds only to the account's own messages), and ``examples/basic_voice.py`` used the unmaintained ``youtube_dl`` (now ``yt_dlp``).
+- Leaving or being removed from a guild left its streams and stream server updates cached.
+- A voice "leave" for a user the client never saw join stored a channel-less voice state, one per such event.
+- Deleting a DM or group without a following CALL_DELETE kept its call cached.
+- A private channel with a malformed entry in READY_SUPPLEMENTAL (for example a DM with no recipient) aborted the connection. It is now skipped with a warning.
+- One malformed member in a member chunk lost the whole chunk, so :meth:`Guild.chunk` and :meth:`Guild.query_members` waited for their timeout. The malformed member is skipped with a warning.
+- :meth:`Emoji.is_usable` raised :exc:`AttributeError` for a role-locked emoji when the client's own member was not cached. It returns ``False``.
+- :attr:`Message.system_content` raised :exc:`IndexError` for a poll result message whose embeds were removed.
+- An :class:`OptionChoice` for an option type other than string, integer or number had no ``value``, so reading it or its ``repr`` raised.
+- The private store price of a free SKU on sale raised :exc:`ZeroDivisionError`.
+- Fetching application manifest labels modified the payload dicts passed in.
+- ``HeadersContext.default`` raised when the info API answered without a browser version; it now falls back to the manual build-number and browser-version lookup, as it does when the API is down.
+- Internal waits that time out (the voice connection handshake) no longer leave a task waiting forever.
 
 .. _vp2p3p1:
 
