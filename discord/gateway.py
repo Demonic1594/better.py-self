@@ -714,15 +714,18 @@ class DiscordWebSocket:
             self._keep_alive = None
             if keep_alive:
                 keep_alive.stop()
-            if not self.socket.closed:
-                try:
-                    await asyncio.wait_for(self.socket.close(4000), timeout=5.0)
-                except Exception:
-                    _log.debug('Ignoring an error closing the gateway socket after a bad frame.', exc_info=True)
-            if keep_alive:
-                # After the close, so a heartbeat blocked on the old socket fails
-                # fast; _join cancels it after 5 seconds otherwise
-                await keep_alive._join()
+            try:
+                if not self.socket.closed:
+                    try:
+                        await asyncio.wait_for(self.socket.close(4000), timeout=5.0)
+                    except Exception:
+                        _log.debug('Ignoring an error closing the gateway socket after a bad frame.', exc_info=True)
+            finally:
+                if keep_alive:
+                    # After the close (and on cancellation too), so a heartbeat
+                    # blocked on the old socket fails fast; _join cancels it after
+                    # 5 seconds otherwise
+                    await keep_alive._join()
             raise ReconnectWebSocket from None
         msg = cast(Any, decoded)
 

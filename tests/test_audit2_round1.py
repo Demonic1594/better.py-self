@@ -150,6 +150,10 @@ async def test_audit_logs_oldest_first_yields_each_entry_once_in_order():
     ]
     assert got == [1101, 1102, 1103, 1104]
 
+    # A non-positive limit fetches nothing, as on the newest-first path
+    calls.clear()
+    assert [e async for e in guild.audit_logs(limit=0, oldest_first=True)] == [] and calls == []
+
     # The default newest-first path is unchanged
     got = [e.id async for e in guild.audit_logs(limit=5)]
     assert got == [1249, 1248, 1247, 1246, 1245]
@@ -255,3 +259,33 @@ async def test_undecodable_frame_joins_the_keepalive():
     with pytest.raises(ReconnectWebSocket):
         await ws.received_message('not json')
     assert joined == ['stop', 'join'] and ws._keep_alive is None
+
+
+@pytest.mark.asyncio
+async def test_undecodable_frame_joins_the_keepalive_when_cancelled():
+    """A cancellation during the socket close skipped the keepalive join."""
+    import asyncio
+
+    from test_abuse2 import make_ws
+
+    ws = make_ws(asyncio.get_running_loop())
+    joined = []
+
+    class FakeKeepAlive:
+        def stop(self):
+            pass
+
+        async def _join(self, timeout=5.0):
+            joined.append('join')
+
+    async def hanging_close(code=None, reason=b''):
+        await asyncio.sleep(30)
+
+    ws._keep_alive = FakeKeepAlive()  # type: ignore[assignment]
+    ws.socket.close = hanging_close  # type: ignore[method-assign]
+    task = asyncio.ensure_future(ws.received_message('not json'))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert joined == ['join']

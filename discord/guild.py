@@ -5209,6 +5209,8 @@ class Guild(Hashable):
             }
 
         if oldest_first:
+            if limit is not None and limit <= 0:
+                return
             # Walk *down* with ``before`` (Discord returns audit log entries
             # newest first) and yield the buffered entries in reverse. Paging up
             # with ``after`` and entries[-1] as the cursor re-fetched the same
