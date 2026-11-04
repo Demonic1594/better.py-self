@@ -8,8 +8,8 @@ has the contribution rules.
 ```sh
 git clone https://github.com/Demonic1594/better.py-self
 cd better.py-self
-python3 -m pip install -U -e ".[voice,speed]"
-python3 -m pip install -U pytest pytest-asyncio "ruff==0.12.*" pyright sphinx
+python3 -m pip install -U -e ".[docs,voice,speed]"   # docs pins Sphinx and its extensions, as CI does
+python3 -m pip install -U pytest pytest-asyncio "ruff==0.12.*" pyright
 ```
 
 ## Checks (these match CI)

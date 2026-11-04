@@ -1,14 +1,19 @@
 # Discord error codes
 
-When a request fails, Discord returns a JSON error with a numeric `code` and a
-`message`. The library raises an `HTTPException`, or one of its subclasses
-`Forbidden` (403), `NotFound` (404), `DiscordServerError` (5xx) or
-`CaptchaRequired`. On every one of them:
+When a request fails, Discord usually returns a JSON error with a numeric `code`
+and a `message`. Cloudflare and some other failures return plain text instead.
+The library raises an `HTTPException`, or one of its subclasses `Forbidden` (403),
+`NotFound` (404), `DiscordServerError` (5xx) or `CaptchaRequired`. On every one of
+them:
 
 - `exc.status` is the HTTP status
-- `exc.code` is Discord's error code (`0` if there was none)
-- `exc.text` is the message, with field errors appended
-- `exc.json` is the raw error body
+- `exc.code` is Discord's error code (`0` if there was none, for example a text response)
+- `exc.text` is the message, with field errors appended, or the text body
+- `exc.json` is the JSON error body. For a text response it's a stand-in with
+  code `0`, not a real body.
+
+`RateLimited` is separate: it isn't an `HTTPException` and has none of these
+attributes (see [Troubleshooting](troubleshooting.md#other-discord-error-codes)).
 
 ```py
 try:

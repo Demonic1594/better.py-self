@@ -59,7 +59,7 @@ await msg.end_poll()
 - **Creating:** `await text_channel.create_thread(name=..., type=discord.ChannelType.public_thread)`,
   or pass `message=` to start the thread from a message.
 - **Managing:** `await thread.edit(archived=True)` and `await thread.delete()`.
-  `thread.fetch_members()` lists the thread's members.
+  `await thread.fetch_members()` lists the thread's members.
 - **Caching.** Threads are capped like members (see
   [Caching and memory](caching-and-memory.md)). An evicted thread comes back with
   `Guild.fetch_channel`.

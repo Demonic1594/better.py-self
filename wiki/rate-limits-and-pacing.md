@@ -22,6 +22,8 @@ The code is `HTTPClient.request` in [`discord/http.py`](../discord/http.py).
 - **429 handling.** The client sleeps for `retry_after` from the body, or the
   `Retry-After` header, then retries.
   - A 429 with no usable value waits **1 second** instead of retrying straight away.
+    The exception is a Cloudflare 429 with a text body and no `Retry-After`, which
+    raises `HTTPException` without retrying.
   - A global 429 takes the global lock, which pauses every route.
 - **Shared scope.** A 429 with `X-RateLimit-Scope: shared` also takes the global
   lock. Discord's user-API docs describe `shared` as a per-resource limit. This
@@ -33,10 +35,12 @@ The code is `HTTPClient.request` in [`discord/http.py`](../discord/http.py).
   the API. Discord's user-API docs say that **10,000 invalid requests (401, 403
   or 429) in 10 minutes** trigger a **24-hour IP ban**. Shared-scope 429s don't
   count toward it.
-- **Retries.** 5xx responses and connection resets are retried, for at most 5
-  attempts per request, and each retry is logged.
+- **Retries.** The transient statuses 502, 504, 507, 522, 523 and 524 (and 500
+  on uploads), plus connection resets, are retried, for at most 5 attempts per
+  request, and each retry is logged. Other 5xx responses, including 500 and 503,
+  raise `DiscordServerError`.
 - **A cap on waits.** `max_ratelimit_timeout=N` raises `RateLimited` instead of
-  waiting longer than `N` seconds for a non-global limit. The minimum is 30.
+  waiting longer than `N` seconds for a limit, global or not. The minimum is 30.
 
 ## Seeing what happened
 

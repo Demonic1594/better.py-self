@@ -15,12 +15,13 @@ credential-safe logging and features ported from Rapptz/discord.py.
 - Rate limit handling that accounts for user-account behaviour, with every
   absorbed 429 and retry visible (:meth:`discord.Client.http_throttle_events`,
   :meth:`discord.Client.http_retry_events`)
-- Every cache is capped, with LRU eviction, and observable through
-  :meth:`discord.Client.cache_stats` (see :doc:`cache_tuning`)
+- The large caches (members, presences, threads, messages) are capped, with
+  LRU eviction, and observable through :meth:`discord.Client.cache_stats`
+  (see :doc:`cache_tuning`)
 - Opt-in cache persistence for fast restarts (``persistence_path``)
 - Soundboard, voice channel effects, interaction metadata and raw presence
   events (new in v2.3.2; see :doc:`whats_new`)
-- DEBUG logs that never contain credentials (see :doc:`logging`)
+- DEBUG logs that redact tokens, passwords and other known credential fields (see :doc:`logging`)
 - A command extension for self-bots, and an extension for background tasks
 - Prevents detection of user account automation
 

@@ -16,10 +16,12 @@ Most events come in two forms:
   the cache. With bounded caches (see [Caching and memory](caching-and-memory.md)),
   an evicted member or an old message means no cached event.
 - **Raw events** (`on_raw_message_edit`, `on_raw_reaction_add`,
-  `on_raw_member_remove`, and so on) always fire. They pass a payload object
-  holding the IDs, the raw data and the cached object if there is one.
+  `on_raw_member_remove`, and so on) don't need the object to be cached. They
+  pass a payload object holding the IDs, the raw data and the cached object if
+  there is one. They can still be skipped when the payload is unusable, for
+  example `on_raw_member_remove` for a guild the client doesn't know.
 
-Use the raw form whenever you must not miss an event.
+Use the raw form when you must not miss an event because of the cache.
 
 ### Opt-in events
 

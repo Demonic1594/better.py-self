@@ -432,15 +432,17 @@ class Client:
         on the next startup, giving the client a warm cache immediately after
         a restart without re-scraping member lists.
 
-        The snapshot is written after the client becomes ready and again on a
-        clean :meth:`close`. Snapshots older than ``persistence_max_age``, snapshots
+        The snapshot is written after the client becomes ready. A clean
+        :meth:`close` writes it only if that READY capture has not been written
+        yet; each capture is written once. Snapshots older than ``persistence_max_age``, snapshots
         from a different account, and corrupt files are ignored automatically.
         Pass ``None`` (the default) to disable persistence entirely.
 
         .. warning::
 
-            The snapshot contains the raw gateway READY payload (account details
-            and settings). It is written with owner-only permissions, but you
+            The snapshot contains part of the gateway READY payload (your user,
+            cached users, relationships and private channels) and every guild's
+            payload. It is written with owner-only permissions, but you
             should still treat the file as a secret and keep it out of version
             control and shared directories.
 

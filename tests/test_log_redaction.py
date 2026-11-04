@@ -144,3 +144,11 @@ def test_presigned_upload_url_signature_is_masked():
     text = str(utils._RedactedLog(url))
     assert 'SIGSECRET' not in text and 'CRED' not in text
     assert 'X-Goog-Expires=3600' in text, 'harmless parameters stay readable'
+
+
+def test_billing_address_token_is_redacted():
+    """create_payment_source sends billing_address_token, a reusable billing
+    credential; it was missing from _SENSITIVE_KEYS and reached DEBUG logs."""
+    out = utils._redact({'billing_address_token': 'BILLTOKEN', 'payment_gateway': 1})
+    assert out['billing_address_token'] == '[redacted]' and out['payment_gateway'] == 1
+    assert 'BILLTOKEN' not in utils._redact('{"billing_address_token":"BILLTOKEN"}')

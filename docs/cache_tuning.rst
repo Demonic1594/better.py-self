@@ -174,7 +174,7 @@ Startup persistence
 --------------------
 
 ``persistence_path`` persists the account's caches to disk when the client
-becomes ready (and on a clean :meth:`Client.close`), then replays them on
+becomes ready, then replays them on
 the next startup. A restarted process starts with a warm cache and skips
 member list re-scraping entirely — restarts go from seconds to effectively
 instant. Snapshots older than ``persistence_max_age`` (14 days by default) or
@@ -185,17 +185,19 @@ guild at a time and gives other tasks a turn every few milliseconds. Memory
 during replay tracks the largest single guild rather than the whole account,
 and a long replay does not stall other clients running in the same process.
 
-The snapshot contains the raw gateway ``READY`` payload, so treat it as a
-secret. It is written atomically with owner-only (``0600``) permissions; keep
+The snapshot contains part of the gateway ``READY`` payload (your user,
+cached users, relationships and private channels) and every guild's payload,
+so treat it as a secret. It is written atomically with owner-only (``0600``) permissions; keep
 it out of version control and shared directories. A snapshot larger than
 256 MiB (decompressed) is not written at all, and a warning is logged, since
 replay would reject it on every startup anyway. Oversized or corrupt files
 that already exist are ignored in favour of a cold start.
 
-The final snapshot is written by a clean :meth:`Client.close`. :meth:`Client.run`
-handles ``KeyboardInterrupt`` (Ctrl+C) but not ``SIGTERM``, which is what
-``docker stop`` and systemd send, so a process stopped that way exits without
-closing the client and skips that last write. If you run under such a
+Each READY capture is written once. A clean :meth:`Client.close` writes it
+only if the write after READY has not happened yet, so cache changes after
+READY are not saved on close. :meth:`Client.run` handles ``KeyboardInterrupt``
+(Ctrl+C) but not ``SIGTERM``, which is what ``docker stop`` and systemd send,
+so a process stopped that way exits without closing the client. If you run under such a
 supervisor, close the client from your own signal handler:
 
 .. code-block:: python3

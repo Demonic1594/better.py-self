@@ -15,7 +15,8 @@ exception and the client and returns a solved token:
 
 ```py
 async def solve(exc: discord.CaptchaRequired, client: discord.Client) -> str:
-    # exc.service ('hcaptcha'), exc.sitekey, exc.rqdata, exc.rqtoken,
+    # exc.service is 'hcaptcha', 'recaptcha' or 'recaptcha_enterprise':
+    # pick a solver for it. Also exc.sitekey, exc.rqdata, exc.rqtoken,
     # exc.session_id, exc.should_serve_invisible
     return await my_solver(exc)
 
@@ -25,7 +26,7 @@ client = discord.Client(captcha_handler=solve)
 The library resends the request with `X-Captcha-Key`, plus `X-Captcha-Session-Id`
 and `X-Captcha-Rqtoken` when Discord gave them.
 [`examples/captcha.py`](../examples/captcha.py) shows the hCaptcha challenge to
-you in a PyQt6 webview, so you can solve it by hand.
+you in a PyQt6 webview, so you can solve it by hand. It supports hCaptcha only.
 
 **Solver services.** Upstream's maintainer says there are no reliable public
 solving services left (dolfies/discord.py-self#517). Reports of a solved token
@@ -58,7 +59,8 @@ What this library does to look like the official client:
 
 - **TLS.** Requests go through curl_cffi with a browser TLS fingerprint
   (dolfies/discord.py-self#500 explains why that matters to Cloudflare).
-- **Headers.** It sends current `X-Super-Properties` with a live build number
+- **Headers.** API requests carry `X-Super-Properties`, with a live build number
+  when the startup lookup succeeds
   (see [Discord user API notes](discord-user-api-notes.md#super-properties)).
 - **Bot-only endpoints.** It doesn't call them: `Member.fetch_voice` uses the
   cache on user accounts.
@@ -86,8 +88,10 @@ account. The most common ones, from Discord's user-API docs:
   (401, 403 or 429) in 10 minutes, Discord bans the IP for 24 hours.
 - **403 with code 10008 ("Unknown Message"):** despite the message, this means
   Discord's anti-abuse system blocked the request.
-- **`RateLimited`** is raised only when you set `max_ratelimit_timeout` and a wait
-  would be longer than that. Otherwise the library waits out rate limits for you.
+- **`RateLimited`** isn't an `HTTPException`: it has no `status` or `code`. It's
+  raised when you set `max_ratelimit_timeout` and a wait, global or not, would be
+  longer than that, and also when Discord sends a `retry_after` that isn't a
+  finite number. Otherwise the library waits out rate limits for you.
 
 ## Events are missing
 

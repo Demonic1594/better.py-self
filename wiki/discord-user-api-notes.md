@@ -8,7 +8,7 @@ says so. Discord can change any of this without notice.
 
 ## Super properties
 
-Every HTTP request carries `X-Super-Properties`, a base64-encoded JSON object
+Every request to Discord's main API carries `X-Super-Properties`, a base64-encoded JSON object
 describing the client: OS, browser, browser version, `client_build_number`,
 release channel, locale and so on. The same object is sent as `properties` in
 gateway IDENTIFY. According to userdoccers, it's "not required" but "highly
@@ -16,8 +16,11 @@ recommended due to its significance in anti-abuse systems". Many experiments
 also need a recent `client_build_number`, and `browser_user_agent` should match
 the `User-Agent` header.
 
-This library builds the object to match the official web client, and fetches a
-current build number and browser version at startup.
+This library builds the object to match the official web client. At startup it
+tries to fetch a current build number and browser version, and falls back to
+built-in values if those lookups fail (`HeadersContext`). The gateway handshake,
+CDN and cloud-upload requests and the webhook adapter use their own headers,
+without super properties.
 
 The October 2026 live validation
 ([`docs/live_validation_2026-10.md`](../docs/live_validation_2026-10.md)) caught

@@ -22,7 +22,7 @@ python3 -m pip install -U https://github.com/Demonic1594/better.py-self/releases
 
 | Extra | Installs | Why |
 |---|---|---|
-| `[speed]` (recommended) | `orjson`, `mmh3`, `zstandard`, `Brotli`, `aiodns` | Faster JSON, hashing, decompression and DNS. With orjson, gateway events are handled about 20% faster overall, and up to about 40% faster for small events such as typing and reactions. |
+| `[speed]` (recommended) | `orjson`, `mmh3`, `Brotli`, plus `zstandard` on Python 3.13 and older (3.14 has `compression.zstd` built in) and `aiodns` everywhere except Windows | Faster JSON, hashing, decompression and DNS. With orjson, gateway events are handled about 20% faster overall, and up to about 40% faster for small events such as typing and reactions. |
 | `[voice]` | `PyNaCl`, `davey` | Voice support. `davey` provides DAVE, Discord's end-to-end voice encryption, which voice servers now require (see [Troubleshooting](troubleshooting.md#voice-close-codes)). |
 
 ```sh
@@ -102,7 +102,10 @@ async def run_account(token):
 
 async def main(tokens):
     # return_exceptions=True keeps the other accounts running if one fails
-    await asyncio.gather(*(run_account(t) for t in tokens), return_exceptions=True)
+    results = await asyncio.gather(*(run_account(t) for t in tokens), return_exceptions=True)
+    for i, result in enumerate(results):
+        if isinstance(result, BaseException):
+            print(f'account {i} stopped: {result!r}')
 
 asyncio.run(main(['token1', 'token2']))
 ```

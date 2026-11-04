@@ -1,8 +1,9 @@
 # Member lists
 
-Bots ask for members with intents. User accounts can't, and they don't receive
-the full member list of a large guild at all. Discord sends a user client only
-what its UI would show, through **guild subscriptions**. This page explains what
+Bots ask for members with intents. User accounts can't, and Discord doesn't
+push them the full member list of a large guild. It sends a user client what its
+UI would show, through **guild subscriptions**, and the full list can only be
+fetched on request (`fetch_members`, `chunk`) when you have the right permissions. This page explains what
 you get and how to get more.
 
 The reference is [`docs/guild_subscriptions.rst`](../docs/guild_subscriptions.rst);
@@ -58,8 +59,9 @@ picks its method by permission:
   normally over the gateway (op 8), which includes offline members.
 - **Otherwise it scrapes the member sidebar.** That's the same list the official
   client shows, read through `GUILD_MEMBER_LIST_UPDATE` (op 37 bulk
-  subscriptions). It is slower, and in guilds over 1,000 members it **only
-  returns online members**.
+  subscriptions). It is slower, and in large guilds it **only returns online
+  members**. "Large" is decided by `member_count + hoisted roles + 2 >= 1000`
+  (`Guild._offline_members_hidden` in `guild.py`), not by the member count alone.
 
 `channels` takes up to 5 channels to read the sidebar from; more channels make
 it faster. `delay` waits between requests. `force_scraping=True` scrapes even when
@@ -67,8 +69,8 @@ you have the permissions. `cache=True` also caches the members, but that cache
 isn't kept up to date afterwards.
 
 `Guild.chunk()` caches the full list on the same rules. A guild can be chunked
-if you have one of the three permissions, or if it has under 1,000 members and
-a channel everyone can see.
+if you have one of the three permissions, or if it isn't large by the same rule
+(`member_count + hoisted roles + 2` under 1,000) and has a channel everyone can see.
 
 ### Live numbers (v2.3.2)
 

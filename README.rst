@@ -94,10 +94,12 @@ for the full tuning guide):
 
 **Credentials stay out of logs**
 
-- DEBUG logging redacts tokens, passwords, emails, phone numbers and voice
-  keys in gateway events, HTTP bodies and voice payloads. Webhook and
-  interaction tokens are masked in logged URLs and rate-limit keys. The live
-  tests found no token fragment in about 50 MB of DEBUG logs.
+- DEBUG logging redacts the known credential fields (tokens, passwords,
+  emails, phone numbers, voice keys and other secrets) in gateway events, HTTP
+  bodies and voice payloads. Webhook and interaction tokens are masked in
+  logged URLs and rate-limit keys. The live tests found no token fragment in
+  about 50 MB of DEBUG logs. Redaction works on a fixed list of key names, so
+  still treat DEBUG logs as sensitive.
 
 **New in v2.3.2** (ported from Rapptz/discord.py and adapted to user accounts)
 

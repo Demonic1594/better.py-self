@@ -37,7 +37,7 @@ Setting both raises `TypeError`. The code is `BotBase.__init__` in
   still **use** other bots' slash commands from a user account through the
   `application_commands` and interaction APIs; see `docs/api.rst`.
 
-**Live test (v2.3.2):** with `self_bot=True`, sending `bpy!echo 7 hello world`
+**Live test (v2.3.2):** with `command_prefix='bpy!'` and `self_bot=True`, sending `bpy!echo 7 hello world`
 parsed to `(7, 'hello world')`, and the `Member` converter resolved a user ID.
 
 ### Converters

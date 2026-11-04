@@ -41,7 +41,9 @@ caches are fixed: interactions (100), call messages (100) and iframe modals (32)
 
 ### When something isn't in the cache
 
-`guild.get_member(id)` returning `None` only means the member went cold.
+`guild.get_member(id)` returning `None` means the member isn't cached. They may
+have been evicted, or never cached at all because of `member_cache_flags` or
+`guild_subscriptions=False`.
 Fetch them with `Guild.fetch_member` (REST), or `Guild.query_members`
 (gateway, by name prefix or IDs). Threads come back with
 `Guild.fetch_channel`. An evicted member's presence is recreated by their

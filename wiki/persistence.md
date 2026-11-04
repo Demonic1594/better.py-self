@@ -13,14 +13,20 @@ client = discord.Client(persistence_path='my_account_cache.bin')
 ## When it writes
 
 - **After READY:** the client writes a snapshot shortly after it becomes ready.
-- **On a clean `close()`:** it writes again. With `Client.run`, Ctrl+C cancels
-  the run, and its `async with` block closes the client. No test covers that
-  path, so if the final snapshot matters, close the client yourself. `SIGTERM`,
-  which is what `docker stop` and systemd send, isn't handled at all.
-  Under such a supervisor, close the client from your own signal handler:
+- **On a clean `close()`:** it writes **only if a capture is still pending**, for
+  example when the READY write didn't happen. Each READY capture is written
+  once, so cache changes after READY aren't saved by `close()`; the next READY
+  takes a fresh capture. With `Client.run`, Ctrl+C cancels the run, and its
+  `async with` block closes the client. `SIGTERM`, which is what `docker stop`
+  and systemd send, isn't handled at all. Under such a supervisor, close the
+  client from your own signal handler:
 
   ```py
-  import asyncio, signal
+  import asyncio, os, signal
+  import discord
+
+  token = os.environ['DISCORD_TOKEN']
+  client = discord.Client(persistence_path='my_account_cache.bin')
 
   async def main():
       async with client:
@@ -79,6 +85,8 @@ seconds.
 
 ## Treat the file as a secret
 
-The snapshot contains the raw gateway READY payload: account details,
-settings, guilds and relationships. Keep it out of version control, backups
+The snapshot contains part of the gateway READY payload, filtered through
+`_PERSIST_READY_KEYS`: your user, the cached users, relationships and private
+channels. It also holds every guild's payload. Settings and tokens from READY
+aren't written. Keep it out of version control, backups
 you share and shared directories.

@@ -32,7 +32,7 @@ and errors go nowhere.
 
 ## What's logged, and what's kept out
 
-**DEBUG logs never contain your credentials.** Before v2.3.2, enabling DEBUG
+**DEBUG logs redact every known credential field.** Before v2.3.2, enabling DEBUG
 logging to a file recorded the READY payload's tokens, the passwords sent when
 you edit your profile, and the voice encryption key. Now everything logged goes
 through `utils._redact` and `utils._RedactedLog` first. The code is in
@@ -42,7 +42,11 @@ through `utils._redact` and `utils._RedactedLog` first. The code is in
   wherever they appear: `token`, `auth_token`, `analytics_token`,
   `access_token`, `refresh_token`, `secret`, `secret_key`, `backup_codes`,
   `password`, `new_password`, `email`, `phone`, `ticket`, `captcha_key`,
-  `payment_source_token`, `purchase_token` and `two_way_link_code`.
+  `payment_source_token`, `billing_address_token`, `purchase_token` and
+  `two_way_link_code`.
+- **Only those keys.** Redaction works on that list. A credential Discord adds
+  under a new key name isn't caught until it's added, so still treat DEBUG logs
+  as sensitive, and don't post them publicly without reading them first.
 - **Where.** This applies to raw gateway events, HTTP request and response bodies,
   and voice payloads.
 - **URLs.** Webhook and interaction tokens are masked in logged URLs
@@ -62,7 +66,8 @@ Checked live at v2.3.2:
 
 ## Other secrets the library writes
 
-The [persistence](persistence.md) snapshot contains the raw READY payload. It's
+The [persistence](persistence.md) snapshot contains part of the READY payload
+(your user, cached users, relationships and private channels) and the guilds. It's
 written with owner-only (`0600`) permissions, but treat it as a secret anyway.
 
 ## Looking after your token
