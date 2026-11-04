@@ -24,6 +24,7 @@ DEALINGS IN THE SOFTWARE.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, ClassVar, Iterable, List, Literal, Optional, Tuple, Union, overload
 
 from .asset import AssetMixin
@@ -102,6 +103,8 @@ if TYPE_CHECKING:
     OptionPayload = Union[SelectOptionPayload, RadioGroupOptionPayload, CheckboxGroupOptionPayload]
     ComponentWithMessage = Optional[Message]
 
+
+_log = logging.getLogger(__name__)
 
 __all__ = (
     'Component',
@@ -1959,5 +1962,7 @@ _COMPONENT_CLASSES = {
 def _component_factory(data: ComponentPayload, message: ComponentWithMessage = MISSING) -> Optional[Component]:
     cls = _COMPONENT_CLASSES.get(data['type'])
     if cls is None:
+        # Newer component types are dropped; say so for whoever is debugging
+        _log.debug('Skipping component of unknown type %r.', data['type'])
         return None
     return cls(data, message)

@@ -500,6 +500,21 @@ def handle_message_parameters(
     return MultipartParameters(payload=payload, multipart=multipart, files=to_upload)
 
 
+def _webhook_retry_after(data: Any, headers: Any) -> float:
+    """The delay for a webhook 429: the body's ``retry_after``, else the
+    ``Retry-After`` header, else 1 second. Never raises and never returns a
+    negative or non-finite delay (a bare ``data['retry_after']`` used to raise
+    on a missing key or a string value)."""
+    raw = data.get('retry_after') if isinstance(data, dict) else None
+    if raw is None:
+        raw = headers.get('Retry-After')
+    delay = _parse_retry_after(raw, default=1.0)
+    if not math.isfinite(delay) or delay < 0:
+        _log.warning('Webhook 429 carried an unusable retry_after (%r); waiting 1 second.', raw)
+        return 1.0
+    return delay
+
+
 def _parse_retry_after(value: Any, *, default: float = 0.0) -> float:
     """Parses a Retry-After value that may be a number, a numeric string, an
     HTTP-date (Cloudflare sends those), or garbage. Never raises: garbage and
@@ -633,13 +648,19 @@ class Ratelimit:
             self.dirty = True
 
         reset_after = headers.get('X-Ratelimit-Reset-After')
-        if use_clock or not reset_after:
-            utc = datetime.timezone.utc
-            now = datetime.datetime.now(utc)
-            reset = datetime.datetime.fromtimestamp(float(headers['X-Ratelimit-Reset']), utc)  # type: ignore
-            self.reset_after = (reset - now).total_seconds()
-        else:
-            self.reset_after = float(reset_after)
+        try:
+            if use_clock or not reset_after:
+                utc = datetime.timezone.utc
+                now = datetime.datetime.now(utc)
+                reset = datetime.datetime.fromtimestamp(float(headers['X-Ratelimit-Reset']), utc)  # type: ignore
+                self.reset_after = (reset - now).total_seconds()
+            else:
+                self.reset_after = float(reset_after)
+        except (KeyError, TypeError, ValueError, OverflowError, OSError):
+            # Rate limit headers without a usable reset time: assume a short
+            # window rather than failing the request that carried them
+            _log.debug('Rate limit headers have no usable reset time (%r); assuming 1 second.', reset_after)
+            self.reset_after = 1.0
 
         self.expires = self._loop.time() + self.reset_after
 
@@ -1462,6 +1483,10 @@ class HTTPClient:
                 raise NotFound(resp, 'Asset not found')
             elif resp.status == 403:
                 raise Forbidden(resp, 'Cannot retrieve asset')
+            elif resp.status >= 500:
+                # A subclass of HTTPException, so existing handlers still catch
+                # it, but callers can tell a transient CDN failure apart
+                raise DiscordServerError(resp, 'Failed to get asset')
             else:
                 raise HTTPException(resp, 'Failed to get asset')
 

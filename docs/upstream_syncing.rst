@@ -246,6 +246,18 @@ Upstream issue and PR triage (2026-11-03)
     server), and the unmerged feature PRs #896 (frecency settings) and #934
     (profile editing), which are still in review upstream.
 
+Audit fixes, round 6 (2026-11-04)
+    Upstream bugs fixed here: ``Ratelimit.update`` without reset headers;
+    webhook 429s parse ``retry_after`` via ``http._webhook_retry_after``;
+    ``get_from_cdn`` raises ``DiscordServerError`` for 5xx;
+    ``GatewayRatelimiter`` uses ``time.monotonic``; a repeated voice HELLO stops
+    the old keepalive; ``VoiceConnectionState.disconnect`` re-raises its
+    cancellation after cleanup; ``Cooldown.get_retry_after`` is clamped at 0;
+    ``Client._run_event`` logs exceptions from ``on_error``; ``apm_tracing``
+    is read (upstream documents it but reads ``trace``). Ours only:
+    ``client._KNOWN_CLIENT_OPTIONS`` and the unknown-option warning; flag
+    classes gain ``__slots__``; ``BulkBanResult`` is exported.
+
 Audit fixes, round 5 (2026-11-04)
     Upstream bugs fixed here: ``_remove_guild`` drops the guild's streams;
     ``_update_voice_state`` (state and guild) does not cache a channel-less

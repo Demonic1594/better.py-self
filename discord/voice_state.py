@@ -642,6 +642,7 @@ class VoiceConnectionState:
             self.ip = MISSING
             self.port = MISSING
 
+            cancelled = False
             # Skip this part if disconnect was called from the poll loop task
             if wait and not self._inside_runner():
                 # Wait for the voice_state_update event confirming the bot left the voice channel.
@@ -653,10 +654,13 @@ class VoiceConnectionState:
                 except TimeoutError:
                     _log.debug('Timed out waiting for voice disconnection confirmation.')
                 except asyncio.CancelledError:
-                    pass
+                    # Finish the cleanup below first, then honour the cancellation
+                    cancelled = True
 
             if cleanup:
                 self.voice_client.cleanup()
+            if cancelled:
+                raise asyncio.CancelledError
 
     async def soft_disconnect(self, *, with_state: ConnectionFlowState = ConnectionFlowState.got_both_voice_updates) -> None:
         _log.debug('Soft disconnecting from voice')

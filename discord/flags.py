@@ -235,6 +235,8 @@ class BaseFlags:
 
 
 class ArrayFlags(BaseFlags):
+    __slots__ = ()
+
     @classmethod
     def _from_value(cls: Type[Self], value: Sequence[int]) -> Self:
         self = cls.__new__(cls)
@@ -268,6 +270,8 @@ class ArrayFlags(BaseFlags):
 
 
 class ZeroBasedArrayFlags(ArrayFlags):
+    __slots__ = ()
+
     @classmethod
     def _from_value(cls: Type[Self], value: Sequence[int]) -> Self:
         self = cls.__new__(cls)
@@ -1857,6 +1861,8 @@ class ActivityFlags(BaseFlags):
         The raw value. You should query flags via the properties
         rather than using this raw value.
     """
+
+    __slots__ = ()
 
     @flag_value
     def instance(self):
@@ -3475,6 +3481,8 @@ class AttachmentFlags(BaseFlags):
         rather than using this raw value.
     """
 
+    __slots__ = ()
+
     @flag_value
     def clip(self):
         """:class:`bool`: Returns ``True`` if the attachment is a clip."""
@@ -3567,6 +3575,8 @@ class EmbedFlags(BaseFlags):
         rather than using this raw value.
     """
 
+    __slots__ = ()
+
     @flag_value
     def contains_explicit_media(self):
         """:class:`bool`: Returns ``True`` if the embed was flagged as sensitive content."""
@@ -3643,6 +3653,8 @@ class RoleFlags(BaseFlags):
         The raw value. You should query flags via the properties
         rather than using this raw value.
     """
+
+    __slots__ = ()
 
     @flag_value
     def in_prompt(self):

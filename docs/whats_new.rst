@@ -31,6 +31,10 @@ Behaviour Changes
 - A private channel that READY_SUPPLEMENTAL sends malformed is left out of :attr:`Client.private_channels` (with a warning) instead of aborting the connection, and a malformed member is left out of its member chunk the same way.
 - ``HeadersContext.default`` uses its manual fallback, instead of raising, when the info API answers without a browser version.
 - Fetching manifest labels no longer adds ``application_id`` to the payload dicts it was given.
+- Unknown keyword options passed to :class:`Client` (or :class:`~ext.commands.Bot`) are logged as a warning naming them, so a typo such as ``max_mesages`` no longer goes unnoticed. They are still ignored.
+- An exception raised inside :meth:`Client.on_error` is logged with the original error chained, instead of surfacing only as "Task exception was never retrieved".
+- A CDN request (:meth:`Asset.read` and friends) that gets a 5xx raises :exc:`DiscordServerError`, a subclass of the :exc:`HTTPException` it raised before.
+- Cancelling :meth:`VoiceClient.disconnect` while it waits for Discord's confirmation now raises :exc:`asyncio.CancelledError` after the cleanup, instead of returning normally.
 - :class:`SystemChannelFlags` now includes :attr:`~SystemChannelFlags.emoji_added` (bit 256). Like the other system channel flags it is stored inverted, so a new ``SystemChannelFlags()`` has every notification turned off, including emoji notifications: its raw :attr:`~SystemChannelFlags.value` is 511, not 255. Code that builds flags from scratch for :meth:`Guild.edit` now also turns off emoji-added notifications unless it sets ``emoji_added=True``. Start from :attr:`Guild.system_channel_flags` to keep the current settings.
 
 Fixes
@@ -64,6 +68,15 @@ Fixes
 - Fetching application manifest labels modified the payload dicts passed in.
 - ``HeadersContext.default`` raised when the info API answered without a browser version; it now falls back to the manual build-number and browser-version lookup, as it does when the API is down.
 - Internal waits that time out (the voice connection handshake) no longer leave a task waiting forever.
+- The documented ``apm_tracing`` option of :class:`Client` was never read; only an undocumented ``trace`` key enabled tracing. Both now work.
+- A rate-limited response with ``X-Ratelimit-Remaining`` but no usable reset header raised :exc:`KeyError`; a 1 second window is assumed.
+- A webhook 429 whose body lacked a numeric ``retry_after`` raised :exc:`KeyError` or :exc:`TypeError`; the ``Retry-After`` header or a 1 second wait is used.
+- The gateway send rate limiter used the wall clock, so a clock step backwards (NTP, a resumed VM) could stall sends for as long as the step.
+- A repeated voice HELLO started a second heartbeat thread without stopping the first.
+- :meth:`~ext.commands.Cooldown.get_retry_after` could return a negative delay for a cooldown with a rate of 0.
+- Components of unknown types are logged at DEBUG when they are skipped.
+- :class:`ActivityFlags`, :class:`AttachmentFlags`, :class:`EmbedFlags`, :class:`RoleFlags` and the array flag bases had no ``__slots__``, so each instance carried a ``__dict__``.
+- :class:`BulkBanResult` was documented under ``discord`` but not exported from it.
 
 .. _vp2p3p1:
 
