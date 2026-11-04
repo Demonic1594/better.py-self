@@ -88,6 +88,44 @@ for the full tuning guide):
   ReDoS-class regex floods, zlib bombs, hostile persistence snapshots,
   resource-exhaustion storms — no hangs, no base-exception leaks, bounded
   memory (11 abuse-driven defect fixes, each regression-gated)
+- The gateway recovers on its own. A 5xx on the resume URL falls back to the
+  default gateway, a receive timeout closes the stalled socket before
+  reconnecting, and a duplicate ``GUILD_MEMBER_ADD`` is ignored
+
+**Credentials stay out of logs**
+
+- DEBUG logging redacts tokens, passwords, emails, phone numbers and voice
+  keys in gateway events, HTTP bodies and voice payloads. Webhook and
+  interaction tokens are masked in logged URLs and rate-limit keys. The live
+  tests found no token fragment in about 50 MB of DEBUG logs.
+
+**New in v2.3.2** (ported from Rapptz/discord.py and adapted to user accounts)
+
+- **Soundboard:**
+
+  - Request guilds' sounds over the gateway, as the official client does
+    (``Client.request_soundboard_sounds``), then create, edit, delete and play
+    them (``VoiceChannel.send_sound``).
+  - Soundboard events and audit-log actions, and a ``SoundboardSoundConverter``
+    for ``ext.commands``.
+  - Several bugs that Rapptz's version still has are fixed here: unhashable
+    sounds, audit-log entries that crash on a missing target or lose a custom
+    emoji's ID, and emoji edits that don't clear the previous emoji.
+
+- **Voice channel effects:** ``on_voice_channel_effect`` for emoji and sound
+  effects, in guilds and in DM and group calls
+- **Interaction metadata:** ``Message.interaction_metadata`` says which command,
+  button or modal produced an app's message, and who used it.
+- **Raw presences:** ``on_raw_presence_update`` (opt in with
+  ``enable_raw_presences=True``) also fires for members the cache doesn't hold.
+- **Voice state:** ``Member.fetch_voice()``. Discord serves this endpoint to bot
+  accounts only, so on a user account it returns the cached voice state.
+
+See the `changelog
+<https://github.com/Demonic1594/better.py-self/blob/master/docs/whats_new.rst>`_
+for everything in each release, and the `roadmap
+<https://github.com/Demonic1594/better.py-self/blob/master/docs/roadmap.rst>`_
+for what is planned next.
 
 Key Features
 -------------
@@ -177,6 +215,12 @@ Differences From Upstream
 - ``Client(eager_dispatch=True)`` is an opt-in addition (Python 3.12+) that
   starts event handlers eagerly. It is off by default, and the changelog
   lists the behaviour changes this round made.
+- ``Client(enable_raw_presences=True)`` turns on ``on_raw_presence_update``. It
+  is off by default because presence updates are the most frequent event.
+- Features are ported from Rapptz/discord.py as well as from
+  dolfies/discord.py-self. The `upstream syncing guide
+  <https://github.com/Demonic1594/better.py-self/blob/master/docs/upstream_syncing.rst>`_
+  records each port, what was adapted and what was left out.
 
 Quick Example
 --------------
@@ -291,6 +335,9 @@ Links
 ------
 
 - `Fork releases <https://github.com/Demonic1594/better.py-self/releases>`_
+- `Wiki <https://github.com/Demonic1594/better.py-self/blob/master/wiki/README.md>`_
+- `Changelog <https://github.com/Demonic1594/better.py-self/blob/master/docs/whats_new.rst>`_
+- `Roadmap <https://github.com/Demonic1594/better.py-self/blob/master/docs/roadmap.rst>`_
 - `Cache tuning guide <https://github.com/Demonic1594/better.py-self/blob/master/docs/cache_tuning.rst>`_
 - `Upstream (dolfies/discord.py-self) <https://github.com/dolfies/discord.py-self>`_
 - `Upstream documentation <https://discordpy-self.readthedocs.io/en/latest/index.html>`_

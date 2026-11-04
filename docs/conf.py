@@ -186,9 +186,11 @@ html_context = {
 }
 
 resource_links = {
-    'issues': 'https://github.com/dolfies/discord.py-self/issues',
+    'issues': 'https://github.com/Demonic1594/better.py-self/issues',
+    # This fork has no discussions board; the upstream community is the place to ask
     'discussions': 'https://github.com/dolfies/discord.py-self/discussions',
-    'examples': f'https://github.com/dolfies/discord.py-self/tree/{branch}/examples',
+    'examples': 'https://github.com/Demonic1594/better.py-self/tree/master/examples',
+    'wiki': 'https://github.com/Demonic1594/better.py-self/blob/master/wiki/README.md',
 }
 
 # Theme options are theme-specific and customize the look and feel of a theme
