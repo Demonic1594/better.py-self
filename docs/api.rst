@@ -1868,7 +1868,7 @@ Utility Functions
 
 .. autofunction:: discord.utils.escape_mentions
 
-.. class:: ResolvedInvite
+.. class:: discord.utils.ResolvedInvite
 
     A data class which represents a resolved invite returned from :func:`discord.utils.resolve_invite`.
 

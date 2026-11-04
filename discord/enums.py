@@ -159,6 +159,8 @@ __all__ = (
     'GuildBadgeType',
     'GuildVisibility',
     'FavoriteGIFType',
+    'ESRBRating',
+    'PromotionType',
 )
 
 
