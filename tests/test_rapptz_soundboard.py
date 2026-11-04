@@ -251,6 +251,16 @@ def test_sound_inequality_with_other_types():
         assert (sound != 1) is True and (sound != sound) is False
 
 
+def test_sounds_are_hashable():
+    """Defining __eq__ without __hash__ made every sound class unhashable."""
+    data = {'sound_id': '3', 'volume': 1.0, 'name': 'q', 'emoji_name': 'x'}
+    a = discord.SoundboardDefaultSound(state=None, data=data)  # type: ignore[arg-type]
+    b = discord.SoundboardDefaultSound(state=None, data=data)  # type: ignore[arg-type]
+    assert hash(a) == hash(b) and len({a, b}) == 1
+    assert discord.SoundboardSound.__hash__ is not None
+    assert discord.VoiceChannelSoundEffect.__hash__ is not None
+
+
 @pytest.mark.asyncio
 async def test_create_and_edit_sound_validate_input():
     """Unsupported emoji types raise TypeError instead of being ignored, and any
@@ -262,11 +272,16 @@ async def test_create_and_edit_sound_validate_input():
         payloads.append(payload)
         return _sound(guild_id)
 
+    async def edit_soundboard_sound(guild_id, sound_id, *, reason=None, **payload):
+        raise AssertionError('edit_soundboard_sound must not be called for an unsupported emoji')
+
     state.http.create_soundboard_sound = create_soundboard_sound  # type: ignore[method-assign]
+    state.http.edit_soundboard_sound = edit_soundboard_sound  # type: ignore[method-assign]
     await guild.create_soundboard_sound(name='honk', sound=memoryview(b'ID3\x04data'), emoji='🦆')  # type: ignore[arg-type]
     assert payloads[-1]['sound'].startswith('data:audio/mpeg;base64,') and payloads[-1]['emoji_name'] == '🦆'
     with pytest.raises(TypeError):
         await guild.create_soundboard_sound(name='honk', sound=b'ID3', emoji=42)  # type: ignore[arg-type]
+    assert len(payloads) == 1
     sound = discord.SoundboardSound(guild=guild, state=state, data=_sound(guild.id))  # type: ignore[arg-type]
     with pytest.raises(TypeError):
         await sound.edit(emoji=42)  # type: ignore[arg-type]

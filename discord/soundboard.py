@@ -88,8 +88,10 @@ class BaseSoundboardSound(Hashable, AssetMixin):
             return self.id == other.id
         return NotImplemented
 
-    # No __ne__: Python derives it from __eq__ and keeps NotImplemented
-    # intact (``not NotImplemented`` is a TypeError on 3.14)
+    # Defining __eq__ sets __hash__ to None, so restore Hashable's. No __ne__:
+    # Python derives it from __eq__ and keeps NotImplemented intact
+    # (``not NotImplemented`` is a TypeError on 3.14)
+    __hash__ = Hashable.__hash__
 
     def _update(self, data: BaseSoundboardSoundPayload):
         self.volume: float = data['volume']
