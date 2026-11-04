@@ -27,7 +27,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, List, Literal, Optional, Set, Tuple, Union
 
 from .colour import Colour
-from .enums import ChannelType, ReactionType, ReadStateType, try_enum
+from .enums import ChannelType, ReactionType, ReadStateType, Status, try_enum
 from .utils import _get_as_snowflake
 
 if TYPE_CHECKING:
@@ -39,6 +39,8 @@ if TYPE_CHECKING:
     from .partial_emoji import PartialEmoji
     from .state import ConnectionState
     from .threads import Thread
+    from .activity import ActivityTypes
+    from .state import Presence
     from .types.gateway import (
         GuildJoinRequestDeleteEvent,
         GuildMemberRemoveEvent,
@@ -78,6 +80,7 @@ __all__ = (
     'RawGuildFeatureAckEvent',
     'RawPollVoteActionEvent',
     'RawJoinRequestDeleteEvent',
+    'RawPresenceUpdateEvent',
 )
 
 
@@ -580,3 +583,47 @@ class RawJoinRequestDeleteEvent(_RawReprMixin):
     def user(self) -> Optional[User]:
         """Optional[:class:`User`]: The user that created the join request, if found."""
         return self._state.get_user(self.user_id)
+
+
+class RawPresenceUpdateEvent(_RawReprMixin):
+    """Represents the payload for a :func:`on_raw_presence_update` event.
+
+    Unlike :func:`on_presence_update`, this is dispatched for every presence
+    update, including users whose member is not cached (for example after the
+    member cache evicted them, see :ref:`cache_tuning`) and guilds that are not
+    cached.
+
+    .. versionadded:: 2.3.2
+
+    Attributes
+    -----------
+    user_id: :class:`int`
+        The ID of the user whose presence changed.
+    guild_id: Optional[:class:`int`]
+        The ID of the guild the update is for, or ``None`` for a friend's presence.
+    guild: Optional[:class:`Guild`]
+        The guild the update is for, if it is cached.
+    status: :class:`Status`
+        The user's overall status.
+    desktop_status: :class:`Status`
+        The user's status on a desktop client.
+    mobile_status: :class:`Status`
+        The user's status on a mobile client.
+    web_status: :class:`Status`
+        The user's status on the web client.
+    activities: Tuple[Union[:class:`BaseActivity`, :class:`Spotify`]]
+        The user's current activities.
+    """
+
+    __slots__ = ('user_id', 'guild_id', 'guild', 'status', 'desktop_status', 'mobile_status', 'web_status', 'activities')
+
+    def __init__(self, *, user_id: int, guild_id: Optional[int], guild: Optional[Guild], presence: Presence) -> None:
+        self.user_id: int = user_id
+        self.guild_id: Optional[int] = guild_id
+        self.guild: Optional[Guild] = guild
+        client_status = presence.client_status
+        self.status: Status = try_enum(Status, client_status.status)
+        self.desktop_status: Status = try_enum(Status, client_status.desktop or 'offline')
+        self.mobile_status: Status = try_enum(Status, client_status.mobile or 'offline')
+        self.web_status: Status = try_enum(Status, client_status.web or 'offline')
+        self.activities: Tuple[ActivityTypes, ...] = presence.activities

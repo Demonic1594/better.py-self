@@ -34,7 +34,7 @@ from .emoji import PartialEmoji
 from .embed import Embed
 from .channel import ChannelType
 from .components import Component
-from .interactions import MessageInteraction
+from .interactions import MessageInteraction, MessageInteractionMetadata
 from .application import BaseApplication, PartialApplication
 from .sticker import StickerItem
 from .threads import Thread, ThreadMember
@@ -219,6 +219,7 @@ class Message(PartialMessage):
     sticker_items: NotRequired[List[StickerItem]]
     referenced_message: NotRequired[Optional[Message]]
     interaction: NotRequired[MessageInteraction]
+    interaction_metadata: NotRequired[MessageInteractionMetadata]
     components: NotRequired[List[Component]]
     position: NotRequired[int]
     call: NotRequired[Call]

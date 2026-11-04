@@ -256,6 +256,52 @@ class MessageInteraction(TypedDict):
     member: NotRequired[Member]
 
 
+class _MessageInteractionMetadata(TypedDict):
+    id: Snowflake
+    user: User
+    authorizing_integration_owners: Dict[Literal['0', '1'], Snowflake]
+    original_response_message_id: NotRequired[Snowflake]
+
+
+class _ApplicationCommandMessageInteractionMetadata(_MessageInteractionMetadata):
+    type: Literal[2]
+
+
+class UserApplicationCommandMessageInteractionMetadata(_ApplicationCommandMessageInteractionMetadata):
+    target_user: User
+
+
+class MessageApplicationCommandMessageInteractionMetadata(_ApplicationCommandMessageInteractionMetadata):
+    target_message_id: Snowflake
+
+
+ApplicationCommandMessageInteractionMetadata = Union[
+    _ApplicationCommandMessageInteractionMetadata,
+    UserApplicationCommandMessageInteractionMetadata,
+    MessageApplicationCommandMessageInteractionMetadata,
+]
+
+
+class MessageComponentMessageInteractionMetadata(_MessageInteractionMetadata):
+    type: Literal[3]
+    interacted_message_id: Snowflake
+
+
+class ModalSubmitMessageInteractionMetadata(_MessageInteractionMetadata):
+    type: Literal[5]
+    triggering_interaction_metadata: Union[
+        ApplicationCommandMessageInteractionMetadata,
+        MessageComponentMessageInteractionMetadata,
+    ]
+
+
+MessageInteractionMetadata = Union[
+    ApplicationCommandMessageInteractionMetadata,
+    MessageComponentMessageInteractionMetadata,
+    ModalSubmitMessageInteractionMetadata,
+]
+
+
 class Modal(TypedDict):
     id: int
     nonce: NotRequired[Snowflake]

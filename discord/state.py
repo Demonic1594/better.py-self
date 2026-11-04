@@ -2688,7 +2688,7 @@ class ConnectionState:
                 # READY_SUPPLEMENTAL, whose errors drop the connection
                 _log.warning('Skipping malformed private channel ID %s in READY.', pm.get('id'), exc_info=True)
                 continue
-            self._add_private_channel(channel)  # type: ignore
+            self._add_private_channel(channel)
 
         # Disloses
         self.disclose = data.get('disclose', [])
@@ -3285,6 +3285,18 @@ class ConnectionState:
     def parse_presence_update(self, data: gw.PresenceUpdateEvent) -> None:
         guild_id = utils._get_as_snowflake(data, 'guild_id')
         guild = self._get_guild(guild_id)
+
+        # Only built when something listens: presence updates are the busiest
+        # event, and the raw event covers members the cache no longer holds
+        # (Rapptz/discord.py 418a791; there it is gated by intents instead)
+        user = data.get('user')
+        if user and self._has_listener('raw_presence_update'):
+            user_id = int(user['id'])
+            raw = RawPresenceUpdateEvent(
+                user_id=user_id, guild_id=guild_id, guild=guild, presence=self.create_presence(data, user_id)
+            )
+            self.dispatch('raw_presence_update', raw)
+
         if guild_id and not guild:
             _log.debug('PRESENCE_UPDATE referencing an unknown guild ID: %s. Discarding.', guild_id)
             return

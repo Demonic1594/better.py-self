@@ -16,6 +16,15 @@ in specific versions.
 Unreleased
 ----------
 
+New Features
+~~~~~~~~~~~~
+
+Ported from Rapptz/discord.py:
+
+- :attr:`Message.interaction_metadata` and :class:`MessageInteractionMetadata`: which command, button or modal produced an application's message, who used it, and the user or message a context-menu command ran on. Discord sends this in place of the data :attr:`Message.interaction` reads, which keeps working.
+- :func:`on_raw_presence_update` and :class:`RawPresenceUpdateEvent`: every presence update, including members the cache does not hold. The payload is only built when something listens for the event.
+- :meth:`Member.fetch_voice` fetches a member's voice state from the API instead of the cache.
+
 Behaviour Changes
 ~~~~~~~~~~~~~~~~~
 

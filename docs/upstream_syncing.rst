@@ -246,6 +246,17 @@ Upstream issue and PR triage (2026-11-03)
     server), and the unmerged feature PRs #896 (frecency settings) and #934
     (profile editing), which are still in review upstream.
 
+Ported from Rapptz/discord.py, round 2 (2026-11-04)
+    62e5280 (``Member.fetch_voice`` and the GET voice-state routes), 963bb08 +
+    814ce3c + 2248fc1 (``Message.interaction_metadata`` and
+    ``MessageInteractionMetadata``; ``Message.interaction`` keeps our
+    ``Interaction`` object and is not deprecated, since dropping or deprecating
+    it would change our public API), 418a791 (``on_raw_presence_update``:
+    gated on a listener via ``ConnectionState._has_listener`` instead of
+    Rapptz's intents-based ``enable_raw_presences``, and exposing ``status`` and
+    the per-platform statuses like ``Member`` does, since our ``ClientStatus`` is
+    internal).
+
 Ported from Rapptz/discord.py, round 1 (2026-11-04)
     dolfies/discord.py-self last shared history with Rapptz/discord.py in
     March 2022 and ports commits by hand since. Ported here: 65232c3 (default

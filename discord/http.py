@@ -138,6 +138,7 @@ if TYPE_CHECKING:
         welcome_screen,
         widget,
         poll,
+        voice,
     )
     from .types.snowflake import Snowflake, SnowflakeList
 
@@ -2055,6 +2056,12 @@ class HTTPClient:
             'delete_message_seconds': delete_message_seconds,
         }
         return self.request(Route('POST', '/guilds/{guild_id}/bulk-ban', guild_id=guild_id), json=payload, reason=reason)
+
+    def get_my_voice_state(self, guild_id: Snowflake) -> Response[voice.GuildVoiceState]:
+        return self.request(Route('GET', '/guilds/{guild_id}/voice-states/@me', guild_id=guild_id))
+
+    def get_voice_state(self, guild_id: Snowflake, user_id: Snowflake) -> Response[voice.GuildVoiceState]:
+        return self.request(Route('GET', '/guilds/{guild_id}/voice-states/{user_id}', guild_id=guild_id, user_id=user_id))
 
     def edit_my_voice_state(self, guild_id: Snowflake, payload: Dict[str, Any]) -> Response[None]:
         return self.request(Route('PATCH', '/guilds/{guild_id}/voice-states/@me', guild_id=guild_id), json=payload)
