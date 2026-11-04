@@ -246,6 +246,22 @@ Upstream issue and PR triage (2026-11-03)
     server), and the unmerged feature PRs #896 (frecency settings) and #934
     (profile editing), which are still in review upstream.
 
+Ported from Rapptz/discord.py, round 1 (2026-11-04)
+    dolfies/discord.py-self last shared history with Rapptz/discord.py in
+    March 2022 and ports commits by hand since. Ported here: 65232c3 (default
+    gateway after a 5xx on the resume URL; adapted to curl_cffi, which reports
+    the refused upgrade as CurlError 22, and rebuilding the full query string
+    the original drops), 1985498 (close the socket on a poll timeout), 22ade98
+    (ignore a duplicate GUILD_MEMBER_ADD), 354ae42 (clone), 826aa22 (platform in
+    the activity repr; our Game/Streaming proxy Activity), aeab0d4 (deprecation
+    stacklevel), 38bbfed (Poll.duration), 8f3224b (Paginator.pages). Not ported:
+    643a7f4 (DummyCookieJar: webhooks bound to a client share that aiohttp
+    session, and cookie-less clients draw Cloudflare 403s), e6d2d82 (AF_INET:
+    our aiohttp session only reaches the CDN and Google storage, which serves
+    IPv6), 6ec2e53 (``with_expiration``: we already send it as the official
+    client does), 9a1b91d (deferred to the soundboard port, the only actions it
+    affects).
+
 Audit fixes, round 6 (2026-11-04)
     Upstream bugs fixed here: ``Ratelimit.update`` without reset headers;
     webhook 429s parse ``retry_after`` via ``http._webhook_retry_after``;

@@ -540,14 +540,17 @@ class TextChannel(discord.abc.Messageable, discord.abc.GuildChannel, Hashable):
         category: Optional[CategoryChannel] = None,
         reason: Optional[str] = None,
     ) -> TextChannel:
+        base: Dict[str, Any] = {
+            'topic': self.topic,
+            'nsfw': self.nsfw,
+            'default_auto_archive_duration': self.default_auto_archive_duration,
+            'default_thread_rate_limit_per_user': self.default_thread_slowmode_delay,
+        }
+        # Announcement channels have no slowmode (Rapptz/discord.py 354ae42)
+        if not self.is_news():
+            base['rate_limit_per_user'] = self.slowmode_delay
         return await self._clone_impl(
-            {
-                'topic': self.topic,
-                'rate_limit_per_user': self.slowmode_delay,
-                'nsfw': self.nsfw,
-                'default_auto_archive_duration': self.default_auto_archive_duration,
-                'default_thread_rate_limit_per_user': self.default_thread_slowmode_delay,
-            },
+            base,
             name=name,
             category=category,
             reason=reason,
@@ -1428,7 +1431,9 @@ class VocalGuildChannel(discord.abc.Messageable, discord.abc.Connectable, discor
         return Webhook.from_state(data, state=self._state)
 
     @utils.copy_doc(discord.abc.GuildChannel.clone)
-    async def clone(self, *, name: Optional[str] = None, reason: Optional[str] = None) -> Self:
+    async def clone(
+        self, *, name: Optional[str] = None, category: Optional[CategoryChannel] = None, reason: Optional[str] = None
+    ) -> Self:
         base = {
             'bitrate': self.bitrate,
             'user_limit': self.user_limit,
@@ -1442,6 +1447,7 @@ class VocalGuildChannel(discord.abc.Messageable, discord.abc.Connectable, discor
         return await self._clone_impl(
             base,
             name=name,
+            category=category,
             reason=reason,
         )
 
@@ -1541,18 +1547,6 @@ class VoiceChannel(VocalGuildChannel):
     def type(self) -> Literal[ChannelType.voice]:
         """:class:`ChannelType`: The channel's Discord type."""
         return ChannelType.voice
-
-    @utils.copy_doc(discord.abc.GuildChannel.clone)
-    async def clone(
-        self,
-        *,
-        name: Optional[str] = None,
-        category: Optional[CategoryChannel] = None,
-        reason: Optional[str] = None,
-    ) -> VoiceChannel:
-        return await self._clone_impl(
-            {'bitrate': self.bitrate, 'user_limit': self.user_limit}, name=name, category=category, reason=reason
-        )
 
     @overload
     async def edit(self) -> None: ...
@@ -1794,16 +1788,6 @@ class StageChannel(VocalGuildChannel):
     def type(self) -> ChannelType:
         """:class:`ChannelType`: The channel's Discord type."""
         return ChannelType.stage_voice
-
-    @utils.copy_doc(discord.abc.GuildChannel.clone)
-    async def clone(
-        self,
-        *,
-        name: Optional[str] = None,
-        category: Optional[CategoryChannel] = None,
-        reason: Optional[str] = None,
-    ) -> StageChannel:
-        return await self._clone_impl({}, name=name, category=category, reason=reason)
 
     @property
     def instance(self) -> Optional[StageInstance]:

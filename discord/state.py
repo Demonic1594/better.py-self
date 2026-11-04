@@ -3882,6 +3882,15 @@ class ConnectionState:
             _log.debug('GUILD_MEMBER_ADD referencing an unknown guild ID: %s. Discarding.', data['guild_id'])
             return
 
+        # A repeated GUILD_MEMBER_ADD for a member already cached would count
+        # them twice in member_count and dispatch on_member_join again
+        # (Rapptz/discord.py 22ade98). The cache is read directly so the check
+        # does not count as a member-cache hit or miss.
+        member_id = int(data['user']['id'])
+        if member_id in guild._members:
+            _log.debug('GUILD_MEMBER_ADD referencing an already cached member ID: %s. Discarding.', member_id)
+            return
+
         member = Member(guild=guild, data=data, state=self)
         presence = None
         if 'presence' in data:

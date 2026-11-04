@@ -28,6 +28,7 @@ import asyncio
 from collections import deque
 import logging
 import random
+import re
 import struct
 import time
 import threading
@@ -125,6 +126,18 @@ class EventListener(NamedTuple):
     event: str
     result: Optional[Callable[[Dict[str, Any]], Any]]
     future: asyncio.Future[Any]
+
+
+_REFUSED_UPGRADE_RE = re.compile(r'Refused WebSocket upgrade: (\d{3})')
+
+
+def _refused_upgrade_status(exc: CurlError) -> Optional[int]:
+    """The HTTP status a server refused a websocket upgrade with, if ``exc`` is
+    that failure. libcurl reports it as error 22 with the status in the message."""
+    if getattr(exc, 'code', None) != 22:
+        return None
+    match = _REFUSED_UPGRADE_RE.search(str(exc))
+    return int(match.group(1)) if match else None
 
 
 class GatewayRatelimiter:
@@ -487,14 +500,29 @@ class DiscordWebSocket:
 
         gateway = gateway or cls.DEFAULT_GATEWAY
 
-        if not compress:
-            url = gateway.with_query(v=INTERNAL_API_VERSION, encoding=encoding)
-        else:
-            url = gateway.with_query(
-                v=INTERNAL_API_VERSION, encoding=encoding, compress=utils._ActiveDecompressionContext.COMPRESSION_TYPE
+        def with_query(base: yarl.URL) -> str:
+            if not compress:
+                return str(base.with_query(v=INTERNAL_API_VERSION, encoding=encoding))
+            return str(
+                base.with_query(
+                    v=INTERNAL_API_VERSION, encoding=encoding, compress=utils._ActiveDecompressionContext.COMPRESSION_TYPE
+                )
             )
 
-        socket = await client.http.ws_connect(str(url))
+        try:
+            socket = await client.http.ws_connect(with_query(gateway))
+        except CurlError as exc:
+            # A resume URL (resume_gateway_url) that answers the upgrade with a
+            # server error would keep failing every RESUME attempt; fall back to
+            # the default gateway with a fresh session (Rapptz/discord.py#10511)
+            status = _refused_upgrade_status(exc)
+            if status is None or status < 500 or gateway == cls.DEFAULT_GATEWAY:
+                raise
+            _log.info('Gateway %s refused the connection with HTTP %s; identifying on the default gateway.', gateway, status)
+            gateway = cls.DEFAULT_GATEWAY
+            resume = False
+            session = sequence = None
+            socket = await client.http.ws_connect(with_query(gateway))
         ws = cls(socket, loop=client.loop)
 
         # Dynamically add attributes needed
@@ -820,6 +848,13 @@ class DiscordWebSocket:
 
             if isinstance(e, asyncio.TimeoutError):
                 _log.debug('Timed out receiving Gateway packet. Attempting a reconnect.')
+                # Close the silent socket (4000 keeps the session resumable), or
+                # every timeout-driven reconnect would leave one open behind it
+                if not self.socket.closed:
+                    try:
+                        await asyncio.wait_for(self.socket.close(4000), timeout=5.0)
+                    except Exception:
+                        _log.debug('Ignoring an error closing the timed-out gateway socket.', exc_info=True)
                 raise ReconnectWebSocket from None
 
             socket = self.socket

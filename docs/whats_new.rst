@@ -36,6 +36,11 @@ Behaviour Changes
 - An exception raised inside :meth:`Client.on_error` is logged with the original error chained, instead of surfacing only as "Task exception was never retrieved".
 - A CDN request (:meth:`Asset.read` and friends) that gets a 5xx raises :exc:`DiscordServerError`, a subclass of the :exc:`HTTPException` it raised before.
 - Cancelling :meth:`VoiceClient.disconnect` while it waits for Discord's confirmation now raises :exc:`asyncio.CancelledError` after the cleanup, instead of returning normally.
+- :attr:`ext.commands.Paginator.pages` no longer closes the page being built: lines added after reading it stay on that page, as they do in discord.py.
+- :meth:`VoiceChannel.clone` and :meth:`StageChannel.clone` copy the channel's slowmode, NSFW flag, video quality and voice region too (they share one implementation now, as in discord.py), and cloning an announcement channel no longer sends a slowmode.
+- A repeated ``GUILD_MEMBER_ADD`` for a member who is already cached is ignored: :func:`on_member_join` is not dispatched twice and :attr:`Guild.member_count` is not counted up twice.
+- If a session's resume gateway answers the connection with a server error, the client identifies a new session on the default gateway instead of retrying that gateway.
+- :attr:`Poll.duration` of a received poll is a whole number of hours.
 - :class:`SystemChannelFlags` now includes :attr:`~SystemChannelFlags.emoji_added` (bit 256). Like the other system channel flags it is stored inverted, so a new ``SystemChannelFlags()`` has every notification turned off, including emoji notifications: its raw :attr:`~SystemChannelFlags.value` is 511, not 255. Code that builds flags from scratch for :meth:`Guild.edit` now also turns off emoji-added notifications unless it sets ``emoji_added=True``. Start from :attr:`Guild.system_channel_flags` to keep the current settings.
 
 Fixes
@@ -78,6 +83,9 @@ Fixes
 - Components of unknown types are logged at DEBUG when they are skipped.
 - :class:`ActivityFlags`, :class:`AttachmentFlags`, :class:`EmbedFlags`, :class:`RoleFlags` and the array flag bases had no ``__slots__``, so each instance carried a ``__dict__``.
 - :class:`BulkBanResult` was documented under ``discord`` but not exported from it.
+- Deprecation warnings from deprecated properties and constructors pointed at ``<sys>:0`` instead of the line that used them.
+- A gateway receive timeout left the old socket open while reconnecting.
+- The ``repr`` of activities now includes their platform.
 
 .. _vp2p3p1:
 
