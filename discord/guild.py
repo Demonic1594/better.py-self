@@ -651,6 +651,7 @@ class Guild(Hashable):
         # Defaults for fields that _from_data only overwrites when the payload
         # carries them: a GUILD_UPDATE without them must not wipe the cache
         self.emojis: Tuple[Emoji, ...] = ()
+        self.stickers: Tuple[GuildSticker, ...] = ()
         self.max_presences: Optional[int] = None
         self.premium_subscription_count: int = 0
         self._joined_at: Optional[str] = None
@@ -933,9 +934,8 @@ class Guild(Hashable):
             self._soundboard_sounds = {}
             for sound in sounds:
                 self._add_soundboard_sound(SoundboardSound(guild=self, state=state, data=sound))
-        self.stickers: Tuple[GuildSticker, ...] = tuple(
-            map(lambda d: state.store_sticker(self, d), guild.get('stickers', []))
-        )
+        if 'stickers' in guild:
+            self.stickers = tuple(map(lambda d: state.store_sticker(self, d), guild['stickers']))
         self.features: List[str] = guild.get('features', [])
         self._icon: Optional[str] = guild.get('icon')
         self._banner: Optional[str] = guild.get('banner')

@@ -106,7 +106,7 @@ Guild (``discord/guild.py``)
     (self, voice, joined threads), ``_members_seen`` chunked accounting,
     presence cleanup on eviction, and the per-guild eviction counters used
     by ``cache_stats``. ``chunked`` is ``count <= _members_seen and ...``.
-    ``_from_data`` only overwrites ``joined_at``, ``emojis``,
+    ``_from_data`` only overwrites ``joined_at``, ``emojis``, ``stickers``,
     ``premium_subscription_count`` and ``max_presences`` when the key is
     present, since it also runs for partial ``GUILD_UPDATE`` payloads
     (defaults are set in ``__init__``). ``audit_logs(oldest_first=True)``

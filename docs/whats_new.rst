@@ -26,7 +26,7 @@ Fixes
 ~~~~~
 
 - DEBUG logs now redact ``billing_address_token``, which :meth:`Client.create_payment_source` sends. It used to be logged in clear.
-- A ``GUILD_UPDATE`` that leaves out ``joined_at``, ``emojis``, ``premium_subscription_count`` or ``max_presences`` no longer wipes them. Before, :attr:`Guild.joined_at` became ``None``, :attr:`Guild.emojis` became empty, and the other two were reset.
+- A ``GUILD_UPDATE`` that leaves out ``joined_at``, ``emojis``, ``stickers``, ``premium_subscription_count`` or ``max_presences`` no longer wipes them. Before, :attr:`Guild.joined_at` became ``None``, :attr:`Guild.emojis` and :attr:`Guild.stickers` became empty, and the other two were reset.
 - :meth:`Guild.audit_logs` with ``oldest_first=True`` fetched the same entries again page after page. It now yields each entry once, oldest first, and honours ``after`` and ``before`` together.
 - A gateway frame that could not be decoded (corrupt compressed data, invalid JSON or a non-object payload) escaped the receive loop and stopped the client. It is now logged as a warning and the session resumes on a fresh connection.
 - Every ``PRESENCE_UPDATE`` for your own account raised :exc:`TypeError` inside the parser, so your own presence changes were never processed.

@@ -169,6 +169,18 @@ async def test_guild_update_without_optional_keys_keeps_cached_values():
         {
             'joined_at': '2024-01-02T03:04:05+00:00',
             'emojis': [{'id': '55', 'name': 'blob', 'animated': False, 'available': True}],
+            'stickers': [
+                {
+                    'id': '66',
+                    'name': 'stk',
+                    'description': '',
+                    'tags': 'x',
+                    'type': 2,
+                    'format_type': 1,
+                    'available': True,
+                    'guild_id': '1',
+                }
+            ],
             'premium_subscription_count': 7,
             'max_presences': 25000,
         }
@@ -184,13 +196,15 @@ async def test_guild_update_without_optional_keys_keeps_cached_values():
     assert guild.name == 'renamed'
     assert guild.joined_at == joined_at
     assert [e.id for e in guild.emojis] == [55]
+    assert [s.id for s in guild.stickers] == [66]
     assert guild.premium_subscription_count == 7 and guild.max_presences == 25000
 
     # Keys that are present still apply, including empty and null values
     client._connection.parse_guild_update(
-        {'id': '1', 'name': 'renamed', 'emojis': [], 'premium_subscription_count': 0, 'max_presences': None}  # type: ignore[arg-type]
+        {'id': '1', 'name': 'renamed', 'emojis': [], 'stickers': [], 'premium_subscription_count': 0, 'max_presences': None}  # type: ignore[arg-type]
     )
-    assert guild.emojis == () and guild.premium_subscription_count == 0 and guild.max_presences is None
+    assert guild.emojis == () and guild.stickers == ()
+    assert guild.premium_subscription_count == 0 and guild.max_presences is None
     await client.close()
 
 
@@ -215,3 +229,29 @@ async def test_undecodable_frame_resumes_instead_of_crashing(frame, caplog):
     assert info.value.resume is True
     assert ws.socket.closed
     assert any('could not be decoded' in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_undecodable_frame_joins_the_keepalive():
+    """The resume path stopped the keepalive and dropped it without joining,
+    so a heartbeat blocked on the old socket could outlive it."""
+    import asyncio
+
+    from discord.gateway import ReconnectWebSocket
+    from test_abuse2 import make_ws
+
+    ws = make_ws(asyncio.get_running_loop())
+    joined = []
+
+    class FakeKeepAlive:
+        def stop(self):
+            joined.append('stop')
+
+        async def _join(self, timeout=5.0):
+            assert ws.socket.closed, 'joined after the socket close'
+            joined.append('join')
+
+    ws._keep_alive = FakeKeepAlive()  # type: ignore[assignment]
+    with pytest.raises(ReconnectWebSocket):
+        await ws.received_message('not json')
+    assert joined == ['stop', 'join'] and ws._keep_alive is None
