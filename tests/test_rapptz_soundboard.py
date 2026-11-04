@@ -366,3 +366,28 @@ async def test_edit_sound_emoji_clears_the_other_field():
     await sound.edit(emoji='\U0001f986')
     await sound.edit(emoji=discord.PartialEmoji(name='party', id=123))
     assert payloads == [{'emoji_id': None, 'emoji_name': '\U0001f986'}, {'emoji_id': 123, 'emoji_name': None}]
+
+
+@pytest.mark.asyncio
+async def test_soundboard_audit_log_target_without_target_id():
+    """Live: Discord sends target_id null for soundboard actions, and Object(id=None)
+    raised TypeError. Create/delete take the ID from the changes; update is None."""
+    client, state, guild, _ = await make_env()
+
+    def entry(action, changes):
+        data = {'id': '1', 'action_type': action, 'user_id': None, 'target_id': None, 'changes': changes}
+        return discord.AuditLogEntry(
+            users={},
+            integrations={},
+            application_commands={},
+            automod_rules={},
+            webhooks={},
+            data=data,
+            guild=guild,  # type: ignore[arg-type]
+        )
+
+    created = entry(130, [{'key': 'id', 'new_value': str(SOUND_ID)}, {'key': 'name', 'new_value': 'x'}])
+    deleted = entry(132, [{'key': 'id', 'old_value': str(SOUND_ID)}, {'key': 'name', 'old_value': 'x'}])
+    updated = entry(131, [{'key': 'volume', 'old_value': 0.5, 'new_value': 0.8}])
+    assert created.target.id == SOUND_ID and deleted.target.id == SOUND_ID
+    assert updated.target is None

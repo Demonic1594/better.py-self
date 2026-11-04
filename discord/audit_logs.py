@@ -24,6 +24,7 @@ DEALINGS IN THE SOFTWARE.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Mapping, Generator, List, Optional, Tuple, Type, TypeVar, Union
 
 from . import enums, flags, utils
@@ -52,6 +53,8 @@ __all__ = (
     'AuditLogChanges',
     'AuditLogEntry',
 )
+
+_log = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
@@ -975,7 +978,16 @@ class AuditLogEntry(Hashable):
     def _convert_target_thread(self, target_id: int) -> Union[Thread, Object]:
         return self.guild.get_thread(target_id) or Object(id=target_id, type=Thread)
 
-    def _convert_target_soundboard_sound(self, target_id: int) -> Union[SoundboardSound, Object]:
+    def _convert_target_soundboard_sound(self, target_id: Optional[int]) -> Optional[Union[SoundboardSound, Object]]:
+        if target_id is None:
+            # Discord sends no target_id for soundboard actions. Create and
+            # delete entries carry the sound's ID in their changes; update
+            # entries only carry the changed fields, so their target is unknown
+            diff = self.before if self.action is enums.AuditLogAction.soundboard_sound_delete else self.after
+            target_id = getattr(diff, 'id', None)
+            if target_id is None:
+                _log.debug('Audit log entry %s has no soundboard sound ID; target is None.', self.id)
+                return None
         return self.guild.get_soundboard_sound(target_id) or Object(id=target_id, type=SoundboardSound)
 
     def _convert_target_guild_scheduled_event(self, target_id: int) -> Union[ScheduledEvent, Object]:
