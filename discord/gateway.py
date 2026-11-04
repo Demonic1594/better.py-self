@@ -137,7 +137,12 @@ def _refused_upgrade_status(exc: CurlError) -> Optional[int]:
     if getattr(exc, 'code', None) != 22:
         return None
     match = _REFUSED_UPGRADE_RE.search(str(exc))
-    return int(match.group(1)) if match else None
+    if match is None:
+        # libcurl changed its wording: the 5xx fallback cannot trigger until
+        # this pattern is updated
+        _log.debug('Could not read an HTTP status from refused gateway upgrade: %s', exc)
+        return None
+    return int(match.group(1))
 
 
 class GatewayRatelimiter:
@@ -521,6 +526,10 @@ class DiscordWebSocket:
             _log.info('Gateway %s refused the connection with HTTP %s; identifying on the default gateway.', gateway, status)
             gateway = cls.DEFAULT_GATEWAY
             resume = False
+            # The IDENTIFY below starts a new session, so the old one is dropped
+            # rather than carried on this socket: if it dies before READY, the
+            # reconnect identifies again instead of resuming a session whose
+            # gateway is the one that just failed
             session = sequence = None
             socket = await client.http.ws_connect(with_query(gateway))
         ws = cls(socket, loop=client.loop)
