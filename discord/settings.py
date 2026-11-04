@@ -889,11 +889,11 @@ class UserSettings(_ProtoSettings):
             inbox['viewed_tutorial'] = kwargs.pop('inbox_tutorial_viewed')
 
         guilds = {}
-        if 'guild_progress_settings' in kwargs and kwargs['guild_progress_settings'] is not MISSING:
+        if 'guild_progress_settings' in kwargs:
+            # MISSING resets the field, like every other setting
+            progress = kwargs.pop('guild_progress_settings')
             guilds['guilds'] = (
-                {guild.guild_id: guild.to_dict() for guild in kwargs.pop('guild_progress_settings')}
-                if kwargs['guild_progress_settings'] is not MISSING
-                else MISSING
+                {guild.guild_id: guild.to_dict() for guild in progress} if progress is not MISSING else MISSING
             )
 
         user_content = {}
@@ -1020,10 +1020,12 @@ class UserSettings(_ProtoSettings):
         ):
             if field in kwargs:
                 if field.endswith('_guilds'):
-                    # MISSING resets the field (documented); it is not iterable
-                    guilds = kwargs.pop(field)
+                    # MISSING resets the field (documented); it is not iterable.
+                    # Not named ``guilds``: that is the guilds subsection, read
+                    # back through locals() when the payload is built
+                    selected = kwargs.pop(field)
                     privacy[field.replace('_guilds', '_guild_ids')] = (
-                        [g.id for g in guilds] if guilds is not MISSING else MISSING
+                        [g.id for g in selected] if selected is not MISSING else MISSING
                     )
                 else:
                     privacy[field] = kwargs.pop(field)

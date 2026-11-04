@@ -633,8 +633,8 @@ async def phase_bomb(args: argparse.Namespace, ready: dict) -> dict:
         for f in frames:
             try:
                 await rig.ws.received_message(f)
-            except (ValueError, TypeError):
-                errors += 1  # undecodable frame: the websocket loop treats these as dropped
+            except gateway.ReconnectWebSocket:
+                errors += 1  # undecodable frame: logged, and the session resumes on a new socket
             except Exception as exc:  # anything else escaping would kill the gateway loop
                 gate(False, f'unexpected {type(exc).__name__} escaped received_message: {exc!r}')
                 done = args.bomb_events

@@ -25,8 +25,9 @@ without super properties.
 The October 2026 live validation
 ([`docs/live_validation_2026-10.md`](../docs/live_validation_2026-10.md)) caught
 a regression where every request had been sending `client_build_number=9999`.
-No real client sends that value. It was fixed and verified at build 634304 with
-Chrome 156.
+No real client sends that value. Normal build-number retrieval was fixed and
+verified at build 634304 with Chrome 156; `9999` is still the fallback when
+retrieval fails (`HeadersContext.FALLBACK_BUILD_NUMBER` in `discord/tracking.py`).
 
 For the same reason, the parts of requests that copy the official client are
 deliberately kept as they are: the headers, the super properties, and

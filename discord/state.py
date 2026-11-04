@@ -1296,7 +1296,10 @@ class FakeClientPresence(Presence):
     def __init__(self, state: ConnectionState, /) -> None:
         self._state = state
 
-    def _update(self, data: gw.PresenceUpdateEvent, state: ConnectionState, /) -> None:
+    def _update(self, data: gw.PresenceUpdateEvent, state: ConnectionState, user_id: int = 0, /) -> None:
+        # Same signature as Presence._update, which parse_presence_update calls
+        # for every presence. Our own presence is derived from the sessions, so
+        # there is nothing to store here.
         return
 
     @property

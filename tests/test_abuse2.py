@@ -206,12 +206,13 @@ async def test_hello_flood_does_not_leak_tasks():
 
 @pytest.mark.asyncio
 async def test_invalid_json_frame_does_not_wreck_socket():
-    """Invalid JSON on a text frame raises (and the caller catches); the
+    """Invalid JSON on a text frame raises ReconnectWebSocket (a RESUME); the
     zlib path with garbage bytes must buffer or raise, never hang."""
     loop = asyncio.get_running_loop()
     ws = make_ws(loop)
-    with pytest.raises(Exception):
+    with pytest.raises(gateway.ReconnectWebSocket):
         await ws.received_message('{"broken": ')
+    ws = make_ws(loop)
     # garbage on the *bytes* path: buffered as partial or raises, never hangs
     for blob in (b'\x00' * 100, b'\xff' * 1000, b'PK\x03\x04' + os.urandom(64)):
         try:

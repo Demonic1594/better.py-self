@@ -44,8 +44,13 @@ Gateway and websocket (``discord/gateway.py``)
     (with a ``wait_for`` fallback for Python < 3.11); ``close()`` is
     idempotent and joins (with a timeout) the keepalive task, which is
     kept referenced; the keepalive handlers and rate limiter use
-    ``__slots__``. **Conflict points:** any upstream change to
-    ``poll_event``, ``close``, or the keepalive classes.
+    ``__slots__``. ``received_message`` treats a frame that fails to
+    decompress or decode, or is not a JSON object, as a lost connection:
+    it logs a warning, closes with 4000 and raises ``ReconnectWebSocket``
+    (RESUME); upstream (dolfies ``2ba64a9``) lets the exception escape
+    and stop the client.
+    **Conflict points:** any upstream change to ``poll_event``,
+    ``received_message``, ``close``, or the keepalive classes.
 
 Connection state (``discord/state.py``)
     The largest concentration of changes:
@@ -101,6 +106,14 @@ Guild (``discord/guild.py``)
     (self, voice, joined threads), ``_members_seen`` chunked accounting,
     presence cleanup on eviction, and the per-guild eviction counters used
     by ``cache_stats``. ``chunked`` is ``count <= _members_seen and ...``.
+    ``_from_data`` only overwrites ``joined_at``, ``emojis``, ``stickers``,
+    ``premium_subscription_count`` and ``max_presences`` when the key is
+    present, since it also runs for partial ``GUILD_UPDATE`` payloads
+    (defaults are set in ``__init__``). ``audit_logs(oldest_first=True)``
+    walks down with ``before`` and yields the buffered range in reverse;
+    the ``_after_strategy`` (``after=entries[-1]``) that upstream and
+    Rapptz/discord.py ``master`` share is gone.
+    **Conflict points:** upstream changes to ``audit_logs`` or ``_from_data``.
 
 Member / user (``discord/member.py``, ``discord/user.py``)
     ``_update`` only copies on change. Only the usually-``None``
