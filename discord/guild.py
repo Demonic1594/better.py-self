@@ -3894,7 +3894,8 @@ class Guild(Hashable):
         """
         payload: Dict[str, Any] = {
             'name': name,
-            'sound': utils._bytes_to_base64_data(sound, audio=True),
+            # bytes() so any bytes-like object (memoryview, bytearray) works
+            'sound': utils._bytes_to_base64_data(bytes(sound), audio=True),
             'volume': volume,
             'emoji_id': None,
             'emoji_name': None,
@@ -3906,7 +3907,7 @@ class Guild(Hashable):
             elif isinstance(emoji, str):
                 partial_emoji = PartialEmoji.from_str(emoji)
             else:
-                partial_emoji = None
+                raise TypeError(f'emoji must be an Emoji, PartialEmoji, str or None, not {emoji.__class__.__name__}')
 
             if partial_emoji is not None:
                 if partial_emoji.id is None:

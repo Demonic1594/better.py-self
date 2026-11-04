@@ -88,8 +88,8 @@ class BaseSoundboardSound(Hashable, AssetMixin):
             return self.id == other.id
         return NotImplemented
 
-    def __ne__(self, other: object) -> bool:
-        return not self.__eq__(other)
+    # No __ne__: Python derives it from __eq__ and keeps NotImplemented
+    # intact (``not NotImplemented`` is a TypeError on 3.14)
 
     def _update(self, data: BaseSoundboardSoundPayload):
         self.volume: float = data['volume']
@@ -301,7 +301,7 @@ class SoundboardSound(BaseSoundboardSound):
                 elif isinstance(emoji, str):
                     partial_emoji = PartialEmoji.from_str(emoji)
                 else:
-                    partial_emoji = None
+                    raise TypeError(f'emoji must be an Emoji, PartialEmoji, str or None, not {emoji.__class__.__name__}')
 
                 if partial_emoji is not None:
                     if partial_emoji.id is None:

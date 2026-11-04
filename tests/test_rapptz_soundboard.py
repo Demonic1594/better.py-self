@@ -239,3 +239,42 @@ async def test_guild_payload_sounds_replace_the_cache():
     payload['soundboard_sounds'] = [_sound(guild.id, sound_id=SOUND_ID + 5, name='new')]
     guild._from_data(payload)  # type: ignore[arg-type]
     assert [s.name for s in guild.soundboard_sounds] == ['new']
+
+
+def test_sound_inequality_with_other_types():
+    """__ne__ negated NotImplemented, which is deprecated and a TypeError on Python 3.14."""
+    import warnings
+
+    sound = discord.SoundboardDefaultSound(state=None, data={'sound_id': '3', 'volume': 1.0, 'name': 'q', 'emoji_name': 'x'})  # type: ignore[arg-type]
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        assert (sound != 1) is True and (sound != sound) is False
+
+
+@pytest.mark.asyncio
+async def test_create_and_edit_sound_validate_input():
+    """Unsupported emoji types raise TypeError instead of being ignored, and any
+    bytes-like sound works (a memoryview failed MIME detection)."""
+    client, state, guild, _ = await make_env()
+    payloads = []
+
+    async def create_soundboard_sound(guild_id, *, reason=None, **payload):
+        payloads.append(payload)
+        return _sound(guild_id)
+
+    state.http.create_soundboard_sound = create_soundboard_sound  # type: ignore[method-assign]
+    await guild.create_soundboard_sound(name='honk', sound=memoryview(b'ID3\x04data'), emoji='🦆')  # type: ignore[arg-type]
+    assert payloads[-1]['sound'].startswith('data:audio/mpeg;base64,') and payloads[-1]['emoji_name'] == '🦆'
+    with pytest.raises(TypeError):
+        await guild.create_soundboard_sound(name='honk', sound=b'ID3', emoji=42)  # type: ignore[arg-type]
+    sound = discord.SoundboardSound(guild=guild, state=state, data=_sound(guild.id))  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        await sound.edit(emoji=42)  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_request_soundboard_sounds_requires_a_timeout():
+    """With no bound, a reconnect mid-request would leave the wait pending forever."""
+    client = await _ready_client()
+    with pytest.raises(ValueError):
+        await client.request_soundboard_sounds([discord.Object(1)], timeout=None)  # type: ignore[arg-type]

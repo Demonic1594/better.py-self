@@ -2378,7 +2378,7 @@ class Client:
         return self._connection.get_soundboard_sound(id)
 
     async def request_soundboard_sounds(
-        self, guilds: Iterable[Snowflake], *, timeout: Optional[float] = 30.0
+        self, guilds: Iterable[Snowflake], *, timeout: float = 30.0
     ) -> List[SoundboardSound]:
         """|coro|
 
@@ -2396,12 +2396,15 @@ class Client:
         -----------
         guilds: Iterable[:class:`.abc.Snowflake`]
             The guilds to request the sounds of.
-        timeout: Optional[:class:`float`]
-            How long to wait for Discord's answers, in seconds. ``None`` waits
-            indefinitely.
+        timeout: :class:`float`
+            How long to wait for Discord's answers, in seconds. A bound is
+            required: if the gateway reconnects meanwhile, the answers arrive on
+            the new connection and only the timeout ends the wait.
 
         Raises
         -------
+        ValueError
+            ``timeout`` is not a positive number.
         ClientException
             The client is not connected to the gateway.
         asyncio.TimeoutError
@@ -2413,6 +2416,8 @@ class Client:
         List[:class:`.SoundboardSound`]
             The sounds of the requested guilds.
         """
+        if timeout is None or timeout <= 0:
+            raise ValueError('timeout must be a positive number of seconds')
         ws = self.ws
         if ws is None:
             raise ClientException('The client is not connected to the gateway.')

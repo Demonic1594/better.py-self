@@ -925,8 +925,9 @@ class SoundboardSoundConverter(IDConverter[discord.SoundboardSound]):
     """Converts to a :class:`~discord.SoundboardSound`.
 
     Lookups use the cached sounds of the local guild if available, otherwise
-    (in a DM) of every guild. User accounts only cache a guild's sounds once
-    :meth:`discord.Client.request_soundboard_sounds` was called for it.
+    (in a DM) of every guild. User accounts cache a guild's sounds once
+    :meth:`discord.Client.request_soundboard_sounds` was called for it, or when
+    a guild payload from Discord included them.
 
     The lookup strategy is as follows (in order):
 
