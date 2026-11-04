@@ -76,14 +76,16 @@ The library sends capabilities **`0x57fd`**, which userdoccers' examples also us
 | 4000 | Unknown error | Reconnects and resumes. The library itself also closes a stalled socket with 4000. |
 | 4001 / 4002 / 4003 / 4005 | Unknown opcode / decode error (or a payload over 15 KiB) / not authenticated / already authenticated | Reconnects |
 | **4004** | Authentication failed | **Stops.** The token is bad. |
-| 4007 / 4009 | Invalid sequence / session timed out | Reconnects. Userdoccers says to start a new session rather than resume. |
+| 4007 / 4009 | Invalid sequence / session timed out | Forgets the session and identifies again straight away (`_NON_RESUMABLE_CLOSE_CODES`), with no RESUME attempt. |
 | 4008 | Rate limited (sending too fast) | Reconnects. The library throttles its own sends to avoid this. |
 | **4010 – 4014** | Invalid shard, sharding required, invalid API version, invalid or disallowed intents | **Stops** |
 | 4015 | Too many user sessions | Reconnects (close other sessions) |
-| 1000 / 1001 | Normal close | Ends the session, which can't be resumed. A 1000 the client sent itself stops it. A 1000 from Discord leads to a reconnect and a new session. |
+| 1000 / 1001 | Normal close | A 1000 the client sent itself stops it. A 1000 or 1001 from Discord leads to a reconnect that **tries to RESUME**. If Discord refuses, an INVALID_SESSION makes the client identify again. |
 
-Per userdoccers, any code other than 1000 or 1001, or a plain TCP drop, keeps the
-session resumable for a few minutes.
+This is Discord's side, according to userdoccers. When a client closes with 1000
+or 1001, Discord ends the session. Any other code, or a plain TCP drop, keeps it
+resumable for a few minutes. That's why the library closes a stalled socket with
+4000.
 
 ### Transport compression
 
