@@ -214,3 +214,28 @@ async def test_soundboard_sound_converter():
     assert (await converter.convert(ctx, str(SOUND_ID))).name == 'honk'  # type: ignore[arg-type]
     with pytest.raises(commands.SoundboardSoundNotFound):
         await converter.convert(ctx, 'missing')  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_identical_sound_update_dispatches_nothing():
+    """A GUILD_SOUNDBOARD_SOUND(S)_UPDATE that changes nothing dispatches no event."""
+    client, state, guild, _ = await make_env()
+    events = []
+    state.dispatch = lambda event, *args: events.append(event)  # type: ignore[method-assign]
+    state.parse_soundboard_sounds({'guild_id': str(guild.id), 'soundboard_sounds': [_sound(guild.id)]})  # type: ignore[arg-type]
+    state.parse_guild_soundboard_sound_update(_sound(guild.id))  # type: ignore[arg-type]
+    state.parse_guild_soundboard_sounds_update({'guild_id': str(guild.id), 'soundboard_sounds': [_sound(guild.id)]})  # type: ignore[arg-type]
+    assert events == []
+    state.parse_guild_soundboard_sound_update(_sound(guild.id, emoji_name='🐔'))  # type: ignore[arg-type]
+    assert events == ['soundboard_sound_update']
+
+
+@pytest.mark.asyncio
+async def test_guild_payload_sounds_replace_the_cache():
+    """Sounds in a guild payload are the full set, so they replace the cache."""
+    client, state, guild, _ = await make_env()
+    state.parse_soundboard_sounds({'guild_id': str(guild.id), 'soundboard_sounds': [_sound(guild.id)]})  # type: ignore[arg-type]
+    payload = guild_payload(guild.id)
+    payload['soundboard_sounds'] = [_sound(guild.id, sound_id=SOUND_ID + 5, name='new')]
+    guild._from_data(payload)  # type: ignore[arg-type]
+    assert [s.name for s in guild.soundboard_sounds] == ['new']

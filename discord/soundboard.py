@@ -96,7 +96,10 @@ class BaseSoundboardSound(Hashable, AssetMixin):
 
     @property
     def url(self) -> str:
-        """:class:`str`: Returns the URL of the sound."""
+        """:class:`str`: Returns the URL of the sound.
+
+        .. versionadded:: 2.3.2
+        """
         return f'{Asset.BASE}/soundboard-sounds/{self.id}'
 
 
@@ -184,7 +187,7 @@ class SoundboardSound(BaseSoundboardSound):
         Whether this sound is available for use.
     """
 
-    __slots__ = ('_state', 'name', 'emoji', '_user', 'available', '_user_id', 'guild')
+    __slots__ = ('name', 'emoji', '_user', 'available', '_user_id', 'guild')
 
     def __init__(self, *, guild: Guild, state: ConnectionState, data: SoundboardSoundPayload):
         super().__init__(state=state, data=data)
@@ -220,12 +223,18 @@ class SoundboardSound(BaseSoundboardSound):
 
     @property
     def created_at(self) -> datetime.datetime:
-        """:class:`datetime.datetime`: Returns the snowflake's creation time in UTC."""
+        """:class:`datetime.datetime`: Returns the snowflake's creation time in UTC.
+
+        .. versionadded:: 2.3.2
+        """
         return utils.snowflake_time(self.id)
 
     @property
     def user(self) -> Optional[User]:
-        """Optional[:class:`User`]: The user who uploaded the sound."""
+        """Optional[:class:`User`]: The user who uploaded the sound.
+
+        .. versionadded:: 2.3.2
+        """
         if self._user is None:
             if self._user_id is None:
                 return None
@@ -247,6 +256,8 @@ class SoundboardSound(BaseSoundboardSound):
         You must have :attr:`~Permissions.manage_expressions` to edit the sound.
         If the sound was created by the client, you must have either :attr:`~Permissions.manage_expressions`
         or :attr:`~Permissions.create_expressions`.
+
+        .. versionadded:: 2.3.2
 
         Parameters
         ----------
@@ -309,6 +320,8 @@ class SoundboardSound(BaseSoundboardSound):
         You must have :attr:`~Permissions.manage_expressions` to delete the sound.
         If the sound was created by the client, you must have either :attr:`~Permissions.manage_expressions`
         or :attr:`~Permissions.create_expressions`.
+
+        .. versionadded:: 2.3.2
 
         Parameters
         -----------

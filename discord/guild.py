@@ -919,7 +919,10 @@ class Guild(Hashable):
 
         self.emojis: Tuple[Emoji, ...] = tuple(map(lambda d: state.store_emoji(self, d), guild.get('emojis', [])))
         sounds = guild.get('soundboard_sounds')
-        if sounds:
+        if sounds is not None:
+            # A guild payload that carries sounds carries the full set: replace
+            # the cache, so sounds deleted meanwhile do not linger
+            self._soundboard_sounds = {}
             for sound in sounds:
                 self._add_soundboard_sound(SoundboardSound(guild=self, state=state, data=sound))
         self.stickers: Tuple[GuildSticker, ...] = tuple(
@@ -1615,7 +1618,7 @@ class Guild(Hashable):
 
         User accounts receive a guild's sounds only when they are requested, so
         this is empty until :meth:`Client.request_soundboard_sounds` has been
-        called for the guild (or a sound was created or updated since).
+        called for the guild, unless a guild payload from Discord included them.
         :meth:`fetch_soundboard_sounds` gets them from the API instead.
 
         .. versionadded:: 2.3.2

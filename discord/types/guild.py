@@ -27,6 +27,7 @@ from typing_extensions import NotRequired
 
 from .scheduled_event import GuildScheduledEvent
 from .sticker import GuildSticker
+from .soundboard import SoundboardSound
 from .snowflake import Snowflake
 from .channel import GuildChannel, StageInstance
 from .voice import VoiceState
@@ -79,6 +80,7 @@ class PartialGuild(BaseGuild):
 class _GuildMedia(PartialGuild):
     emojis: List[Emoji]
     stickers: List[GuildSticker]
+    soundboard_sounds: NotRequired[List[SoundboardSound]]
 
 
 class _GuildCounts(TypedDict):

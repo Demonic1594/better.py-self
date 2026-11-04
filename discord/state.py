@@ -1385,6 +1385,12 @@ async def logging_coroutine(coroutine: Coroutine[Any, Any, T], *, info: str) -> 
         _log.exception('Exception occurred during %s.', info)
 
 
+def _soundboard_sound_key(sound: SoundboardSound) -> Tuple[Any, ...]:
+    # The fields a GUILD_SOUNDBOARD_SOUND_UPDATE can change
+    emoji = sound.emoji
+    return (sound.name, sound.volume, sound.available, emoji.id if emoji else None, emoji.name if emoji else None)
+
+
 # event name -> 'on_' + event, for ConnectionState._has_listener
 _LISTENER_METHOD_NAMES: Dict[str, str] = {}
 
@@ -4117,6 +4123,9 @@ class ConnectionState:
             return
         old_sound = copy.copy(sound)
         sound._update(data)
+        # An update that changes nothing dispatches nothing (as for other models)
+        if _soundboard_sound_key(old_sound) == _soundboard_sound_key(sound):
+            return
         self.dispatch('soundboard_sound_update', old_sound, sound)
 
     def parse_guild_soundboard_sound_update(self, data: gw.GuildSoundBoardSoundUpdateEvent) -> None:

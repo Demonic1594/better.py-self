@@ -2405,7 +2405,8 @@ class Client:
         ClientException
             The client is not connected to the gateway.
         asyncio.TimeoutError
-            Discord did not answer for every guild in time.
+            Discord did not answer for every guild in time. The guilds that did
+            answer are cached anyway (see :attr:`~discord.Guild.soundboard_sounds`).
 
         Returns
         --------

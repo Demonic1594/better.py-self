@@ -227,13 +227,19 @@ class VoiceChannelSoundEffect(BaseSoundboardSound):
     @property
     def created_at(self) -> Optional[datetime.datetime]:
         """Optional[:class:`datetime.datetime`]: Returns the snowflake's creation time in UTC.
-        Returns ``None`` if it's a default sound."""
+        Returns ``None`` if it's a default sound.
+
+        .. versionadded:: 2.3.2
+        """
         if self.is_default():
             return None
         return utils.snowflake_time(self.id)
 
     def is_default(self) -> bool:
-        """:class:`bool`: Whether it's one of Discord's default sounds."""
+        """:class:`bool`: Whether it's one of Discord's default sounds.
+
+        .. versionadded:: 2.3.2
+        """
         # Default sounds have small integer IDs, below any snowflake
         return self.id < utils.DISCORD_EPOCH
 
@@ -299,7 +305,10 @@ class VoiceChannelEffect:
         return f'<{self.__class__.__name__} {inner}>'
 
     def is_sound(self) -> bool:
-        """:class:`bool`: Whether the effect is a sound or not."""
+        """:class:`bool`: Whether the effect is a sound or not.
+
+        .. versionadded:: 2.3.2
+        """
         return self.sound is not None
 
 
