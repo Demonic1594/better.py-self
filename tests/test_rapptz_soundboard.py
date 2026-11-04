@@ -127,6 +127,29 @@ async def test_request_soundboard_sounds_times_out_and_unregisters():
 
 
 @pytest.mark.asyncio
+async def test_request_soundboard_sounds_bounds_the_send():
+    """The timeout also covers the send, which the gateway rate limiter can delay."""
+    client = await _ready_client()
+    futures = []
+
+    class RateLimitedWS:
+        def wait_for(self, event, predicate):
+            future = client.loop.create_future()
+            futures.append(future)
+            return future
+
+        async def request_soundboard_sounds(self, guild_ids):
+            await asyncio.sleep(60)
+
+    client.ws = RateLimitedWS()  # type: ignore[assignment]
+    started = asyncio.get_running_loop().time()
+    with pytest.raises(asyncio.TimeoutError):
+        await client.request_soundboard_sounds([discord.Object(1)], timeout=0.05)
+    assert asyncio.get_running_loop().time() - started < 5
+    assert futures and all(f.cancelled() for f in futures)
+
+
+@pytest.mark.asyncio
 async def test_voice_channel_effect_in_guild_and_private_call():
     """VOICE_CHANNEL_EFFECT_SEND for a guild channel and for a DM call (no guild_id)."""
     client = await _ready_client()
@@ -293,6 +316,6 @@ async def test_request_soundboard_sounds_requires_a_timeout():
     client = await _ready_client()
     with pytest.raises(ValueError):
         await client.request_soundboard_sounds([discord.Object(1)], timeout=None)  # type: ignore[arg-type]
-    for bad in (0, -1.0, float('nan')):
+    for bad in (0, -1.0, float('nan'), float('inf')):
         with pytest.raises(ValueError):
             await client.request_soundboard_sounds([discord.Object(1)], timeout=bad)

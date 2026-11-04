@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import sys
 import time
@@ -2397,18 +2398,20 @@ class Client:
         guilds: Iterable[:class:`.abc.Snowflake`]
             The guilds to request the sounds of.
         timeout: :class:`float`
-            How long to wait for Discord's answers, in seconds. A bound is
-            required: if the gateway reconnects meanwhile, the answers arrive on
-            the new connection and only the timeout ends the wait.
+            How long to wait, in seconds, for the request to be sent (the
+            gateway rate limit can delay it) and for Discord's answers. A finite
+            bound is required: if the gateway reconnects meanwhile, the answers
+            arrive on the new connection and only the timeout ends the wait.
 
         Raises
         -------
         ValueError
-            ``timeout`` is not a positive number.
+            ``timeout`` is not a positive, finite number.
         ClientException
             The client is not connected to the gateway.
         asyncio.TimeoutError
-            Discord did not answer for every guild in time. The guilds that did
+            The request could not be sent, or Discord did not answer for every
+            guild, in time. The guilds that did
             answer are cached anyway (see :attr:`~discord.Guild.soundboard_sounds`).
 
         Returns
@@ -2417,8 +2420,8 @@ class Client:
             The sounds of the requested guilds.
         """
         # 'not timeout > 0' also rejects NaN, which never compares true
-        if timeout is None or not timeout > 0:
-            raise ValueError('timeout must be a positive number of seconds')
+        if timeout is None or not timeout > 0 or not math.isfinite(timeout):
+            raise ValueError(f'timeout must be a positive, finite number of seconds, not {timeout!r}')
         ws = self.ws
         if ws is None:
             raise ClientException('The client is not connected to the gateway.')
@@ -2430,9 +2433,15 @@ class Client:
             ws.wait_for('SOUNDBOARD_SOUNDS', lambda data, gid=guild_id: int(data['guild_id']) == gid)
             for guild_id in guild_ids
         ]
-        try:
+
+        async def request() -> None:
             await ws.request_soundboard_sounds(guild_ids)
-            await asyncio.wait_for(asyncio.gather(*futures), timeout=timeout)
+            await asyncio.gather(*futures)
+
+        try:
+            # One deadline for the send too: the gateway rate limiter can hold
+            # it for up to a minute
+            await asyncio.wait_for(request(), timeout=timeout)
         finally:
             for future in futures:
                 if not future.done():
