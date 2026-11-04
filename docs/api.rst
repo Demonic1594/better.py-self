@@ -3847,6 +3847,9 @@ of :class:`enum.Enum`.
 
         A soundboard sound was updated.
 
+        Discord does not say which sound an update entry is for, so
+        :attr:`~AuditLogEntry.target` is ``None`` for this action.
+
         Possible attributes for :class:`AuditLogDiff`:
 
         - :attr:`~AuditLogDiff.name`
@@ -3858,6 +3861,9 @@ of :class:`enum.Enum`.
     .. attribute:: soundboard_sound_delete
 
         A soundboard sound was deleted.
+
+        When this is the action, the type of :attr:`~AuditLogEntry.target` is
+        :class:`Object` with the ID of the sound.
 
         Possible attributes for :class:`AuditLogDiff`:
 
