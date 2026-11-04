@@ -19,7 +19,7 @@ async def test_member_fetch_voice_uses_the_voice_state_routes():
     """62e52803: Member.fetch_voice reads the voice state from the API, through
     the @me route for our own member and the user route for others."""
     client, state, guild, _ = await make_env()
-    state.user = discord.ClientUser(state=state, data=up(5))  # type: ignore[arg-type]
+    state.user = discord.ClientUser(state=state, data={**up(5), 'bot': True})  # type: ignore[arg-type]
     voice = VoiceChannel(
         state=state,
         guild=guild,
@@ -45,6 +45,55 @@ async def test_member_fetch_voice_uses_the_voice_state_routes():
     me = discord.Member(data={'user': up(5), 'roles': []}, guild=guild, state=state)  # type: ignore[arg-type]
     result = await me.fetch_voice()
     assert calls[-1] == ('me', guild.id) and result.channel is None
+
+
+@pytest.mark.asyncio
+async def test_member_fetch_voice_on_a_user_account_uses_the_cache():
+    """Live: the voice state routes answer 403 (code 20002, bots only) to user
+    accounts. A user account reads the cache instead, or raises a clear error."""
+    client, state, guild, _ = await make_env()
+    state.user = discord.ClientUser(state=state, data=up(5))  # type: ignore[arg-type]
+    voice = VoiceChannel(
+        state=state,
+        guild=guild,
+        data={'id': '700', 'name': 'v', 'type': 2, 'position': 0, 'bitrate': 64000, 'user_limit': 0},
+    )  # type: ignore[arg-type]
+    guild._add_channel(voice)
+
+    async def refused(*args):
+        raise AssertionError('a user account must not call the bot-only voice state routes')
+
+    state.http.get_voice_state = refused  # type: ignore[method-assign]
+    state.http.get_my_voice_state = refused  # type: ignore[method-assign]
+    member = discord.Member(data={'user': up(42), 'roles': []}, guild=guild, state=state)  # type: ignore[arg-type]
+    guild._add_member(member)
+    with pytest.raises(discord.ClientException):
+        await member.fetch_voice()  # not in voice per the cache
+    guild._update_voice_state({**VOICE_STATE, 'channel_id': '700', 'user_id': '42'}, 700)  # type: ignore[arg-type]
+    result = await member.fetch_voice()
+    assert result.channel is voice
+    with pytest.raises(discord.ClientException, match='bot accounts'):
+        await member.fetch_voice(fallback_to_cache=False)
+
+
+@pytest.mark.asyncio
+async def test_member_fetch_voice_falls_back_when_discord_refuses_as_bot_only():
+    client, state, guild, _ = await make_env()
+    state.user = discord.ClientUser(state=state, data={**up(5), 'bot': True})  # type: ignore[arg-type]
+
+    class Resp:
+        status = 403
+        reason = 'Forbidden'
+
+    async def refused(*args):
+        raise discord.Forbidden(Resp(), {'code': 20002, 'message': 'Only bots can use this endpoint'})  # type: ignore[arg-type]
+
+    state.http.get_voice_state = refused  # type: ignore[method-assign]
+    member = discord.Member(data={'user': up(42), 'roles': []}, guild=guild, state=state)  # type: ignore[arg-type]
+    with pytest.raises(discord.ClientException, match='bot-only'):
+        await member.fetch_voice(fallback_to_cache=False)
+    with pytest.raises(discord.ClientException, match='not in a voice channel'):
+        await member.fetch_voice()
 
 
 def _metadata(**extra):

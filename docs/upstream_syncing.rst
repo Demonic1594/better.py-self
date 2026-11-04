@@ -262,7 +262,10 @@ Ported from Rapptz/discord.py, round 3: soundboard (2026-11-04)
     accounts lack.
 
 Ported from Rapptz/discord.py, round 2 (2026-11-04)
-    62e5280 (``Member.fetch_voice`` and the GET voice-state routes), 963bb08 +
+    62e5280 (``Member.fetch_voice`` and the GET voice-state routes. Discord
+    serves those routes to bot accounts only (403, code 20002), so on a user
+    account ``fetch_voice`` returns the cached voice state, or raises
+    ``ClientException`` with ``fallback_to_cache=False``), 963bb08 +
     814ce3c + 2248fc1 (``Message.interaction_metadata`` and
     ``MessageInteractionMetadata``; ``Message.interaction`` keeps our
     ``Interaction`` object and is not deprecated, since dropping or deprecating

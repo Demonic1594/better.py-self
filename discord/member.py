@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import datetime
 import itertools
+import logging
 from operator import attrgetter
 from typing import Any, Awaitable, Callable, Collection, Dict, List, Optional, TYPE_CHECKING, Tuple, TypeVar, Union
 
@@ -37,7 +38,7 @@ from .utils import MISSING
 from .user import BaseUser, User, _UserTag, DisplayNameStyle, RecentAvatar
 from .permissions import Permissions, _TIMEOUT_PERMISSIONS_MASK
 from .enums import Status, NameFont, NameEffect, try_enum
-from .errors import ClientException
+from .errors import ClientException, Forbidden
 from .colour import Colour
 from .object import Object
 from .flags import MemberFlags
@@ -48,6 +49,8 @@ __all__ = (
     'VoiceState',
     'Member',
 )
+
+_log = logging.getLogger(__name__)
 
 T = TypeVar('T', bound=type)
 
@@ -1475,33 +1478,58 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
             for role in roles:
                 await req(guild_id, user_id, role.id, reason=reason)
 
-    async def fetch_voice(self) -> VoiceState:
+    async def fetch_voice(self, *, fallback_to_cache: bool = True) -> VoiceState:
         """|coro|
 
         Retrieves the member's current voice state from the API, instead of
         the cache that :attr:`voice` reads.
 
+        Discord only serves this endpoint to bot accounts. On a user account
+        the request is not made: with ``fallback_to_cache`` (the default) the
+        cached voice state is returned instead, which the gateway keeps current
+        for the guilds you are in; otherwise :exc:`ClientException` is raised.
+
         .. versionadded:: 2.3.2
+
+        Parameters
+        -----------
+        fallback_to_cache: :class:`bool`
+            Whether to return the cached voice state when the API cannot be used
+            (a user account, or Discord refusing the request as bot-only).
+            Defaults to ``True``.
 
         Raises
         -------
         NotFound
-            The member is not in a voice channel.
+            The member is not in a voice channel (bot accounts).
         Forbidden
             You do not have permissions to get a voice state.
         HTTPException
             Retrieving the voice state failed.
+        ClientException
+            The API cannot be used and ``fallback_to_cache`` is ``False``, or the
+            cache was used and the member is not in a voice channel.
 
         Returns
         -------
         :class:`VoiceState`
             The current voice state of the member.
         """
+        state = self._state
+        me = state.user
+        if me is None or not me.bot:
+            return self._voice_from_cache(fallback_to_cache, 'the voice state API is only available to bot accounts')
+
         guild_id = self.guild.id
-        if self._state.self_id == self.id:
-            data = await self._state.http.get_my_voice_state(guild_id)
-        else:
-            data = await self._state.http.get_voice_state(guild_id, self.id)
+        try:
+            if state.self_id == self.id:
+                data = await state.http.get_my_voice_state(guild_id)
+            else:
+                data = await state.http.get_voice_state(guild_id, self.id)
+        except Forbidden as exc:
+            if exc.code != 20002:  # "Only bots can use this endpoint"
+                raise
+            return self._voice_from_cache(fallback_to_cache, 'Discord refused the voice state API as bot-only')
 
         channel_id = data.get('channel_id')
         channel: Optional[VocalGuildChannel] = None
@@ -1509,6 +1537,15 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
             channel = self.guild.get_channel(int(channel_id))  # type: ignore # a voice state's channel is vocal
 
         return VoiceState(data=data, channel=channel)
+
+    def _voice_from_cache(self, fallback_to_cache: bool, reason: str) -> VoiceState:
+        if not fallback_to_cache:
+            raise ClientException(f'Cannot fetch the voice state of member {self.id}: {reason}.')
+        _log.debug('Member.fetch_voice for member %s in guild %s uses the cache: %s.', self.id, self.guild.id, reason)
+        voice = self.voice
+        if voice is None:
+            raise ClientException(f'Member {self.id} is not in a voice channel (according to the cache).')
+        return voice
 
     def get_role(self, role_id: int, /) -> Optional[Role]:
         """Returns a role with the given ID from roles which the member has.
