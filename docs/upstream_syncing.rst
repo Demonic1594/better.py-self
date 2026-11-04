@@ -248,10 +248,12 @@ Upstream issue and PR triage (2026-11-03)
 
 Audit fixes, round 4 (2026-11-04)
     Docs and packaging only: install instructions point at this fork,
-    ``ESRBRating``/``PromotionType`` are exported (upstream documents them but
-    does not export them either), ``ResolvedInvite`` is documented under
-    ``discord.utils``, ``yarl`` is declared, ``discord_protos>=1.2.117``, PEP 639
-    license metadata, ``yt_dlp`` in the voice example.
+    ``ESRBRating``/``PromotionType`` are exported (dolfies/discord.py-self
+    master documents both under ``discord`` but leaves them out of
+    ``enums.__all__``), ``ResolvedInvite`` is documented under ``discord.utils``,
+    ``yarl`` is declared, ``discord_protos>=1.2.117``, PEP 639 license metadata,
+    ``yt_dlp`` in the voice example. The unneeded ``reportCallIssue`` ignore in
+    ``ext/commands/converter.py`` (``_actual_conversion``) is dropped.
 
 Audit fixes, round 3 (2026-11-04)
     ``HTTPClient.request``: the global-lock check also runs at the top of every
