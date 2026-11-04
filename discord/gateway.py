@@ -526,10 +526,9 @@ class DiscordWebSocket:
             _log.info('Gateway %s refused the connection with HTTP %s; identifying on the default gateway.', gateway, status)
             gateway = cls.DEFAULT_GATEWAY
             resume = False
-            # The IDENTIFY below starts a new session, so the old one is dropped
-            # rather than carried on this socket: if it dies before READY, the
-            # reconnect identifies again instead of resuming a session whose
-            # gateway is the one that just failed
+            # The IDENTIFY below starts a new session, so the old session id and
+            # sequence are dropped: if this socket dies before READY, no session
+            # id that READY never confirmed is left behind for a RESUME
             session = sequence = None
             socket = await client.http.ws_connect(with_query(gateway))
         ws = cls(socket, loop=client.loop)
