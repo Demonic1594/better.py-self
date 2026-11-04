@@ -91,10 +91,12 @@ Received: 0 `DISPATCH`, 7 `RECONNECT`, 9 `INVALIDATE_SESSION`, 10 `HELLO` and 11
 - **Hostile input.** A frame that decodes to a JSON object but carries hostile
   or malformed event data is handled by the parsers, which log a warning and
   drop it. The stress benchmark's `bomb` phase sends 200k such frames and RSS
-  stays bounded. **Known gap:** a frame that fails to decode as JSON raises
-  `ValueError`, and one that decodes to an array or a scalar raises
-  `AttributeError`, out of `received_message`. `poll_event` doesn't catch
-  either, and the benchmark catches them itself. A fix is planned.
+  stays bounded. A frame that can't be decoded at all (corrupt compressed
+  data, invalid JSON, or an array or scalar instead of an object) is treated
+  as a broken connection: `received_message` logs a warning, closes the socket
+  with 4000 and resumes on a new one, and Discord replays the events after the
+  last sequence. Repeated failures back off like any other reconnect. In
+  2.3.2 and earlier, such a frame escaped `poll_event` and stopped the client.
 - **Raw frames.** With `enable_debug_events=True`, `on_socket_raw_receive` and
   `on_socket_raw_send` get the raw frames. `on_socket_event_type` gets each
   event's type name.

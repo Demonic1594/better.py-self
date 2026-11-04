@@ -3,7 +3,9 @@
 A user account receives far more than a bot of the same size: member lists,
 presences, threads, read states. Upstream discord.py-self caches all of it
 with no limit, so memory keeps growing on accounts in large guilds. This fork
-caps every big cache and evicts the least recently used entries. The full
+caps the caches in [the table below](#the-caps) and evicts their least
+recently used entries; others, such as the private channel maps, are not
+capped. The full
 reference is [`docs/cache_tuning.rst`](../docs/cache_tuning.rst); this page
 explains the model.
 

@@ -158,7 +158,10 @@ numbers as relative to that machine; compare runs on the same host.
      - The parsers contained every frame that decoded: they logged 378k
        warnings and RSS grew 80 MiB. The 143k undecodable frames raised out of
        ``received_message`` and the benchmark counted them itself; the library
-       did not yet contain those.
+       did not yet contain those. They now raise ``ReconnectWebSocket`` (a
+       RESUME), which the benchmark counts the same way. That run is not yet
+       re-baselined: a 200k-frame ``bomb`` run after the change passed with
+       RSS +70 MiB.
 
 Open questions this baseline does not answer: real-account traffic shape
 (use ``tools/profile_live.py``), voice, and socket-level behaviour.
