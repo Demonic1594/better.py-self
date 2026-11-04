@@ -1618,7 +1618,8 @@ class Guild(Hashable):
 
         User accounts receive a guild's sounds only when they are requested, so
         this is empty until :meth:`Client.request_soundboard_sounds` has been
-        called for the guild, unless a guild payload from Discord included them.
+        called for the guild, unless a guild payload from Discord included them
+        (an included list, even an empty one, is taken as the guild's full set).
         :meth:`fetch_soundboard_sounds` gets them from the API instead.
 
         .. versionadded:: 2.3.2

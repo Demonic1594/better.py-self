@@ -251,9 +251,10 @@ Ported from Rapptz/discord.py, round 3: soundboard (2026-11-04)
     closed dolfies/discord.py-self#929 (gateway op 31 REQUEST_SOUNDBOARD_SOUNDS
     answered by SOUNDBOARD_SOUNDS). Differences: sounds are requested on demand
     (``Client.request_soundboard_sounds``) instead of for every guild at READY
-    as #929 does; ``Guild._soundboard_sounds`` is created lazily and only a
-    requested guild is cached, so a create event elsewhere does not fake a
-    complete cache; VOICE_CHANNEL_EFFECT_SEND also covers private calls (no
+    as #929 does; ``Guild._soundboard_sounds`` is created lazily and only
+    holds a complete set (from a SOUNDBOARD_SOUNDS reply or a guild payload's
+    ``soundboard_sounds``, which replace it), so a create event elsewhere does
+    not fake a complete cache; VOICE_CHANNEL_EFFECT_SEND also covers private calls (no
     ``guild_id``), which Rapptz would raise on; audio detection accepts every
     MPEG frame sync and OGG (Rapptz only ID3 and ``FF FB``); audit actions
     130-132 get a ``soundboard_sound`` target type (Rapptz leaves them in the
