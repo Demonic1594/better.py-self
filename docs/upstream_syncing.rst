@@ -246,6 +246,15 @@ Upstream issue and PR triage (2026-11-03)
     server), and the unmerged feature PRs #896 (frecency settings) and #934
     (profile editing), which are still in review upstream.
 
+Audit fixes, round 3 (2026-11-04)
+    ``HTTPClient.request``: the global-lock check also runs at the top of every
+    retry; a JSON 429 without ``retry_after`` defaults to 1s; per-call
+    ``headers`` are applied after ``self.extra_headers`` (upstream applies them
+    the other way round). ``HTTPClient.edit_profile`` aliases our
+    ``edit_current_user``. ``Member.collectibles`` returns ``_CallableList``
+    so upstream's ``member.collectibles()`` works. ``ConnectionState._log_first_eviction``
+    is ours (upstream has no cache caps).
+
 Audit fixes, round 2 (2026-11-03)
     Upstream bugs fixed here: ``Client.connect`` guards ``self.ws`` being
     ``None`` on a failed first attempt; unknown private channel types are

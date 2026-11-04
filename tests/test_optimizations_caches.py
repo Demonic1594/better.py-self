@@ -39,8 +39,10 @@ def make_state(loop, max_member_cache=10, max_total=None, max_thread_cache=None,
         _presences={},
         _member_hits=0,
         _member_misses=0,
+        _eviction_logged=set(),
     )
     # Borrow the real amortized implementations
+    state._log_first_eviction = state_mod.ConnectionState.__dict__['_log_first_eviction'].__get__(state)
     state._note_member_add = state_mod.ConnectionState.__dict__['_note_member_add'].__get__(state)
     state._maybe_evict_members_global = state_mod.ConnectionState.__dict__['_maybe_evict_members_global'].__get__(state)
     state._note_thread_add = (
@@ -265,8 +267,10 @@ async def test_presence_global_lru():
         max_presence_cache=5,
         max_guild_presence_cache=None,
         _presence_evictions=0,
+        _eviction_logged=set(),
         remove_presence=lambda user_id, guild_id=None: None,
     )
+    stub._log_first_eviction = state_mod.ConnectionState.__dict__['_log_first_eviction'].__get__(stub)
     make = lambda status='online': SimpleNamespace(
         client_status=SimpleNamespace(status=status), activities=(), hidden_activities=()
     )
