@@ -33,6 +33,8 @@ async def test_ratelimit_headers_without_reset_do_not_raise():
     assert ratelimit.reset_after == 1.0
     ratelimit.update(SimpleNamespace(headers={'X-Ratelimit-Remaining': '1', 'X-Ratelimit-Reset': 'garbage'}))  # type: ignore[arg-type]
     assert ratelimit.reset_after == 1.0
+    ratelimit.update(SimpleNamespace(headers={'X-Ratelimit-Remaining': '1', 'X-Ratelimit-Reset-After': 'nan'}))  # type: ignore[arg-type]
+    assert ratelimit.reset_after == 1.0
 
 
 def test_webhook_retry_after_parsing():

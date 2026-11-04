@@ -656,6 +656,8 @@ class Ratelimit:
                 self.reset_after = (reset - now).total_seconds()
             else:
                 self.reset_after = float(reset_after)
+            if not math.isfinite(self.reset_after):
+                raise ValueError(self.reset_after)
         except (KeyError, TypeError, ValueError, OverflowError, OSError):
             # Rate limit headers without a usable reset time: assume a short
             # window rather than failing the request that carried them

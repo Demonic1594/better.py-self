@@ -32,6 +32,7 @@ Behaviour Changes
 - ``HeadersContext.default`` uses its manual fallback, instead of raising, when the info API answers without a browser version.
 - Fetching manifest labels no longer adds ``application_id`` to the payload dicts it was given.
 - Unknown keyword options passed to :class:`Client` (or :class:`~ext.commands.Bot`) are logged as a warning naming them, so a typo such as ``max_mesages`` no longer goes unnoticed. They are still ignored.
+- ``Client(apm_tracing=True)`` now does what its documentation says: every request carries an ``X-Client-Trace-ID`` header and is logged at DEBUG with its APM trace URL. Before, the option was ignored.
 - An exception raised inside :meth:`Client.on_error` is logged with the original error chained, instead of surfacing only as "Task exception was never retrieved".
 - A CDN request (:meth:`Asset.read` and friends) that gets a 5xx raises :exc:`DiscordServerError`, a subclass of the :exc:`HTTPException` it raised before.
 - Cancelling :meth:`VoiceClient.disconnect` while it waits for Discord's confirmation now raises :exc:`asyncio.CancelledError` after the cleanup, instead of returning normally.
