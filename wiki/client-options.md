@@ -32,7 +32,7 @@ See [Caching and memory](caching-and-memory.md) for how to tune these.
 | `guild_subscriptions` | `True` | Subscribes to every guild at startup. Without it, large guilds (over 75,000 members) may send no message, reaction or typing events, member events stop, and the member and thread caches stay mostly empty. See [Member lists](member-lists.md). |
 | `request_guilds` | — | **Deprecated** alias of `guild_subscriptions`. |
 | `chunk_guilds_at_startup` | `True` | Delays `on_ready` until the guilds that can be chunked have been chunked. This is slow on accounts with many guilds. |
-| `heartbeat_timeout` | `60.0` | Seconds without a `HEARTBEAT_ACK` before the WebSocket is restarted. |
+| `heartbeat_timeout` | `60.0` | Seconds without any message from the gateway before the WebSocket is restarted. |
 | `enable_debug_events` | `False` | Dispatches `on_socket_raw_receive` and `on_socket_raw_send`. These handlers get the raw, unredacted data. |
 | `enable_raw_presences` | `False` | Dispatches `on_raw_presence_update`, which also fires for members not in the cache. Off by default because presence updates are the most frequent event. *New in 2.3.2.* |
 | `eager_dispatch` | `False` | Starts event handlers eagerly (Python 3.12+), so a handler runs inside the dispatch up to its first `await`. This lowers per-event overhead, but changes the order in which handlers and the dispatching code run. It is ignored, with a warning, before 3.12. |
