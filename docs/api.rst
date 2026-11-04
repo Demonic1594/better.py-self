@@ -1284,8 +1284,10 @@ Members
 
     This event is opt-in: pass ``enable_raw_presences=True`` to :class:`Client`.
     Presence updates are the most frequent event, so the payload is not built
-    otherwise. It fires for each ``PRESENCE_UPDATE`` (including those in a
-    ``PRESENCES_REPLACE``), the same updates :func:`on_presence_update` covers.
+    otherwise. It fires for every ``PRESENCE_UPDATE`` (including those in a
+    ``PRESENCES_REPLACE``), even when the presence did not change or the member
+    is not cached; :func:`on_presence_update` fires only for a real change to a
+    cached member or friend.
 
     .. versionadded:: 2.3.2
 
