@@ -41,7 +41,7 @@ from ..user import BaseUser, User
 from ..flags import MessageFlags
 from ..asset import Asset
 from ..partial_emoji import PartialEmoji
-from ..http import Route, handle_message_parameters, json_or_text, HTTPClient, _retry_delay
+from ..http import Route, handle_message_parameters, json_or_text, HTTPClient, _retry_delay, _webhook_retry_after
 from ..mixins import Hashable
 from ..channel import TextChannel, ForumChannel, PartialMessageable, ForumTag
 from ..file import File
@@ -265,7 +265,7 @@ class AsyncWebhookAdapter:
                                 raise HTTPException(response, data)
                             fmt = 'Webhook ID %s is rate limited. Retrying in %.2f seconds.'
 
-                            retry_after: float = data['retry_after']  # type: ignore
+                            retry_after = _webhook_retry_after(data, response.headers)
                             _log.warning(fmt, webhook_id, retry_after)
                             if attempt == 4:
                                 break  # out of attempts: don't sleep (holding the lock) only to give up

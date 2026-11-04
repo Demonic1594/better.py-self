@@ -144,7 +144,9 @@ class Cooldown:
         tokens = self.get_tokens(current)
 
         if tokens == 0:
-            return self.per - (current - self._window)
+            # A rate of 0 never refills, so the window can be long past; the
+            # time left is never negative
+            return max(0.0, self.per - (current - self._window))
 
         return 0.0
 

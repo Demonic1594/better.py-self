@@ -43,7 +43,7 @@ import weakref
 from .. import utils
 from ..errors import HTTPException, Forbidden, NotFound, DiscordServerError
 from ..message import Message, MessageFlags
-from ..http import Route, handle_message_parameters, _retry_delay
+from ..http import Route, handle_message_parameters, _retry_delay, _webhook_retry_after
 from ..channel import PartialMessageable, ForumTag
 
 from .async_ import BaseWebhook, _WebhookState
@@ -208,7 +208,7 @@ class WebhookAdapter:
                                 raise HTTPException(response, data)
                             fmt = 'Webhook ID %s is rate limited. Retrying in %.2f seconds.'
 
-                            retry_after: float = data['retry_after']  # type: ignore
+                            retry_after = _webhook_retry_after(data, response.headers)
                             _log.warning(fmt, webhook_id, retry_after)
                             if attempt == 4:
                                 break  # out of attempts: don't sleep (holding the lock) only to give up

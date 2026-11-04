@@ -288,6 +288,25 @@ def _reconnectable_errors() -> Tuple[Type[BaseException], ...]:
     return errors
 
 
+# Every keyword option Client, ConnectionState and the commands Bot read.
+# Kept in sync with _ClientOptions/_BotOptions and the code by
+# tests/test_audit_round6.py; unknown keys are logged as likely typos.
+_KNOWN_CLIENT_OPTIONS: frozenset = frozenset(
+    {
+        'activities', 'activity', 'afk', 'allowed_mentions', 'apm_tracing', 'assume_unsync_clock',
+        'canary', 'captcha_handler', 'case_insensitive', 'chunk_guilds_at_startup', 'debug_options',
+        'default_ratelimit_limit', 'dispatch_backlog_warning', 'eager_dispatch', 'enable_debug_events',
+        'gc_freeze', 'guild_subscriptions', 'heartbeat_timeout', 'idle_since', 'installation_id',
+        'max_guild_presence_cache', 'max_member_cache', 'max_messages', 'max_presence_cache',
+        'max_ratelimit_timeout', 'max_thread_cache', 'max_total_member_cache', 'max_total_thread_cache',
+        'member_cache_flags', 'owner_id', 'owner_ids', 'persistence_max_age', 'persistence_path',
+        'preferred_rtc_regions', 'proxy', 'proxy_auth', 'proxy_gateway', 'request_guilds', 'rpc_proxy',
+        'self_bot', 'status', 'strip_after_prefix', 'sync_presence', 'throttle_window', 'timezone',
+        'trace', 'user_bot',
+    }
+)  # fmt: skip
+
+
 class Client:
     r"""Represents a client connection that connects to Discord.
     This class is used to interact with the Discord WebSocket and API.
@@ -645,6 +664,11 @@ class Client:
         self._enable_debug_events: bool = options.pop('enable_debug_events', False)
         self._sync_presences: bool = options.pop('sync_presence', True)
         self._connection: ConnectionState = self._get_state(**options)
+        unknown = options.keys() - _KNOWN_CLIENT_OPTIONS
+        if unknown:
+            # Every other option is read with options.get, so a typo was
+            # silently ignored
+            _log.warning('Ignoring unknown Client option(s): %s. Check them for typos.', ', '.join(sorted(unknown)))
         self._closing_task: Optional[asyncio.Task[None]] = None
         self._ready: asyncio.Event = MISSING
 
@@ -696,7 +720,9 @@ class Client:
             debug_options = ['bugReporterEnabled']
         if options.pop('canary', None):
             debug_options.insert(0, 'canary')
-        if options.pop('trace', None):
+        # ``apm_tracing`` is the documented name; ``trace`` is what was read
+        apm_tracing = options.pop('apm_tracing', None)
+        if options.pop('trace', None) or apm_tracing:
             debug_options.insert(0, 'trace')
         return debug_options
 
@@ -1079,6 +1105,11 @@ class Client:
                 await self.on_error(event_name, *args, **kwargs)
             except asyncio.CancelledError:
                 pass
+            except Exception:
+                # Otherwise asyncio reports it only when the task is collected,
+                # as "Task exception was never retrieved"; the original error
+                # is chained in this traceback
+                _log.exception('Ignoring exception raised by on_error while handling %s.', event_name)
 
     def _schedule_event(
         self,

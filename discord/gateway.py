@@ -139,13 +139,15 @@ class GatewayRatelimiter:
         self.lock: asyncio.Lock = asyncio.Lock()
 
     def is_ratelimited(self) -> bool:
-        current = time.time()
+        # Monotonic: a wall-clock step backwards (NTP, VM resume) must not
+        # stretch the window into an hour-long stall
+        current = time.monotonic()
         if current > self.window + self.per:
             return False
         return self.remaining == 0
 
     def get_delay(self) -> float:
-        current = time.time()
+        current = time.monotonic()
 
         if current > self.window + self.per:
             self.remaining = self.max
@@ -1418,6 +1420,10 @@ class DiscordVoiceWebSocket:
             self._connection.keyframe_interval = data.get('keyframe_interval', self._connection.keyframe_interval)
         elif op == self.HELLO:
             interval = data['heartbeat_interval'] / 1000.0
+            if self._keep_alive is not None:
+                # A repeated HELLO on the same socket must not leave the old
+                # heartbeat thread running alongside the new one
+                self._keep_alive.stop()
             self._keep_alive = VoiceKeepAliveHandler(ws=self, interval=interval)
             self._keep_alive.start()
         elif op == self.VOICE_BACKEND_VERSION:

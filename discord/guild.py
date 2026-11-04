@@ -172,6 +172,7 @@ __all__ = (
     'Guild',
     'UserGuild',
     'BanEntry',
+    'BulkBanResult',
 )
 
 
