@@ -840,7 +840,9 @@ class Guild(Hashable):
             # If we're here then add it into the cache
             after = VoiceState(data=data, channel=channel)
             before = VoiceState(data=data, channel=None)
-            self._voice_states[user_id] = after
+            # A leave for a user we never saw join has nothing to cache
+            if channel is not None:
+                self._voice_states[user_id] = after
 
         member = self.get_member(user_id)
         if member is None:

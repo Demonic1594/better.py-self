@@ -952,13 +952,12 @@ class ManifestLabel(Hashable):
     def __new__(cls, *, data: ManifestLabelPayload, application_id: Optional[int] = None) -> Union[ManifestLabel, int]:
         if data.get('name') is None:
             return int(data['id'])
-        if application_id is not None:
-            data['application_id'] = application_id
         return super().__new__(cls)
 
-    def __init__(self, *, data: ManifestLabelPayload, **kwargs) -> None:
+    def __init__(self, *, data: ManifestLabelPayload, application_id: Optional[int] = None) -> None:
         self.id: int = int(data['id'])
-        self.application_id: int = int(data['application_id'])
+        # Read the fallback instead of writing it into the caller's payload
+        self.application_id: int = int(data.get('application_id') or application_id)  # type: ignore
         self.name: Optional[str] = data.get('name')
 
     def __repr__(self) -> str:

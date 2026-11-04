@@ -413,19 +413,25 @@ class HeadersContext:
         except Exception:
             _log.info('Info API temporarily down. Falling back to manual retrieval...')
         else:
-            properties = data['properties']
-            browser = (properties.get('browser') or 'chrome').lower()
-            if browser not in ('chrome', 'edge', 'firefox', 'safari'):
-                _log.warning('Info API returned an unknown browser %r; impersonating Chrome.', browser)
-                browser = 'chrome'
-            return cls(
-                platform=properties.get('os') or 'Windows',
-                browser_type=browser,
-                browser_major_version=int(properties['browser_version'].split('.')[0]),
-                super_properties=properties,
-                encoded_super_properties=data.get('encoded'),
-                extra_gateway_properties=data.get('extra_gateway_properties'),
-            )
+            try:
+                properties = data['properties']
+                browser_major_version = int(properties['browser_version'].split('.')[0])
+            except (KeyError, TypeError, ValueError, AttributeError):
+                # An answer without usable properties is as good as no answer
+                _log.warning('Info API returned no usable browser version. Falling back to manual retrieval...')
+            else:
+                browser = (properties.get('browser') or 'chrome').lower()
+                if browser not in ('chrome', 'edge', 'firefox', 'safari'):
+                    _log.warning('Info API returned an unknown browser %r; impersonating Chrome.', browser)
+                    browser = 'chrome'
+                return cls(
+                    platform=properties.get('os') or 'Windows',
+                    browser_type=browser,
+                    browser_major_version=browser_major_version,
+                    super_properties=properties,
+                    encoded_super_properties=data.get('encoded'),
+                    extra_gateway_properties=data.get('extra_gateway_properties'),
+                )
 
         try:
             bn = await cls.scrape_client_build_number(session, proxy=proxy, proxy_auth=proxy_auth)
