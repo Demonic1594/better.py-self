@@ -96,7 +96,7 @@ from .sticker import GuildSticker
 from .soundboard import SoundboardSound
 from .file import File
 from .audit_logs import AuditLogEntry
-from .object import OLDEST_OBJECT, Object
+from .object import Object
 from .profile import MemberProfile
 from .partial_emoji import PartialEmoji
 from .welcome_screen import *
@@ -147,7 +147,7 @@ if TYPE_CHECKING:
     from .types.message import MessageSearchAuthorType, MessageSearchHasType
     from .types.snowflake import SnowflakeList
     from .types.widget import EditWidgetSettings
-    from .types.audit_log import AuditLogEvent
+    from .types.audit_log import AuditLog as AuditLogPayload, AuditLogEntry as AuditLogEntryPayload, AuditLogEvent
     from .types.oauth2 import OAuth2Guild as OAuth2GuildPayload
     from .message import EmojiInputType, Message
     from .read_state import ReadState
@@ -648,6 +648,12 @@ class Guild(Hashable):
         self._member_count: Optional[int] = None
         self._presence_count: Optional[int] = None
         self._large: Optional[bool] = None
+        # Defaults for fields that _from_data only overwrites when the payload
+        # carries them: a GUILD_UPDATE without them must not wipe the cache
+        self.emojis: Tuple[Emoji, ...] = ()
+        self.max_presences: Optional[int] = None
+        self.premium_subscription_count: int = 0
+        self._joined_at: Optional[str] = None
         self._from_data(data)
 
     def _add_channel(self, channel: GuildChannel, /) -> None:
@@ -917,7 +923,9 @@ class Guild(Hashable):
             scheduled_event = ScheduledEvent(data=s, state=state)
             self._scheduled_events[scheduled_event.id] = scheduled_event
 
-        self.emojis: Tuple[Emoji, ...] = tuple(map(lambda d: state.store_emoji(self, d), guild.get('emojis', [])))
+        # GUILD_UPDATE payloads can leave these out: keep the cached value then
+        if 'emojis' in guild:
+            self.emojis = tuple(map(lambda d: state.store_emoji(self, d), guild['emojis']))
         sounds = guild.get('soundboard_sounds')
         if sounds is not None:
             # A guild payload that carries sounds carries the full set: replace
@@ -934,12 +942,14 @@ class Guild(Hashable):
         self._splash: Optional[str] = guild.get('splash')
         self._system_channel_id: Optional[int] = utils._get_as_snowflake(guild, 'system_channel_id')
         self.description: Optional[str] = guild.get('description')
-        self.max_presences: Optional[int] = guild.get('max_presences')
+        if 'max_presences' in guild:
+            self.max_presences = guild['max_presences']
         self.max_members: Optional[int] = guild.get('max_members')
         self.max_video_channel_users: Optional[int] = guild.get('max_video_channel_users')
         self.max_stage_video_channel_users: Optional[int] = guild.get('max_stage_video_channel_users')
         self._premium_tier = guild.get('premium_tier')
-        self.premium_subscription_count: int = guild.get('premium_subscription_count') or 0
+        if 'premium_subscription_count' in guild:
+            self.premium_subscription_count = guild['premium_subscription_count'] or 0
         self.vanity_url_code: Optional[str] = guild.get('vanity_url_code')
         self.widget_enabled: bool = guild.get('widget_enabled', False)
         self._widget_channel_id: Optional[int] = utils._get_as_snowflake(guild, 'widget_channel_id')
@@ -957,7 +967,8 @@ class Guild(Hashable):
         self.owner_id: Optional[int] = utils._get_as_snowflake(guild, 'owner_id')
         self.application_id: Optional[int] = utils._get_as_snowflake(guild, 'application_id')
         self.premium_progress_bar_enabled: bool = guild.get('premium_progress_bar_enabled', False)
-        self._joined_at = guild.get('joined_at')
+        if 'joined_at' in guild:
+            self._joined_at = guild['joined_at']
         self._incidents_data: Optional[IncidentData] = guild.get('incidents_data')
         profile = guild.get('profile') or {}
         self.tag: Optional[str] = profile.get('tag')
@@ -5114,8 +5125,15 @@ class Guild(Hashable):
             If a datetime is provided, it is recommended to use a UTC aware datetime.
             If the datetime is naive, it is assumed to be local time.
         oldest_first: :class:`bool`
-            If set to ``True``, return entries in oldest->newest order. Defaults to ``True`` if
-            ``after`` is specified, otherwise ``False``.
+            If set to ``True``, return entries in oldest->newest order. Defaults to ``False``.
+
+            .. note::
+
+                Discord returns audit log entries newest first, so an oldest-first
+                iteration fetches every entry between ``before`` (or the newest entry)
+                and ``after`` (or the oldest entry) before yielding the first one, even
+                when ``limit`` is small. Passing ``after`` limits the requests to the
+                entries newer than it.
         user: :class:`abc.Snowflake`
             The moderator to filter entries from.
         action: :class:`AuditLogAction`
@@ -5152,24 +5170,6 @@ class Guild(Hashable):
 
             return data, entries, before, limit
 
-        async def _after_strategy(retrieve: int, after: Optional[Snowflake], limit: Optional[int]):
-            after_id = after.id if after else None
-            data = await self._state.http.get_audit_logs(
-                self.id, limit=retrieve, user_id=user_id, action_type=action_type, after=after_id
-            )
-
-            entries = data.get('audit_log_entries', [])
-
-            if data and entries:
-                if limit is not None:
-                    # Count entries, not the response's top-level keys (port of
-                    # the upstream discord.py fix): the limit was effectively ignored
-                    limit -= len(entries)
-
-                after = Object(id=int(entries[-1]['id']))
-
-            return data, entries, after, limit
-
         if user is not MISSING:
             user_id = user.id
         else:
@@ -5185,23 +5185,67 @@ class Guild(Hashable):
         if isinstance(after, datetime):
             after = Object(id=utils.time_snowflake(after, high=True))
 
-        if oldest_first:
-            if after is MISSING:
-                after = OLDEST_OBJECT
-
-        predicate = None
-
-        if oldest_first:
-            strategy, state = _after_strategy, after
-            if before:
-                predicate = lambda m: int(m['id']) < before.id
-        else:
-            strategy, state = _before_strategy, before
-            if after:
-                predicate = lambda m: int(m['id']) > after.id
-
         # Circular import
         from .webhook import Webhook
+
+        def _page_maps(data: AuditLogPayload) -> Dict[str, Any]:
+            users = (User(data=raw_user, state=self._state) for raw_user in data.get('users', []))
+            integrations = (Integration(data=raw_i, guild=self) for raw_i in data.get('integrations', []))
+            application_commands = (
+                _command_factory(raw_command['type'])[1](state=self._state, data=raw_command, guild=self)
+                for raw_command in data.get('application_commands', [])
+            )
+            automod_rules = (
+                AutoModRule(data=raw_rule, guild=self, state=self._state)
+                for raw_rule in data.get('auto_moderation_rules', [])
+            )
+            webhooks = (Webhook.from_state(data=raw_webhook, state=self._state) for raw_webhook in data.get('webhooks', []))
+            return {
+                'users': {user.id: user for user in users},
+                'integrations': {integration.id: integration for integration in integrations},
+                'application_commands': {command.id: command for command in application_commands},
+                'automod_rules': {rule.id: rule for rule in automod_rules},
+                'webhooks': {webhook.id: webhook for webhook in webhooks},
+            }
+
+        if oldest_first:
+            # Walk *down* with ``before`` (Discord returns audit log entries
+            # newest first) and yield the buffered entries in reverse. Paging up
+            # with ``after`` and entries[-1] as the cursor re-fetched the same
+            # entries page after page, whichever batch Discord returns for
+            # ``after=``: the batch nearest X or the newest one above it.
+            after_id = after.id if after else 0
+            collected: List[Tuple[AuditLogEntryPayload, Dict[str, Any]]] = []
+            cursor: Optional[Snowflake] = before or None
+            while True:
+                data, raw_entries, cursor, _ = await _before_strategy(100, cursor, None)
+                if not raw_entries:
+                    break
+                maps = _page_maps(data)
+                reached_after = False
+                for raw_entry in raw_entries:
+                    if int(raw_entry['id']) <= after_id:
+                        reached_after = True
+                        break
+                    collected.append((raw_entry, maps))
+                if reached_after or len(raw_entries) < 100:
+                    break
+
+            yielded = 0
+            for raw_entry, maps in reversed(collected):
+                if limit is not None and yielded >= limit:
+                    return
+                # Weird Discord quirk
+                if raw_entry['action_type'] is None:
+                    continue
+                yielded += 1
+                yield AuditLogEntry(data=raw_entry, guild=self, **maps)
+            return
+
+        predicate = None
+        strategy, state = _before_strategy, before
+        if after:
+            predicate = lambda m: int(m['id']) > after.id
 
         while True:
             retrieve = 100 if limit is None else min(limit, 100)

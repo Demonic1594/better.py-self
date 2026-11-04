@@ -34,7 +34,21 @@ import time
 import threading
 import traceback
 
-from typing import Any, Callable, Coroutine, Dict, List, Literal, TYPE_CHECKING, NamedTuple, Optional, Sequence, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Coroutine,
+    Dict,
+    List,
+    Literal,
+    TYPE_CHECKING,
+    NamedTuple,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+    cast,
+)
 
 from curl_cffi import CurlError, WebSocketError
 from curl_cffi.requests import AsyncWebSocket
@@ -672,15 +686,40 @@ class DiscordWebSocket:
         _log.debug('Gateway has sent the RESUME payload.')
 
     async def received_message(self, msg: Any, /) -> None:
-        if type(msg) is bytes:
-            msg = self._decompressor.decompress(msg)
+        size = len(msg)
+        try:
+            if type(msg) is bytes:
+                msg = self._decompressor.decompress(msg)
 
-            # Received a partial gateway message
-            if msg is None:
-                return
+                # Received a partial gateway message
+                if msg is None:
+                    return
 
-        self.log_receive(msg)
-        msg = utils._from_json_frame(msg)
+            self.log_receive(msg)
+            decoded = utils._from_json_frame(msg)
+            if type(decoded) is not dict:
+                raise TypeError(f'expected a JSON object, got {type(decoded).__name__}')
+        except Exception as e:
+            # A corrupt compressed stream or an undecodable frame used to escape
+            # the receive loop and stop the client. The decompressor state can't
+            # be trusted after this, so RESUME on a fresh socket: Discord replays
+            # whatever came after our last sequence, including this event.
+            _log.warning(
+                'Gateway sent a frame that could not be decoded (%d bytes, %s: %s). Resuming the session.',
+                size,
+                type(e).__name__,
+                e,
+            )
+            if self._keep_alive:
+                self._keep_alive.stop()
+                self._keep_alive = None
+            if not self.socket.closed:
+                try:
+                    await asyncio.wait_for(self.socket.close(4000), timeout=5.0)
+                except Exception:
+                    _log.debug('Ignoring an error closing the gateway socket after a bad frame.', exc_info=True)
+            raise ReconnectWebSocket from None
+        msg = cast(Any, decoded)
 
         if _log.isEnabledFor(logging.DEBUG):
             # Raw events carry tokens and PII (READY): never log them unredacted

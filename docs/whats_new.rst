@@ -16,10 +16,22 @@ in specific versions.
 Unreleased
 ----------
 
+Behaviour Changes
+~~~~~~~~~~~~~~~~~
+
+- A gateway frame that cannot be decoded no longer raises out of the receive loop. It is logged as a warning, and the session resumes on a new connection; Discord replays the events after the last sequence. Repeated failures back off like any other reconnect.
+- :meth:`Guild.audit_logs` with ``oldest_first=True`` now walks down from ``before`` (or the newest entry) to ``after`` (or the oldest entry) and buffers that range before yielding, because Discord returns entries newest first. Passing ``after`` limits the requests to the entries newer than it.
+
 Fixes
 ~~~~~
 
 - DEBUG logs now redact ``billing_address_token``, which :meth:`Client.create_payment_source` sends. It used to be logged in clear.
+- A ``GUILD_UPDATE`` that leaves out ``joined_at``, ``emojis``, ``premium_subscription_count`` or ``max_presences`` no longer wipes them. Before, :attr:`Guild.joined_at` became ``None``, :attr:`Guild.emojis` became empty, and the other two were reset.
+- :meth:`Guild.audit_logs` with ``oldest_first=True`` fetched the same entries again page after page. It now yields each entry once, oldest first, and honours ``after`` and ``before`` together.
+- A gateway frame that could not be decoded (corrupt compressed data, invalid JSON or a non-object payload) escaped the receive loop and stopped the client. It is now logged as a warning and the session resumes on a fresh connection.
+- Every ``PRESENCE_UPDATE`` for your own account raised :exc:`TypeError` inside the parser, so your own presence changes were never processed.
+- :meth:`UserSettings.edit` raised :exc:`TypeError` when passed ``restricted_guilds`` (or another ``*_guilds`` privacy setting) as a list. When that setting was passed as ``MISSING``, the call silently dropped ``guild_progress_settings`` from the same edit.
+- :meth:`UserSettings.edit` ignored ``guild_progress_settings=MISSING``, which is documented to reset the field.
 
 .. _vp2p3p2:
 
