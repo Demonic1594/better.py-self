@@ -80,7 +80,7 @@ The library sends capabilities **`0x57fd`**, which userdoccers' examples also us
 | 4008 | Rate limited (sending too fast) | Reconnects. The library throttles its own sends to avoid this. |
 | **4010 – 4014** | Invalid shard, sharding required, invalid API version, invalid or disallowed intents | **Stops** |
 | 4015 | Too many user sessions | Reconnects (close other sessions) |
-| 1000 / 1001 | Normal close | A 1000 the client sent itself stops it. A 1000 or 1001 from Discord leads to a reconnect that **tries to RESUME**. If Discord refuses, an INVALID_SESSION makes the client identify again. |
+| 1000 / 1001 | Normal close | Only a close through `Client.close()` stops the client. A 1000 or 1001 from Discord leads to a reconnect that **tries to RESUME**. If Discord refuses, an INVALID_SESSION makes the client identify again. (The library also sends a 1000 itself on INVALID_SESSION or RECONNECT, then reconnects.) |
 
 This is Discord's side, according to userdoccers. When a client closes with 1000
 or 1001, Discord ends the session. Any other code, or a plain TCP drop, keeps it

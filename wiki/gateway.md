@@ -69,9 +69,10 @@ Received: 0 `DISPATCH`, 7 `RECONNECT`, 9 `INVALIDATE_SESSION`, 10 `HELLO` and 11
   and `_refused_upgrade_status` reads the status from it. (Ported from Rapptz in
   v2.3.2, adapted to curl_cffi.)
 - **Close codes.** These codes end the connection for good, with no reconnect:
-  4004 (authentication failed), 4010, 4011, 4012, 4013 and 4014, and 1000 when
-  the client closed the connection itself. A 1000 sent by Discord leads to a
-  reconnect (`_can_handle_close`). Any other
+  4004 (authentication failed), 4010, 4011, 4012, 4013 and 4014, and a close
+  through `Client.close()`. Any other 1000 leads to a reconnect
+  (`_can_handle_close`): one sent by Discord, or one the library sends itself
+  before reconnecting after INVALID_SESSION or RECONNECT. Any other
   code, or a connection drop, leads to a reconnect, and to a resume when that's
   possible. A bad token normally fails **before** the gateway: the HTTP login
   gets a 401 and raises `LoginFailure('Improper token has been passed')`. 4004
