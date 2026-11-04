@@ -295,6 +295,15 @@ def _transform_type(
         return enums.try_enum(enums.ChannelType, data)
 
 
+_SOUNDBOARD_ACTIONS = frozenset(
+    (
+        enums.AuditLogAction.soundboard_sound_create,
+        enums.AuditLogAction.soundboard_sound_update,
+        enums.AuditLogAction.soundboard_sound_delete,
+    )
+)
+
+
 class AuditLogDiff:
     def __len__(self) -> int:
         return len(self.__dict__)
@@ -460,6 +469,10 @@ class AuditLogChanges:
 
             setattr(self.after, attr, after)
 
+        if entry.action in _SOUNDBOARD_ACTIONS:
+            self._handle_soundboard_emoji(self.before, entry)
+            self._handle_soundboard_emoji(self.after, entry)
+
         # Add aliases
         if hasattr(self.after, 'colour'):
             self.after.color = self.after.colour
@@ -470,6 +483,23 @@ class AuditLogChanges:
 
     def __repr__(self) -> str:
         return f'<AuditLogChanges before={self.before!r} after={self.after!r}>'
+
+    @staticmethod
+    def _handle_soundboard_emoji(diff: AuditLogDiff, entry: AuditLogEntry) -> None:
+        # A sound's emoji arrives as separate emoji_id and emoji_name changes,
+        # and only the changed one is sent. Fold emoji_id into ``emoji`` so a
+        # custom emoji keeps its ID instead of becoming a nameless PartialEmoji
+        if 'emoji_id' not in diff.__dict__:
+            return
+        emoji_id = diff.__dict__['emoji_id']
+        emoji = diff.__dict__.get('emoji')
+        name = emoji.name if isinstance(emoji, PartialEmoji) else None
+        snowflake = int(emoji_id) if emoji_id is not None else 0  # 0 means no emoji
+        if snowflake:
+            # An omitted emoji_name only means it did not change, so it is unknown here
+            diff.emoji = PartialEmoji.with_state(state=entry._state, name=name or '', id=snowflake)
+        elif not name:
+            diff.emoji = None
 
     def _handle_role(self, first: AuditLogDiff, second: AuditLogDiff, entry: AuditLogEntry, elem: List[RolePayload]) -> None:
         if not hasattr(first, 'roles'):

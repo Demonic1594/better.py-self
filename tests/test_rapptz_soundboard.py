@@ -319,3 +319,30 @@ async def test_request_soundboard_sounds_requires_a_timeout():
     for bad in (0, -1.0, float('nan'), float('inf')):
         with pytest.raises(ValueError):
             await client.request_soundboard_sounds([discord.Object(1)], timeout=bad)
+
+
+def test_soundboard_audit_log_emoji_keeps_custom_emoji_id():
+    """emoji_id and emoji_name arrive as separate changes; a custom emoji kept
+    only a nameless PartialEmoji in AuditLogDiff.emoji."""
+    from discord.audit_logs import AuditLogChanges
+
+    class Entry:
+        action = discord.AuditLogAction.soundboard_sound_update
+        _state = None
+        guild = None
+
+    changes = AuditLogChanges(
+        Entry(),  # type: ignore[arg-type]
+        [
+            {'key': 'emoji_id', 'old_value': None, 'new_value': '123456789012345678'},
+            {'key': 'emoji_name', 'old_value': '\U0001f986', 'new_value': None},
+        ],  # type: ignore[list-item]
+    )
+    assert changes.before.emoji.name == '\U0001f986' and changes.before.emoji.id is None
+    assert changes.after.emoji.id == 123456789012345678
+
+    # Only the changed key is sent: custom to custom, then custom to none
+    changes = AuditLogChanges(Entry(), [{'key': 'emoji_id', 'old_value': '1', 'new_value': '2'}])  # type: ignore[arg-type,list-item]
+    assert (changes.before.emoji.id, changes.after.emoji.id) == (1, 2)
+    changes = AuditLogChanges(Entry(), [{'key': 'emoji_id', 'old_value': '5', 'new_value': None}])  # type: ignore[arg-type,list-item]
+    assert changes.before.emoji.id == 5 and changes.after.emoji is None
