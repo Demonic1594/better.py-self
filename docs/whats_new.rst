@@ -23,6 +23,8 @@ Behaviour Changes
 - Headers passed to a single request now override the client-wide ``extra_headers`` of the HTTP client. The client-wide headers used to win.
 - A 429 response without a usable ``retry_after`` (and no ``Retry-After`` header) is retried after 1 second instead of immediately. With ``max_ratelimit_timeout`` below 1 second, such a response now raises :exc:`RateLimited`.
 - The first time each cache (members, threads, presences) evicts entries because it reached its cap, the library logs it once at INFO, naming the cache.
+- The package declares ``yarl`` (imported directly; it was only installed through aiohttp) and requires ``discord_protos`` 1.2.117 or newer, the oldest 1.x release, on which every :class:`UserSettings` property reads.
+- The package metadata uses a PEP 639 license expression (``License-Expression: MIT``) instead of the deprecated license classifier; building from source needs setuptools 77 or newer.
 - :class:`SystemChannelFlags` now includes :attr:`~SystemChannelFlags.emoji_added` (bit 256). Like the other system channel flags it is stored inverted, so a new ``SystemChannelFlags()`` has every notification turned off, including emoji notifications: its raw :attr:`~SystemChannelFlags.value` is 511, not 255. Code that builds flags from scratch for :meth:`Guild.edit` now also turns off emoji-added notifications unless it sets ``emoji_added=True``. Start from :attr:`Guild.system_channel_flags` to keep the current settings.
 
 Fixes
@@ -41,6 +43,9 @@ Fixes
 - ``HTTPClient.edit_profile``, upstream's name for ``edit_current_user``, was missing, so code that called the HTTP layer directly raised :exc:`AttributeError`.
 - ``member.collectibles()`` raised :exc:`TypeError`: upstream exposes it as a method (as :meth:`User.collectibles` is), but :attr:`Member.collectibles` is a property here. The returned list can now also be called, so both forms work.
 - A request retried after a server error or a per-route rate limit ignored a global rate limit that began in the meantime. Every attempt now waits for the global rate limit.
+- :class:`ESRBRating` and :class:`PromotionType` were documented under ``discord`` but not exported from it. They are now.
+- The installation docs installed the upstream library from PyPI. They now install this fork from its repository, and list the voice extra's real dependencies.
+- The quickstart described its own example backwards (it responds only to the account's own messages), and ``examples/basic_voice.py`` used the unmaintained ``youtube_dl`` (now ``yt_dlp``).
 
 .. _vp2p3p1:
 

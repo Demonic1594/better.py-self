@@ -1868,6 +1868,8 @@ Utility Functions
 
 .. autofunction:: discord.utils.escape_mentions
 
+.. currentmodule:: discord.utils
+
 .. class:: ResolvedInvite
 
     A data class which represents a resolved invite returned from :func:`discord.utils.resolve_invite`.
@@ -1883,6 +1885,8 @@ Utility Functions
         The id of the scheduled event that the invite refers to.
 
         :type: Optional[:class:`int`]
+
+.. currentmodule:: discord
 
 .. autofunction:: discord.utils.resolve_invite
 

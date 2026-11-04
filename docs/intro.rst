@@ -22,30 +22,35 @@ is not provided.
 Installing
 -----------
 
-You can get the library directly from PyPI: ::
+This fork is not published to PyPI: ``pip install discord.py-self`` installs the
+upstream library instead. Install it from the repository: ::
 
-    python3 -m pip install -U discord.py-self
+    python3 -m pip install -U git+https://github.com/Demonic1594/better.py-self.git
 
 If you are using Windows, then the following should be used instead: ::
 
-    py -3 -m pip install -U discord.py-self
+    py -3 -m pip install -U git+https://github.com/Demonic1594/better.py-self.git
 
+Each `release <https://github.com/Demonic1594/better.py-self/releases>`_ also has a wheel
+that pip can install from its URL.
 
-To get voice support, you should use ``discord.py-self[voice]`` instead of ``discord.py``, e.g. ::
+To get voice support, add the ``[voice]`` extra, which installs PyNaCl and ``davey``: ::
 
-    python3 -m pip install -U discord.py-self[voice]
+    python3 -m pip install -U "discord.py-self[voice] @ git+https://github.com/Demonic1594/better.py-self.git"
 
-On Linux environments, installing voice requires getting the following dependencies:
+The ``[speed]`` extra (orjson, mmh3, zstandard, Brotli and aiodns) is recommended and makes
+gateway event handling faster; extras combine as ``[voice,speed]``.
+
+On Linux environments, building the voice dependencies may require the following packages:
 
 - `libffi <https://github.com/libffi/libffi>`_
-- `libnacl <https://github.com/saltstack/libnacl>`_
 - `python3-dev <https://packages.debian.org/python3-dev>`_
 
 For a Debian-based system, the following command will get these dependencies:
 
 .. code-block:: shell
 
-    $ apt install libffi-dev libnacl-dev python3-dev
+    $ apt install libffi-dev python3-dev
 
 Remember to check your permissions!
 
@@ -84,7 +89,7 @@ However, for the quick and dirty:
 
     .. code-block:: shell
 
-        $ pip install -U discord.py-self
+        $ pip install -U git+https://github.com/Demonic1594/better.py-self.git
 
 Congratulations. You now have a virtual environment all set up.
 

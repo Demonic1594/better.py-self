@@ -52,8 +52,9 @@ There's a lot going on here, so let's walk you through it step by step.
    the :func:`on_ready` event is called when the bot has finished logging in and setting things
    up and the :func:`on_message` event is called when the bot has received a message.
 4. Since the :func:`on_message` event triggers for *every* message received, we have to make
-   sure that we ignore messages from ourselves. We do this by checking if the :attr:`Message.author`
-   is the same as the :attr:`Client.user`.
+   sure that we only respond to our own messages, so that other people cannot run commands on
+   our account. We do this by returning early if the :attr:`Message.author` is not the
+   :attr:`Client.user`.
 5. Afterwards, we check if the :class:`Message.content` starts with ``'$hello'``. If it does,
    then we send a message in the channel it was used in with ``'Hello!'``. This is a basic way of
    handling commands, which can be later automated with the :doc:`./ext/commands/index` framework.

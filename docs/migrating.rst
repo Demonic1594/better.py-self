@@ -645,6 +645,10 @@ Moving Away From Custom AsyncIterator
 
 Asynchronous iterators in v1.0 were implemented using a special class named ``AsyncIterator``.
 v2.0 instead provides regular asynchronous iterators with no added utility methods.
+The ``discord.iterators`` module, which held ``AsyncIterator`` and its subclasses, was
+removed with it, so ``import discord.iterators`` raises :exc:`ModuleNotFoundError`. Methods
+such as :meth:`abc.Messageable.history` are now async generators; annotate their results as
+:class:`collections.abc.AsyncIterator` instead.
 
 This means that usage of the following utility methods is no longer possible:
 
@@ -1129,7 +1133,7 @@ The following changes have been made:
 - :func:`on_socket_raw_receive` is now only called once the **complete** message is received and decompressed. The passed ``msg`` parameter is now always :class:`str`.
 - :func:`on_socket_raw_send` is now only called if ``enable_debug_events`` is set on :class:`Client`.
 - The documented return type for :meth:`Guild.fetch_channels` changed to Sequence[:class:`abc.GuildChannel`].
-- :func:`utils.resolve_invite` now returns a :class:`ResolvedInvite` class.
+- :func:`utils.resolve_invite` now returns a :class:`utils.ResolvedInvite` class.
 - :func:`utils.oauth_url` now defaults to ``bot`` and ``applications.commands`` scopes when not given instead of just ``bot``.
 - :meth:`abc.Messageable.typing` can no longer be used as a regular (non-async) context manager.
 
