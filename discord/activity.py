@@ -1113,6 +1113,7 @@ class Activity(BaseActivity):
             ('details', self.details),
             ('application_id', self.application_id),
             ('emoji', self.emoji),
+            ('platform', self.platform),
         )
         inner = ' '.join('%s=%r' % t for t in attrs if t[1] is not None)
         return f'<Activity {inner}>'

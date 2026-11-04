@@ -227,10 +227,20 @@ class Paginator:
 
     @property
     def pages(self) -> List[str]:
-        """List[:class:`str`]: Returns the rendered list of pages."""
+        """List[:class:`str`]: Returns the rendered list of pages.
+
+        The page still being built is included, rendered, but stays open:
+        lines added afterwards go on the same page.
+        """
         # we have more than just the prefix in our current page
         if len(self._current_page) > (0 if self.prefix is None else 1):
-            self.close_page()
+            # Render the current page without closing it, so reading pages
+            # does not end the page lines are still being added to
+            # (Rapptz/discord.py 8f3224b)
+            current_page = self.linesep.join(
+                [*self._current_page, self.suffix] if self.suffix is not None else self._current_page
+            )
+            return [*self._pages, current_page]
         return self._pages
 
     def __repr__(self) -> str:
