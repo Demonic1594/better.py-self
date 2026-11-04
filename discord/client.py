@@ -1651,10 +1651,14 @@ class Client:
                     if self.is_closed():
                         return
                 # Without a session id there is nothing to RESUME: identify instead
-                resume = e.resume and self.ws.session_id is not None
-                ws_params.update(sequence=self.ws.sequence, resume=resume, session=self.ws.session_id, old_ws=self.ws)
+                ws = self.ws
+                session_id = ws.session_id if ws is not None else None
+                resume = e.resume and session_id is not None
+                ws_params.update(
+                    sequence=ws.sequence if ws is not None else None, resume=resume, session=session_id, old_ws=ws
+                )
                 if resume:
-                    ws_params['gateway'] = self.ws.gateway
+                    ws_params['gateway'] = ws.gateway
                 else:
                     # A new session starts at the default gateway, not the one a dead session used
                     ws_params.pop('gateway', None)
@@ -1681,7 +1685,11 @@ class Client:
                 # A connection reset by the peer is usually a blip: resume at once, once.
                 # If it keeps happening, back off like any other failure rather than
                 # hammering the gateway with immediate reconnects.
-                resumable = self.ws.session_id is not None
+                # The very first connection attempt can fail before any websocket
+                # exists (DNS failure, network down at startup): then there is no
+                # session to resume and the retry must identify from scratch
+                ws = self.ws
+                resumable = ws is not None and ws.session_id is not None
                 if (
                     isinstance(exc, OSError)
                     and exc.errno in utils._CONNECTION_RESET_ERRNOS
@@ -1690,12 +1698,12 @@ class Client:
                 ):
                     immediate_resume_available = False
                     ws_params.update(
-                        sequence=self.ws.sequence,
-                        gateway=self.ws.gateway,
+                        sequence=ws.sequence,
+                        gateway=ws.gateway,
                         initial=False,
                         resume=True,
-                        session=self.ws.session_id,
-                        old_ws=self.ws,
+                        session=ws.session_id,
+                        old_ws=ws,
                     )
                     continue
 
@@ -1716,11 +1724,11 @@ class Client:
                 # This is apparently what the official Discord client does
                 # Without a session id there is nothing to RESUME: identify on the default gateway
                 ws_params.update(
-                    sequence=self.ws.sequence,
-                    gateway=self.ws.gateway if resumable else None,
+                    sequence=ws.sequence if ws is not None else None,
+                    gateway=ws.gateway if resumable else None,
                     resume=resumable,
-                    session=self.ws.session_id,
-                    old_ws=self.ws,
+                    session=ws.session_id if ws is not None else None,
+                    old_ws=ws,
                 )
 
     async def close(self) -> None:
@@ -4914,7 +4922,14 @@ class Client:
         """
         state = self._connection
         channels = await state.http.get_private_channels()
-        return [_private_channel_factory(data['type'])[0](me=self.user, data=data, state=state) for data in channels]  # type: ignore # user is always present when logged in
+        result: List[PrivateChannel] = []
+        for data in channels:
+            factory = _private_channel_factory(data['type'])[0]
+            if factory is None:
+                _log.debug('Skipping private channel ID %s with unknown type %s.', data.get('id'), data['type'])
+                continue
+            result.append(factory(me=self.user, data=data, state=state))  # type: ignore # user is always present when logged in
+        return result
 
     async def fetch_settings(self) -> UserSettings:
         """|coro|

@@ -238,6 +238,34 @@ class Paginator:
         return fmt.format(self)
 
 
+def _add_help_line(paginator: Paginator, line: str = '', *, empty: bool = False) -> None:
+    """Adds a help line, splitting one that is longer than a page.
+
+    :meth:`Paginator.add_line` raises for a single line longer than a page; a
+    long docstring or argument default made ``!help`` fail outright. Text that
+    does not fit is added line by line instead (as the help commands always did
+    for multi-line help), and only a line that is itself longer than a page is
+    cut into page-sized pieces, at the last space where there is one.
+    """
+    try:
+        paginator.add_line(line, empty=empty)
+        return
+    except RuntimeError:
+        limit = paginator.max_size - paginator._prefix_len - paginator._suffix_len - 2 * paginator._linesep_len
+        if limit <= 0:
+            raise
+    for part in line.splitlines() or ['']:
+        while len(part) > limit:
+            cut = part.rfind(' ', 0, limit + 1)
+            if cut <= 0:
+                cut = limit
+            paginator.add_line(part[:cut])
+            part = part[cut:].lstrip(' ')
+        paginator.add_line(part)
+    if empty:
+        paginator.add_line('')
+
+
 def _not_overridden(f: FuncT) -> FuncT:
     f.__help_command_not_overridden__ = True
     return f
@@ -1156,7 +1184,7 @@ class DefaultHelpCommand(HelpCommand):
         if not commands:
             return
 
-        self.paginator.add_line(heading)
+        _add_help_line(self.paginator, heading)
         max_size = max_size or self.get_max_size(commands)
 
         get_width = discord.utils._string_width
@@ -1164,7 +1192,7 @@ class DefaultHelpCommand(HelpCommand):
             name = command.name
             width = max_size - (get_width(name) - len(name))
             entry = f'{self.indent * " "}{name:<{width}} {command.short_doc}'
-            self.paginator.add_line(self.shorten_text(entry))
+            _add_help_line(self.paginator, self.shorten_text(entry))
 
     def add_command_arguments(self, command: Command[Any, ..., Any], /) -> None:
         """Indents a list of command arguments after the :attr:`.arguments_heading`.
@@ -1187,7 +1215,7 @@ class DefaultHelpCommand(HelpCommand):
         if not arguments:
             return
 
-        self.paginator.add_line(self.arguments_heading)
+        _add_help_line(self.paginator, self.arguments_heading)
         max_size = self.get_max_size(arguments)  # type: ignore # not a command
 
         get_width = discord.utils._string_width
@@ -1200,7 +1228,7 @@ class DefaultHelpCommand(HelpCommand):
             if argument.displayed_default is not None:
                 entry += f' (default: {argument.displayed_default})'
 
-            self.paginator.add_line(entry)
+            _add_help_line(self.paginator, entry)
 
     async def send_pages(self) -> None:
         """|coro|
@@ -1228,18 +1256,18 @@ class DefaultHelpCommand(HelpCommand):
         """
 
         if command.description:
-            self.paginator.add_line(command.description, empty=True)
+            _add_help_line(self.paginator, command.description, empty=True)
 
         signature = self.get_command_signature(command)
-        self.paginator.add_line(signature, empty=True)
+        _add_help_line(self.paginator, signature, empty=True)
 
         if command.help:
             try:
-                self.paginator.add_line(command.help, empty=True)
+                _add_help_line(self.paginator, command.help, empty=True)
             except RuntimeError:
                 for line in command.help.splitlines():
-                    self.paginator.add_line(line)
-                self.paginator.add_line()
+                    _add_help_line(self.paginator, line)
+                _add_help_line(self.paginator)
 
         if self.show_parameter_descriptions:
             self.add_command_arguments(command)
@@ -1263,7 +1291,7 @@ class DefaultHelpCommand(HelpCommand):
 
         if bot.description:
             # <description> portion
-            self.paginator.add_line(bot.description, empty=True)
+            _add_help_line(self.paginator, bot.description, empty=True)
 
         no_category = f'\u200b{self.no_category}:'
 
@@ -1282,8 +1310,8 @@ class DefaultHelpCommand(HelpCommand):
 
         note = self.get_ending_note()
         if note:
-            self.paginator.add_line()
-            self.paginator.add_line(note)
+            _add_help_line(self.paginator)
+            _add_help_line(self.paginator, note)
 
         await self.send_pages()
 
@@ -1301,22 +1329,22 @@ class DefaultHelpCommand(HelpCommand):
         if filtered:
             note = self.get_ending_note()
             if note:
-                self.paginator.add_line()
-                self.paginator.add_line(note)
+                _add_help_line(self.paginator)
+                _add_help_line(self.paginator, note)
 
         await self.send_pages()
 
     async def send_cog_help(self, cog: Cog, /) -> None:
         if cog.description:
-            self.paginator.add_line(cog.description, empty=True)
+            _add_help_line(self.paginator, cog.description, empty=True)
 
         filtered = await self.filter_commands(cog.get_commands(), sort=self.sort_commands)
         self.add_indented_commands(filtered, heading=self.commands_heading)
 
         note = self.get_ending_note()
         if note:
-            self.paginator.add_line()
-            self.paginator.add_line(note)
+            _add_help_line(self.paginator)
+            _add_help_line(self.paginator, note)
 
         await self.send_pages()
 
@@ -1434,8 +1462,8 @@ class MinimalHelpCommand(HelpCommand):
         if commands:
             # U+2002 Middle Dot
             joined = '\u2002'.join(c.name for c in commands)
-            self.paginator.add_line(f'__**{heading}**__')
-            self.paginator.add_line(joined)
+            _add_help_line(self.paginator, f'__**{heading}**__')
+            _add_help_line(self.paginator, joined)
 
     def add_subcommand_formatting(self, command: Command[Any, ..., Any], /) -> None:
         """Adds formatting information on a subcommand.
@@ -1455,7 +1483,7 @@ class MinimalHelpCommand(HelpCommand):
             The command to show information of.
         """
         fmt = '{0}{1} \N{EN DASH} {2}' if command.short_doc else '{0}{1}'
-        self.paginator.add_line(fmt.format(self.context.clean_prefix, command.qualified_name, command.short_doc))
+        _add_help_line(self.paginator, fmt.format(self.context.clean_prefix, command.qualified_name, command.short_doc))
 
     def add_aliases_formatting(self, aliases: Sequence[str], /) -> None:
         """Adds the formatting information on a command's aliases.
@@ -1476,7 +1504,7 @@ class MinimalHelpCommand(HelpCommand):
         aliases: Sequence[:class:`str`]
             A list of aliases to format.
         """
-        self.paginator.add_line(f'**{self.aliases_heading}** {", ".join(aliases)}', empty=True)
+        _add_help_line(self.paginator, f'**{self.aliases_heading}** {", ".join(aliases)}', empty=True)
 
     def add_command_formatting(self, command: Command[Any, ..., Any], /) -> None:
         """A utility function to format commands and groups.
@@ -1492,22 +1520,22 @@ class MinimalHelpCommand(HelpCommand):
         """
 
         if command.description:
-            self.paginator.add_line(command.description, empty=True)
+            _add_help_line(self.paginator, command.description, empty=True)
 
         signature = self.get_command_signature(command)
         if command.aliases:
-            self.paginator.add_line(signature)
+            _add_help_line(self.paginator, signature)
             self.add_aliases_formatting(command.aliases)
         else:
-            self.paginator.add_line(signature, empty=True)
+            _add_help_line(self.paginator, signature, empty=True)
 
         if command.help:
             try:
-                self.paginator.add_line(command.help, empty=True)
+                _add_help_line(self.paginator, command.help, empty=True)
             except RuntimeError:
                 for line in command.help.splitlines():
-                    self.paginator.add_line(line)
-                self.paginator.add_line()
+                    _add_help_line(self.paginator, line)
+                _add_help_line(self.paginator)
 
     def get_destination(self) -> discord.abc.Messageable:
         ctx = self.context
@@ -1527,11 +1555,11 @@ class MinimalHelpCommand(HelpCommand):
         bot = ctx.bot
 
         if bot.description:
-            self.paginator.add_line(bot.description, empty=True)
+            _add_help_line(self.paginator, bot.description, empty=True)
 
         note = self.get_opening_note()
         if note:
-            self.paginator.add_line(note, empty=True)
+            _add_help_line(self.paginator, note, empty=True)
 
         no_category = f'\u200b{self.no_category}'
 
@@ -1548,33 +1576,33 @@ class MinimalHelpCommand(HelpCommand):
 
         note = self.get_ending_note()
         if note:
-            self.paginator.add_line()
-            self.paginator.add_line(note)
+            _add_help_line(self.paginator)
+            _add_help_line(self.paginator, note)
 
         await self.send_pages()
 
     async def send_cog_help(self, cog: Cog, /) -> None:
         bot = self.context.bot
         if bot.description:
-            self.paginator.add_line(bot.description, empty=True)
+            _add_help_line(self.paginator, bot.description, empty=True)
 
         note = self.get_opening_note()
         if note:
-            self.paginator.add_line(note, empty=True)
+            _add_help_line(self.paginator, note, empty=True)
 
         if cog.description:
-            self.paginator.add_line(cog.description, empty=True)
+            _add_help_line(self.paginator, cog.description, empty=True)
 
         filtered = await self.filter_commands(cog.get_commands(), sort=self.sort_commands)
         if filtered:
-            self.paginator.add_line(f'**{cog.qualified_name} {self.commands_heading}**')
+            _add_help_line(self.paginator, f'**{cog.qualified_name} {self.commands_heading}**')
             for command in filtered:
                 self.add_subcommand_formatting(command)
 
             note = self.get_ending_note()
             if note:
-                self.paginator.add_line()
-                self.paginator.add_line(note)
+                _add_help_line(self.paginator)
+                _add_help_line(self.paginator, note)
 
         await self.send_pages()
 
@@ -1585,16 +1613,16 @@ class MinimalHelpCommand(HelpCommand):
         if filtered:
             note = self.get_opening_note()
             if note:
-                self.paginator.add_line(note, empty=True)
+                _add_help_line(self.paginator, note, empty=True)
 
-            self.paginator.add_line(f'**{self.commands_heading}**')
+            _add_help_line(self.paginator, f'**{self.commands_heading}**')
             for command in filtered:
                 self.add_subcommand_formatting(command)
 
             note = self.get_ending_note()
             if note:
-                self.paginator.add_line()
-                self.paginator.add_line(note)
+                _add_help_line(self.paginator)
+                _add_help_line(self.paginator, note)
 
         await self.send_pages()
 

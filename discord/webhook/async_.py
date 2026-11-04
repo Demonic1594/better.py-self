@@ -122,6 +122,56 @@ class AsyncDeferredLock:
             self.lock.release()
 
 
+class _DeferredSessionRequest:
+    """``session.request(...)`` for a session that is created on first use."""
+
+    __slots__ = ('_http', '_args', '_kwargs', '_cm')
+
+    def __init__(self, http: Any, args: Tuple[Any, ...], kwargs: Dict[str, Any]) -> None:
+        self._http = http
+        self._args = args
+        self._kwargs = kwargs
+        self._cm: Any = None
+
+    async def __aenter__(self) -> Any:
+        session = await self._http._ensure_asession()
+        self._cm = session.request(*self._args, **self._kwargs)
+        return await self._cm.__aenter__()
+
+    async def __aexit__(self, *exc_info: Any) -> Any:
+        return await self._cm.__aexit__(*exc_info)
+
+
+class _ClientSessionProxy:
+    """Stands in for the client's aiohttp session until it exists.
+
+    The client creates its aiohttp session lazily (aiohttp only loads when a
+    CDN or webhook request needs it), so a webhook built from a client before
+    that point used to get ``MISSING`` and fail; the session is now created on
+    the webhook's first request instead.
+    """
+
+    __slots__ = ('_http',)
+
+    def __init__(self, http: Any) -> None:
+        self._http = http
+
+    @property
+    def closed(self) -> bool:
+        return False
+
+    def request(self, *args: Any, **kwargs: Any) -> _DeferredSessionRequest:
+        return _DeferredSessionRequest(self._http, args, kwargs)
+
+
+def _client_session(http: Any) -> Any:
+    """The client's aiohttp session, or a proxy that creates it on first use."""
+    session = http._HTTPClient__asession
+    if session is MISSING or session.closed:
+        return _ClientSessionProxy(http)
+    return session
+
+
 class AsyncWebhookAdapter:
     def __init__(self):
         self._locks: weakref.WeakValueDictionary[Any, asyncio.Lock] = weakref.WeakValueDictionary()
@@ -1026,7 +1076,7 @@ class Webhook(BaseWebhook):
         if client is not MISSING:
             state = client._connection
             if session is MISSING:
-                session = client.http._HTTPClient__asession  # type: ignore
+                session = _client_session(client.http)
 
         if session is MISSING:
             raise TypeError('session or client must be given')
@@ -1094,7 +1144,7 @@ class Webhook(BaseWebhook):
 
             state = client._connection
             if session is MISSING:
-                session = client.http._HTTPClient__asession  # type: ignore
+                session = _client_session(client.http)
 
         if session is MISSING:
             raise TypeError('session or client must be given')
@@ -1117,7 +1167,7 @@ class Webhook(BaseWebhook):
 
         state = channel._state
         http = state.http
-        session = http._HTTPClient__asession
+        session = _client_session(http)
         proxy_auth = http.proxy_auth
         proxy = http.proxy
         return cls(feed, session=session, state=state, proxy_auth=proxy_auth, proxy=proxy, token=state.http.token)
@@ -1125,7 +1175,7 @@ class Webhook(BaseWebhook):
     @classmethod
     def from_state(cls, data: WebhookPayload, state: ConnectionState) -> Self:
         http = state.http
-        session = http._HTTPClient__asession  # type: ignore
+        session = _client_session(http)
         proxy_auth = http.proxy_auth
         proxy = http.proxy
         return cls(data, session=session, state=state, proxy_auth=proxy_auth, proxy=proxy, token=state.http.token)

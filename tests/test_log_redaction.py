@@ -114,7 +114,7 @@ def test_no_log_call_interpolates_a_raw_url_or_payload():
 
     offenders = []
     for path in LOGGING_MODULES:
-        tree = ast.parse(pathlib.Path(path).read_text())
+        tree = ast.parse((pathlib.Path(__file__).resolve().parents[1] / path).read_text())
         for node in ast.walk(tree):
             if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
                 continue

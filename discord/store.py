@@ -1344,7 +1344,8 @@ class SKU(Hashable):
 
     def is_released(self) -> bool:
         """:class:`bool`: Checks if the SKU is released."""
-        return self.release_date is not None and self.release_date <= utcnow()
+        # release_date is a date, not a datetime: compare against today's date
+        return self.release_date is not None and self.release_date <= utcnow().date()
 
     def is_giftable(self) -> bool:
         """:class:`bool`: Checks if this SKU is giftable."""
