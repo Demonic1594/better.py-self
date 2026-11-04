@@ -146,6 +146,7 @@ __all__ = (
     'PollLayoutType',
     'MessageReferenceType',
     'ReactionType',
+    'VoiceChannelEffectAnimationType',
     'StatusDisplayType',
     'OnboardingPromptType',
     'OnboardingMode',
@@ -610,6 +611,9 @@ class AuditLogAction(Enum):
     thread_delete                                     = 112
     application_command_permission_update             = 121
     app_command_permission_update                     = 121
+    soundboard_sound_create                           = 130
+    soundboard_sound_update                           = 131
+    soundboard_sound_delete                           = 132
     automod_rule_create                               = 140
     automod_rule_update                               = 141
     automod_rule_delete                               = 142
@@ -680,6 +684,9 @@ class AuditLogAction(Enum):
             AuditLogAction.thread_delete:                            AuditLogActionCategory.delete,
             AuditLogAction.thread_update:                            AuditLogActionCategory.update,
             AuditLogAction.application_command_permission_update:    AuditLogActionCategory.update,
+            AuditLogAction.soundboard_sound_create:                  AuditLogActionCategory.create,
+            AuditLogAction.soundboard_sound_update:                  AuditLogActionCategory.update,
+            AuditLogAction.soundboard_sound_delete:                  AuditLogActionCategory.delete,
             AuditLogAction.automod_rule_create:                      AuditLogActionCategory.create,
             AuditLogAction.automod_rule_update:                      AuditLogActionCategory.update,
             AuditLogAction.automod_rule_delete:                      AuditLogActionCategory.delete,
@@ -735,7 +742,10 @@ class AuditLogAction(Enum):
             return 'thread'
         elif v < 122:
             return 'integration_or_application_command'
-        elif v < 143:
+        elif 129 < v < 133:
+            return 'soundboard_sound'
+        elif 139 < v < 143:
+            # Restricted like Rapptz/discord.py 9a1b91d: 122-139 are not automod
             return 'auto_moderation'
         elif v < 147:
             return 'user'
@@ -2032,6 +2042,11 @@ class PollLayoutType(Enum):
 
 class PurchaseNotificationType(Enum):
     guild_product = 0
+
+
+class VoiceChannelEffectAnimationType(Enum):
+    premium = 0
+    basic = 1
 
 
 class ReactionType(Enum):

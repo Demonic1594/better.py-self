@@ -89,6 +89,9 @@ AuditLogEvent = Literal[
     111,
     112,
     121,
+    130,
+    131,
+    132,
     140,
     141,
     142,
@@ -147,6 +150,8 @@ class _AuditLogChange_Snowflake(TypedDict):
         'channel_id',
         'inviter_id',
         'guild_id',
+        'user_id',
+        'sound_id',
     ]
     new_value: Snowflake
     old_value: Snowflake
@@ -175,6 +180,12 @@ class _AuditLogChange_Bool(TypedDict):
     ]
     new_value: bool
     old_value: bool
+
+
+class _AuditLogChange_Float(TypedDict):
+    key: Literal['volume']
+    new_value: float
+    old_value: float
 
 
 class _AuditLogChange_Int(TypedDict):
@@ -323,6 +334,7 @@ AuditLogChange = Union[
     _AuditLogChange_AssetHash,
     _AuditLogChange_Snowflake,
     _AuditLogChange_Int,
+    _AuditLogChange_Float,
     _AuditLogChange_Bool,
     _AuditLogChange_ListRole,
     _AuditLogChange_MFALevel,

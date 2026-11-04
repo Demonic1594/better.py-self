@@ -424,6 +424,7 @@ class DiscordWebSocket:
     STREAM_PING                  = 21
     STREAM_SET_PAUSED            = 22
     # REQUEST_COMMANDS           = 24
+    REQUEST_SOUNDBOARD_SOUNDS    = 31
     SEARCH_RECENT_MEMBERS        = 35
     BULK_GUILD_SUBSCRIBE         = 37
     QOS_HEARTBEAT                = 40
@@ -1023,6 +1024,15 @@ class DiscordWebSocket:
         if nonce is not None:
             payload['d']['nonce'] = nonce
 
+        await self.send_as_json(payload)
+
+    async def request_soundboard_sounds(self, guild_ids: List[int]) -> None:
+        # Answered with one SOUNDBOARD_SOUNDS dispatch per guild
+        payload = {
+            'op': self.REQUEST_SOUNDBOARD_SOUNDS,
+            'd': {'guild_ids': [str(guild_id) for guild_id in guild_ids]},
+        }
+        _log.debug('Requesting soundboard sounds for guild IDs %s.', guild_ids)
         await self.send_as_json(payload)
 
     async def voice_state(

@@ -1710,6 +1710,35 @@ Scheduled Events
     :param event: The scheduled event that was marked as read.
     :type event: :class:`ScheduledEvent`
 
+Soundboard
+~~~~~~~~~~~
+
+These events cover sounds of guilds whose sounds are cached. User accounts
+cache a guild's sounds once :meth:`Client.request_soundboard_sounds` was called
+for it; :func:`on_soundboard_sound_create` also fires for other guilds.
+
+.. function:: on_soundboard_sound_create(sound)
+              on_soundboard_sound_delete(sound)
+
+    Called when a :class:`SoundboardSound` is created or deleted.
+
+    .. versionadded:: 2.3.2
+
+    :param sound: The soundboard sound that was created or deleted.
+    :type sound: :class:`SoundboardSound`
+
+.. function:: on_soundboard_sound_update(before, after)
+
+    Called when a cached :class:`SoundboardSound` is updated, for example
+    when its name, emoji or volume changes.
+
+    .. versionadded:: 2.3.2
+
+    :param before: The sound before the update.
+    :type before: :class:`SoundboardSound`
+    :param after: The sound after the update.
+    :type after: :class:`SoundboardSound`
+
 Stages
 ~~~~~~~
 
@@ -1861,6 +1890,17 @@ Voice
     :type before: :class:`VoiceState`
     :param after: The voice state after the changes.
     :type after: :class:`VoiceState`
+
+.. function:: on_voice_channel_effect(effect)
+
+    Called when someone sends a :class:`VoiceChannelEffect` (an emoji reaction
+    or a soundboard sound) in a voice call the client is in, in a guild or a
+    private call.
+
+    .. versionadded:: 2.3.2
+
+    :param effect: The effect that was sent.
+    :type effect: :class:`VoiceChannelEffect`
 
 .. _discord-api-utils:
 
@@ -3788,6 +3828,45 @@ of :class:`enum.Enum`.
 
         .. versionadded:: 2.1
 
+    .. attribute:: soundboard_sound_create
+
+        A soundboard sound was created.
+
+        When this is the action, the type of :attr:`~AuditLogEntry.target` is
+        the :class:`SoundboardSound` or :class:`Object` with the ID of the sound.
+
+        Possible attributes for :class:`AuditLogDiff`:
+
+        - :attr:`~AuditLogDiff.name`
+        - :attr:`~AuditLogDiff.emoji`
+        - :attr:`~AuditLogDiff.volume`
+
+        .. versionadded:: 2.3.2
+
+    .. attribute:: soundboard_sound_update
+
+        A soundboard sound was updated.
+
+        Possible attributes for :class:`AuditLogDiff`:
+
+        - :attr:`~AuditLogDiff.name`
+        - :attr:`~AuditLogDiff.emoji`
+        - :attr:`~AuditLogDiff.volume`
+
+        .. versionadded:: 2.3.2
+
+    .. attribute:: soundboard_sound_delete
+
+        A soundboard sound was deleted.
+
+        Possible attributes for :class:`AuditLogDiff`:
+
+        - :attr:`~AuditLogDiff.name`
+        - :attr:`~AuditLogDiff.emoji`
+        - :attr:`~AuditLogDiff.volume`
+
+        .. versionadded:: 2.3.2
+
 .. class:: AuditLogActionCategory
 
     Represents the category that the :class:`AuditLogAction` belongs to.
@@ -4429,6 +4508,20 @@ of :class:`enum.Enum`.
         A guild invite that originates from the creator page of a guild.
 
         .. versionadded:: 2.0
+
+.. class:: VoiceChannelEffectAnimationType
+
+    Represents the animation type of a voice channel effect.
+
+    .. versionadded:: 2.3.2
+
+    .. attribute:: premium
+
+        A fun animation, sent by a Nitro subscriber.
+
+    .. attribute:: basic
+
+        The standard animation.
 
 .. class:: VideoQualityMode
 
@@ -8114,11 +8207,12 @@ AuditLogDiff
 
     .. attribute:: emoji
 
-        The name of the emoji that represents a sticker being changed.
+        The emoji which represents one of the following:
 
-        See also :attr:`GuildSticker.emoji`.
+        * :attr:`GuildSticker.emoji`
+        * :attr:`SoundboardSound.emoji`
 
-        :type: :class:`str`
+        :type: Union[:class:`str`, :class:`PartialEmoji`]
 
     .. attribute:: unicode_emoji
 
@@ -8139,9 +8233,10 @@ AuditLogDiff
 
     .. attribute:: available
 
-        The availability of a sticker being changed.
+        The availability of one of the following being changed:
 
-        See also :attr:`GuildSticker.available`
+        * :attr:`GuildSticker.available`
+        * :attr:`SoundboardSound.available`
 
         :type: :class:`bool`
 
@@ -8421,6 +8516,14 @@ AuditLogDiff
         See also :attr:`Onboarding.mode`
 
         :type: :class:`OnboardingMode`
+
+    .. attribute:: volume
+
+        The volume of a soundboard sound.
+
+        See also :attr:`SoundboardSound.volume`
+
+        :type: :class:`float`
 
 
 
@@ -9319,6 +9422,30 @@ Sticker
 .. autoclass:: GuildSticker()
     :members:
 
+BaseSoundboardSound
+~~~~~~~~~~~~~~~~~~~~
+
+.. attributetable:: BaseSoundboardSound
+
+.. autoclass:: BaseSoundboardSound()
+    :members:
+
+SoundboardDefaultSound
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. attributetable:: SoundboardDefaultSound
+
+.. autoclass:: SoundboardDefaultSound()
+    :members:
+
+SoundboardSound
+~~~~~~~~~~~~~~~~
+
+.. attributetable:: SoundboardSound
+
+.. autoclass:: SoundboardSound()
+    :members:
+
 GuildChannel
 ~~~~~~~~~~~~~
 
@@ -9348,6 +9475,35 @@ GuildChannel
 
     .. automethod:: typing
         :async-with:
+
+.. attributetable:: VoiceChannelEffect
+
+.. autoclass:: VoiceChannelEffect()
+    :members:
+
+.. class:: VoiceChannelEffectAnimation
+
+    A namedtuple which represents a voice channel effect animation.
+
+    .. versionadded:: 2.3.2
+
+    .. attribute:: id
+
+        The ID of the animation.
+
+        :type: :class:`int`
+
+    .. attribute:: type
+
+        The type of the animation.
+
+        :type: :class:`VoiceChannelEffectAnimationType`
+
+.. attributetable:: VoiceChannelSoundEffect
+
+.. autoclass:: VoiceChannelSoundEffect()
+    :members:
+    :inherited-members:
 
 .. attributetable:: StageChannel
 

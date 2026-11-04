@@ -93,6 +93,7 @@ from .scheduled_event import ScheduledEvent
 from .stage_instance import StageInstance
 from .threads import Thread
 from .sticker import GuildSticker
+from .soundboard import SoundboardSound
 from .file import File
 from .audit_logs import AuditLogEntry
 from .object import OLDEST_OBJECT, Object
@@ -600,6 +601,7 @@ class Guild(Hashable):
         '_safety_alerts_channel_id',
         '_stage_instances',
         '_scheduled_events',
+        '_soundboard_sounds',
         '_threads',
         'approximate_member_count',
         'approximate_presence_count',
@@ -639,6 +641,9 @@ class Guild(Hashable):
         self._threads: Dict[int, Thread] = {}
         self._stage_instances: Dict[int, StageInstance] = {}
         self._scheduled_events: Dict[int, ScheduledEvent] = {}
+        # Created on first use: user accounts only receive sounds on request
+        # (Client.request_soundboard_sounds), so most guilds never need one
+        self._soundboard_sounds: Optional[Dict[int, SoundboardSound]] = None
         self._state: ConnectionState = state
         self._member_count: Optional[int] = None
         self._presence_count: Optional[int] = None
@@ -913,6 +918,10 @@ class Guild(Hashable):
             self._scheduled_events[scheduled_event.id] = scheduled_event
 
         self.emojis: Tuple[Emoji, ...] = tuple(map(lambda d: state.store_emoji(self, d), guild.get('emojis', [])))
+        sounds = guild.get('soundboard_sounds')
+        if sounds:
+            for sound in sounds:
+                self._add_soundboard_sound(SoundboardSound(guild=self, state=state, data=sound))
         self.stickers: Tuple[GuildSticker, ...] = tuple(
             map(lambda d: state.store_sticker(self, d), guild.get('stickers', []))
         )
@@ -1589,6 +1598,47 @@ class Guild(Hashable):
             The scheduled event or ``None`` if not found.
         """
         return self._scheduled_events.get(scheduled_event_id)
+
+    def _add_soundboard_sound(self, sound: SoundboardSound, /) -> None:
+        sounds = self._soundboard_sounds
+        if sounds is None:
+            sounds = self._soundboard_sounds = {}
+        sounds[sound.id] = sound
+
+    def _remove_soundboard_sound(self, sound: SoundboardSound, /) -> None:
+        if self._soundboard_sounds is not None:
+            self._soundboard_sounds.pop(sound.id, None)
+
+    @property
+    def soundboard_sounds(self) -> Sequence[SoundboardSound]:
+        """Sequence[:class:`SoundboardSound`]: Returns a sequence of the guild's cached soundboard sounds.
+
+        User accounts receive a guild's sounds only when they are requested, so
+        this is empty until :meth:`Client.request_soundboard_sounds` has been
+        called for the guild (or a sound was created or updated since).
+        :meth:`fetch_soundboard_sounds` gets them from the API instead.
+
+        .. versionadded:: 2.3.2
+        """
+        return utils.SequenceProxy((self._soundboard_sounds or {}).values())
+
+    def get_soundboard_sound(self, sound_id: int, /) -> Optional[SoundboardSound]:
+        """Returns a cached soundboard sound with the given ID.
+
+        .. versionadded:: 2.3.2
+
+        Parameters
+        -----------
+        sound_id: :class:`int`
+            The ID to search for.
+
+        Returns
+        --------
+        Optional[:class:`SoundboardSound`]
+            The soundboard sound or ``None`` if not found.
+        """
+        sounds = self._soundboard_sounds
+        return sounds.get(sound_id) if sounds else None
 
     @property
     def owner(self) -> Optional[Member]:
@@ -3744,6 +3794,125 @@ class Guild(Hashable):
         data = await state.http.get_guild_application_command_permissions(application.id, self.id)
         return [GuildApplicationCommandPermissions(state=state, data=permissions, guild=self) for permissions in data]
 
+    async def fetch_soundboard_sound(self, sound_id: int, /) -> SoundboardSound:
+        """|coro|
+
+        Retrieves a :class:`SoundboardSound` with the specified ID from the API.
+
+        .. note::
+
+            To receive :attr:`SoundboardSound.user`, you must have
+            :attr:`~Permissions.create_expressions` or
+            :attr:`~Permissions.manage_expressions`.
+
+        .. versionadded:: 2.3.2
+
+        Raises
+        -------
+        NotFound
+            The sound requested could not be found.
+        HTTPException
+            Retrieving the sound failed.
+
+        Returns
+        --------
+        :class:`SoundboardSound`
+            The retrieved sound.
+        """
+        data = await self._state.http.get_soundboard_sound(self.id, sound_id)
+        return SoundboardSound(guild=self, state=self._state, data=data)
+
+    async def fetch_soundboard_sounds(self) -> List[SoundboardSound]:
+        """|coro|
+
+        Retrieves all of the guild's soundboard sounds from the API. This does
+        not fill :attr:`soundboard_sounds`; :meth:`Client.request_soundboard_sounds`
+        does.
+
+        .. versionadded:: 2.3.2
+
+        Raises
+        -------
+        HTTPException
+            Retrieving the sounds failed.
+
+        Returns
+        --------
+        List[:class:`SoundboardSound`]
+            The retrieved sounds.
+        """
+        data = await self._state.http.get_soundboard_sounds(self.id)
+        return [SoundboardSound(guild=self, state=self._state, data=sound) for sound in data['items']]
+
+    async def create_soundboard_sound(
+        self,
+        *,
+        name: str,
+        sound: bytes,
+        volume: float = 1,
+        emoji: Optional[EmojiInputType] = None,
+        reason: Optional[str] = None,
+    ) -> SoundboardSound:
+        """|coro|
+
+        Creates a :class:`SoundboardSound` for the guild.
+        You must have :attr:`Permissions.create_expressions` to do this.
+
+        .. versionadded:: 2.3.2
+
+        Parameters
+        ----------
+        name: :class:`str`
+            The name of the sound. Must be between 2 and 32 characters.
+        sound: :class:`bytes`
+            The :term:`py:bytes-like object` representing the sound data.
+            Only MP3 and OGG files no longer than 5.2 seconds are supported.
+        volume: :class:`float`
+            The volume of the sound. Must be between 0 and 1. Defaults to ``1``.
+        emoji: Optional[Union[:class:`Emoji`, :class:`PartialEmoji`, :class:`str`]]
+            The emoji of the sound.
+        reason: Optional[:class:`str`]
+            The reason for creating the sound. Shows up on the audit log.
+
+        Raises
+        -------
+        ValueError
+            The sound is not an MP3 or OGG file.
+        Forbidden
+            You do not have permissions to create a soundboard sound.
+        HTTPException
+            Creating the soundboard sound failed.
+
+        Returns
+        -------
+        :class:`SoundboardSound`
+            The newly created soundboard sound.
+        """
+        payload: Dict[str, Any] = {
+            'name': name,
+            'sound': utils._bytes_to_base64_data(sound, audio=True),
+            'volume': volume,
+            'emoji_id': None,
+            'emoji_name': None,
+        }
+
+        if emoji is not None:
+            if isinstance(emoji, _EmojiTag):
+                partial_emoji = emoji._to_partial()
+            elif isinstance(emoji, str):
+                partial_emoji = PartialEmoji.from_str(emoji)
+            else:
+                partial_emoji = None
+
+            if partial_emoji is not None:
+                if partial_emoji.id is None:
+                    payload['emoji_name'] = partial_emoji.name
+                else:
+                    payload['emoji_id'] = partial_emoji.id
+
+        data = await self._state.http.create_soundboard_sound(self.id, reason=reason, **payload)
+        return SoundboardSound(guild=self, state=self._state, data=data)
+
     async def fetch_stickers(self) -> List[GuildSticker]:
         r"""|coro|
 
@@ -4891,7 +5060,7 @@ class Guild(Hashable):
         data.update({'temporary': False, 'max_uses': 0, 'max_age': 0, 'uses': payload.get('uses', 0)})  # type: ignore
         # Built from the full invite (merged with the vanity uses above): the vanity
         # payload itself only carries the code and the use count
-        return Invite(state=self._state, data=data, guild=self, channel=channel)  # type: ignore # We're faking a payload here
+        return Invite(state=self._state, data=data, guild=self, channel=channel)
 
     async def audit_logs(
         self,

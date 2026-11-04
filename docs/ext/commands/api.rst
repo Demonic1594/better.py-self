@@ -453,6 +453,11 @@ Converters
 .. autoclass:: discord.ext.commands.GuildStickerConverter
     :members:
 
+.. attributetable:: discord.ext.commands.SoundboardSoundConverter
+
+.. autoclass:: discord.ext.commands.SoundboardSoundConverter
+    :members:
+
 .. attributetable:: discord.ext.commands.ScheduledEventConverter
 
 .. autoclass:: discord.ext.commands.ScheduledEventConverter
@@ -637,6 +642,9 @@ Exceptions
 .. autoexception:: discord.ext.commands.GuildStickerNotFound
     :members:
 
+.. autoexception:: discord.ext.commands.SoundboardSoundNotFound
+    :members:
+
 .. autoexception:: discord.ext.commands.ScheduledEventNotFound
     :members:
 
@@ -729,6 +737,7 @@ Exception Hierarchy
                     - :exc:`~.commands.EmojiNotFound`
                     - :exc:`~.commands.GuildStickerNotFound`
                     - :exc:`~.commands.ScheduledEventNotFound`
+                    - :exc:`~.commands.SoundboardSoundNotFound`
                     - :exc:`~.commands.PartialEmojiConversionFailure`
                     - :exc:`~.commands.BadBoolArgument`
                     - :exc:`~.commands.RangeError`

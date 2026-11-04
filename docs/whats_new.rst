@@ -24,6 +24,12 @@ Ported from Rapptz/discord.py:
 - :attr:`Message.interaction_metadata` and :class:`MessageInteractionMetadata`: which command, button or modal produced an application's message, who used it, and the user or message a context-menu command ran on. Discord sends this in place of the data :attr:`Message.interaction` reads, which keeps working.
 - :func:`on_raw_presence_update` and :class:`RawPresenceUpdateEvent`: presence updates including members the cache does not hold. Opt in with the new ``enable_raw_presences`` option of :class:`Client` (default ``False``), since presence updates are the most frequent event.
 - :meth:`Member.fetch_voice` fetches a member's voice state from the API instead of the cache.
+- Soundboard and voice channel effects:
+
+  - :class:`SoundboardSound` and :class:`SoundboardDefaultSound`, :meth:`Client.request_soundboard_sounds` (asks the gateway for guilds' sounds, as the official client does when the soundboard is opened, and caches them), :attr:`Guild.soundboard_sounds`, :meth:`Guild.fetch_soundboard_sounds`, :meth:`Guild.create_soundboard_sound`, :meth:`SoundboardSound.edit`, :meth:`SoundboardSound.delete`, :meth:`Client.fetch_soundboard_default_sounds` and :meth:`VoiceChannel.send_sound`.
+  - The :func:`on_soundboard_sound_create`, :func:`on_soundboard_sound_update` and :func:`on_soundboard_sound_delete` events.
+  - :func:`on_voice_channel_effect` and :class:`VoiceChannelEffect` for emoji and sound effects in voice calls, in guilds and in private calls.
+  - :class:`~ext.commands.SoundboardSoundConverter`, and the ``soundboard_sound_create``, ``soundboard_sound_update`` and ``soundboard_sound_delete`` audit log actions.
 
 Behaviour Changes
 ~~~~~~~~~~~~~~~~~

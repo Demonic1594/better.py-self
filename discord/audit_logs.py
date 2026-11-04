@@ -41,6 +41,7 @@ from .member import Member
 from .scheduled_event import ScheduledEvent
 from .stage_instance import StageInstance
 from .sticker import GuildSticker
+from .soundboard import SoundboardSound
 from .threads import Thread
 from .integrations import Integration
 from .channel import ForumChannel, StageChannel, ForumTag
@@ -940,6 +941,9 @@ class AuditLogEntry(Hashable):
 
     def _convert_target_thread(self, target_id: int) -> Union[Thread, Object]:
         return self.guild.get_thread(target_id) or Object(id=target_id, type=Thread)
+
+    def _convert_target_soundboard_sound(self, target_id: int) -> Union[SoundboardSound, Object]:
+        return self.guild.get_soundboard_sound(target_id) or Object(id=target_id, type=SoundboardSound)
 
     def _convert_target_guild_scheduled_event(self, target_id: int) -> Union[ScheduledEvent, Object]:
         return self.guild.get_scheduled_event(target_id) or Object(id=target_id, type=ScheduledEvent)

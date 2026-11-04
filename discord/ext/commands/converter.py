@@ -82,6 +82,7 @@ __all__ = (
     'ThreadConverter',
     'GuildChannelConverter',
     'GuildStickerConverter',
+    'SoundboardSoundConverter',
     'ScheduledEventConverter',
     'clean_content',
     'Greedy',
@@ -920,6 +921,42 @@ else:
                 raise BadTimestampArgument(argument) from None
 
 
+class SoundboardSoundConverter(IDConverter[discord.SoundboardSound]):
+    """Converts to a :class:`~discord.SoundboardSound`.
+
+    Lookups use the cached sounds of the local guild if available, otherwise
+    (in a DM) of every guild. User accounts only cache a guild's sounds once
+    :meth:`discord.Client.request_soundboard_sounds` was called for it.
+
+    The lookup strategy is as follows (in order):
+
+    1. Lookup by ID.
+    2. Lookup by name.
+
+    .. versionadded:: 2.3.2
+    """
+
+    async def convert(self, ctx: Context[BotT], argument: str) -> discord.SoundboardSound:
+        guild = ctx.guild
+        match = self._get_id_match(argument)
+        result = None
+
+        if match:
+            sound_id = int(match.group(1))
+            if guild:
+                result = guild.get_soundboard_sound(sound_id)
+            else:
+                result = ctx.bot.get_soundboard_sound(sound_id)
+        elif guild:
+            result = discord.utils.get(guild.soundboard_sounds, name=argument)
+        else:
+            result = discord.utils.get(ctx.bot.soundboard_sounds, name=argument)
+
+        if result is None:
+            raise SoundboardSoundNotFound(argument)
+        return result
+
+
 class ScheduledEventConverter(IDConverter[discord.ScheduledEvent]):
     """Converts to a :class:`~discord.ScheduledEvent`.
 
@@ -1284,6 +1321,7 @@ CONVERTER_MAPPING: Dict[type, Any] = {
     discord.Thread: ThreadConverter,
     discord.abc.GuildChannel: GuildChannelConverter,
     discord.GuildSticker: GuildStickerConverter,
+    discord.SoundboardSound: SoundboardSoundConverter,
     discord.ScheduledEvent: ScheduledEventConverter,
     discord.ForumChannel: ForumChannelConverter,
 }
