@@ -20,6 +20,9 @@ Behaviour Changes
 ~~~~~~~~~~~~~~~~~
 
 - Debug logging no longer stores credentials. Raw gateway events, HTTP request and response bodies, and voice payloads are logged with the values of sensitive keys (``token``, ``auth_token``, ``analytics_token``, ``secret_key``, ``password``, ``new_password``, ``email``, ``phone`` and similar) replaced by ``[redacted]``. Webhook and interaction tokens are masked in logged URLs (including the 429 and deferred-request warnings) and rate-limit keys, and pre-signed upload URLs are masked too. Before, enabling DEBUG logging to a file recorded the READY payload's tokens, profile-edit passwords and the voice encryption key. The ``on_socket_raw_receive`` event (``enable_debug_events``) is unchanged and still delivers raw data to your own handler.
+- Headers passed to a single request now override the client-wide ``extra_headers`` of the HTTP client. The client-wide headers used to win.
+- A 429 response without a usable ``retry_after`` (and no ``Retry-After`` header) is retried after 1 second instead of immediately. With ``max_ratelimit_timeout`` below 1 second, such a response now raises :exc:`RateLimited`.
+- The first time each cache (members, threads, presences) evicts entries because it reached its cap, the library logs it once at INFO, naming the cache.
 - :class:`SystemChannelFlags` now includes :attr:`~SystemChannelFlags.emoji_added` (bit 256). Like the other system channel flags it is stored inverted, so a new ``SystemChannelFlags()`` has every notification turned off, including emoji notifications: its raw :attr:`~SystemChannelFlags.value` is 511, not 255. Code that builds flags from scratch for :meth:`Guild.edit` now also turns off emoji-added notifications unless it sets ``emoji_added=True``. Start from :attr:`Guild.system_channel_flags` to keep the current settings.
 
 Fixes
@@ -35,6 +38,9 @@ Fixes
 - :class:`PrivateUserFlags` did not accept or iterate the flags it inherits from :class:`PublicUserFlags`.
 - :meth:`Guild.vanity_invite` built the :class:`Invite` from the vanity-URL payload instead of the full invite, losing its guild and channel data.
 - The help commands of ``ext.commands`` raised :exc:`RuntimeError` when a single line (a long docstring or signature) was longer than a page. Such lines are now split across pages.
+- ``HTTPClient.edit_profile``, upstream's name for ``edit_current_user``, was missing, so code that called the HTTP layer directly raised :exc:`AttributeError`.
+- ``member.collectibles()`` raised :exc:`TypeError`: upstream exposes it as a method (as :meth:`User.collectibles` is), but :attr:`Member.collectibles` is a property here. The returned list can now also be called, so both forms work.
+- A request retried after a server error or a per-route rate limit ignored a global rate limit that began in the meantime. Every attempt now waits for the global rate limit.
 
 .. _vp2p3p1:
 

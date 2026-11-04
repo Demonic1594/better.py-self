@@ -1097,10 +1097,11 @@ class HTTPClient:
             if isinstance(props, ContextProperties):
                 headers['X-Context-Properties'] = props.value
 
+        # Client-wide headers first, so headers passed to this call override them
+        headers.update(self.extra_headers)
         extra_headers = kwargs.pop('headers', None)
         if extra_headers:
             headers.update(extra_headers)
-        headers.update(self.extra_headers)
         kwargs['headers'] = headers
 
         # Proxy support
@@ -1123,6 +1124,12 @@ class HTTPClient:
         trace_id = None
         async with ratelimit:
             for tries in range(5):
+                # Checked again on every attempt: a retry (after a 5xx, a curl
+                # error or a per-route 429) must also wait out a global cooldown
+                # that another request engaged in the meantime
+                if not self._global_over.is_set():
+                    await self._global_over.wait()
+
                 if files:
                     for f in files:
                         f.reset(seek=tries)
@@ -1272,7 +1279,9 @@ class HTTPClient:
                             raw_retry_after = data.get('retry_after')
                             if raw_retry_after is None:
                                 raw_retry_after = response.headers.get('Retry-After')
-                            retry_after: float = _parse_retry_after(raw_retry_after)
+                            # A 429 with no usable retry_after (missing or garbage)
+                            # waits 1s instead of retrying immediately
+                            retry_after: float = _parse_retry_after(raw_retry_after, default=1.0)
                             # User accounts get no rate-limit headers; scope only
                             # appears on throttle responses. A "shared" scope means
                             # the limit is account-wide (e.g. reactions across all
@@ -1561,6 +1570,10 @@ class HTTPClient:
 
     def edit_current_user(self, payload: Dict[str, Any]) -> Response[user.UserWithToken]:
         return self.request(Route('PATCH', '/users/@me'), json=payload)
+
+    # Upstream's name for edit_current_user; kept for code that calls the HTTP layer directly
+    def edit_profile(self, payload: Dict[str, Any]) -> Response[user.UserWithToken]:
+        return self.edit_current_user(payload)
 
     def edit_current_user_profile(self, payload: Dict[str, Any]) -> Response[profile.ProfileMetadata]:
         return self.request(Route('PATCH', '/users/@me/profile'), json=payload)

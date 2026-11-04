@@ -496,7 +496,7 @@ async def test_record_replay_round_trip(tmp_path):
 async def test_http_date_and_garbage_retry_after_headers():
     """F-04: Retry-After may be an HTTP-date (Cloudflare style) or garbage;
     none of them may raise mid-retry. A future HTTP-date is honored as a
-    delay, garbage means immediate retry."""
+    delay; garbage waits the 1s default instead of retrying immediately."""
     import datetime as dt
     from email.utils import formatdate
 
@@ -507,7 +507,7 @@ async def test_http_date_and_garbage_retry_after_headers():
     future = formatdate((dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=2)).timestamp(), usegmt=True)
     shapes = [
         ({'Retry-After': future}, True),  # HTTP-date: honored (>= 1s after second-resolution truncation)
-        ({'Retry-After': 'abc'}, False),  # garbage: immediate
+        ({'Retry-After': 'abc'}, False),  # garbage: the 1s default, not an immediate retry
         ({'Retry-After': ''}, False),
     ]
     seen: list[float] = []
@@ -529,8 +529,8 @@ async def test_http_date_and_garbage_retry_after_headers():
         if expected_delay:
             assert elapsed >= 0.9, elapsed  # +2s date, second resolution -> >= 1s
         else:
-            assert elapsed < 0.5, elapsed
-    print(f'retry-after shapes: HTTP-date honored ({seen[0] * 1000:.0f}ms), garbage immediate')
+            assert 0.9 <= elapsed < 1.5, elapsed  # unusable value: waits the 1s default
+    print(f'retry-after shapes: HTTP-date honored ({seen[0] * 1000:.0f}ms), garbage waits the 1s default')
 
 
 @pytest.mark.asyncio

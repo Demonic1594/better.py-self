@@ -735,6 +735,7 @@ class Guild(Hashable):
         if victims:
             self._evicted_member_ids.add_many(victims)
             self._evicted_members += len(victims)
+            self._state._log_first_eviction('member')
             _log.debug('Evicted %d members from the cache of guild ID %d (cap: %d).', len(victims), self.id, cap)
 
     def _store_thread(self, payload: ThreadPayload, /) -> Thread:
@@ -792,6 +793,7 @@ class Guild(Hashable):
 
         if victims:
             self._evicted_threads += len(victims)
+            self._state._log_first_eviction('thread')
             _log.debug('Evicted %d threads from the cache of guild ID %d (cap: %d).', len(victims), self.id, cap)
 
     def _remove_thread(self, thread: Snowflake, /) -> None:
