@@ -24,6 +24,7 @@ DEALINGS IN THE SOFTWARE.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Mapping, Generator, List, Optional, Tuple, Type, TypeVar, Union
 
 from . import enums, flags, utils
@@ -41,6 +42,7 @@ from .member import Member
 from .scheduled_event import ScheduledEvent
 from .stage_instance import StageInstance
 from .sticker import GuildSticker
+from .soundboard import SoundboardSound
 from .threads import Thread
 from .integrations import Integration
 from .channel import ForumChannel, StageChannel, ForumTag
@@ -51,6 +53,8 @@ __all__ = (
     'AuditLogChanges',
     'AuditLogEntry',
 )
+
+_log = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
@@ -294,6 +298,15 @@ def _transform_type(
         return enums.try_enum(enums.ChannelType, data)
 
 
+_SOUNDBOARD_ACTIONS = frozenset(
+    (
+        enums.AuditLogAction.soundboard_sound_create,
+        enums.AuditLogAction.soundboard_sound_update,
+        enums.AuditLogAction.soundboard_sound_delete,
+    )
+)
+
+
 class AuditLogDiff:
     def __len__(self) -> int:
         return len(self.__dict__)
@@ -459,6 +472,10 @@ class AuditLogChanges:
 
             setattr(self.after, attr, after)
 
+        if entry.action in _SOUNDBOARD_ACTIONS:
+            self._handle_soundboard_emoji(self.before, entry)
+            self._handle_soundboard_emoji(self.after, entry)
+
         # Add aliases
         if hasattr(self.after, 'colour'):
             self.after.color = self.after.colour
@@ -469,6 +486,26 @@ class AuditLogChanges:
 
     def __repr__(self) -> str:
         return f'<AuditLogChanges before={self.before!r} after={self.after!r}>'
+
+    @staticmethod
+    def _handle_soundboard_emoji(diff: AuditLogDiff, entry: AuditLogEntry) -> None:
+        # A sound's emoji arrives as separate emoji_id and emoji_name changes,
+        # and only the changed one is sent. Fold emoji_id into ``emoji`` so a
+        # custom emoji keeps its ID instead of becoming a nameless PartialEmoji
+        emoji = diff.__dict__.get('emoji')
+        name = emoji.name if isinstance(emoji, PartialEmoji) else None
+        if 'emoji_id' not in diff.__dict__:
+            if isinstance(emoji, PartialEmoji) and not name:
+                # emoji_name changed to null with no ID: the emoji was removed
+                diff.emoji = None
+            return
+        emoji_id = diff.__dict__['emoji_id']
+        snowflake = int(emoji_id) if emoji_id is not None else 0  # 0 means no emoji
+        if snowflake:
+            # An omitted emoji_name only means it did not change, so it is unknown here
+            diff.emoji = PartialEmoji.with_state(state=entry._state, name=name or '', id=snowflake)
+        elif not name:
+            diff.emoji = None
 
     def _handle_role(self, first: AuditLogDiff, second: AuditLogDiff, entry: AuditLogEntry, elem: List[RolePayload]) -> None:
         if not hasattr(first, 'roles'):
@@ -940,6 +977,18 @@ class AuditLogEntry(Hashable):
 
     def _convert_target_thread(self, target_id: int) -> Union[Thread, Object]:
         return self.guild.get_thread(target_id) or Object(id=target_id, type=Thread)
+
+    def _convert_target_soundboard_sound(self, target_id: Optional[int]) -> Optional[Union[SoundboardSound, Object]]:
+        if target_id is None:
+            # Discord sends no target_id for soundboard actions. Create and
+            # delete entries carry the sound's ID in their changes; update
+            # entries only carry the changed fields, so their target is unknown
+            diff = self.before if self.action is enums.AuditLogAction.soundboard_sound_delete else self.after
+            target_id = getattr(diff, 'id', None)
+            if target_id is None:
+                _log.debug('Audit log entry %s has no soundboard sound ID; target is None.', self.id)
+                return None
+        return self.guild.get_soundboard_sound(target_id) or Object(id=target_id, type=SoundboardSound)
 
     def _convert_target_guild_scheduled_event(self, target_id: int) -> Union[ScheduledEvent, Object]:
         return self.guild.get_scheduled_event(target_id) or Object(id=target_id, type=ScheduledEvent)

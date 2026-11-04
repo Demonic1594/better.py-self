@@ -27,6 +27,7 @@ from typing_extensions import NotRequired
 
 from .user import PartialUser
 from .snowflake import Snowflake
+from .emoji import PartialEmoji
 from .guild import MemberWithUser
 from .threads import ThreadMetadata, ThreadMember, ThreadArchiveDuration, ThreadType
 
@@ -96,6 +97,21 @@ class VoiceChannel(_BaseTextChannel):
     user_limit: int
     rtc_region: NotRequired[Optional[str]]
     video_quality_mode: NotRequired[VideoQualityMode]
+
+
+VoiceChannelEffectAnimationType = Literal[0, 1]
+
+
+class VoiceChannelEffect(TypedDict):
+    # Absent for effects in private (DM and group) calls
+    guild_id: NotRequired[Snowflake]
+    channel_id: Snowflake
+    user_id: Snowflake
+    emoji: NotRequired[Optional[PartialEmoji]]
+    animation_type: NotRequired[VoiceChannelEffectAnimationType]
+    animation_id: NotRequired[int]
+    sound_id: NotRequired[Union[int, str]]
+    sound_volume: NotRequired[float]
 
 
 class CategoryChannel(_BaseGuildChannel):

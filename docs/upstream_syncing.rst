@@ -246,6 +246,21 @@ Upstream issue and PR triage (2026-11-03)
     server), and the unmerged feature PRs #896 (frecency settings) and #934
     (profile editing), which are still in review upstream.
 
+Ported from Rapptz/discord.py, round 3: soundboard (2026-11-04)
+    a70217a + 5734996 + 442ad40 + 9a1b91d, with the user-account flow of the
+    closed dolfies/discord.py-self#929 (gateway op 31 REQUEST_SOUNDBOARD_SOUNDS
+    answered by SOUNDBOARD_SOUNDS). Differences: sounds are requested on demand
+    (``Client.request_soundboard_sounds``) instead of for every guild at READY
+    as #929 does; ``Guild._soundboard_sounds`` is created lazily and only
+    holds a complete set (from a SOUNDBOARD_SOUNDS reply or a guild payload's
+    ``soundboard_sounds``, which replace it), so a create event elsewhere does
+    not fake a complete cache; VOICE_CHANNEL_EFFECT_SEND also covers private calls (no
+    ``guild_id``), which Rapptz would raise on; audio detection accepts every
+    MPEG frame sync and OGG (Rapptz only ID3 and ``FF FB``); audit actions
+    130-132 get a ``soundboard_sound`` target type (Rapptz leaves them in the
+    ``user`` branch). Not ported: the intents gating (14b2c1a), which user
+    accounts lack.
+
 Ported from Rapptz/discord.py, round 2 (2026-11-04)
     62e5280 (``Member.fetch_voice`` and the GET voice-state routes), 963bb08 +
     814ce3c + 2248fc1 (``Message.interaction_metadata`` and

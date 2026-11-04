@@ -882,9 +882,20 @@ def _get_extension_for_mime_type(mime_type: str) -> str:
         return 'webp'
 
 
-def _bytes_to_base64_data(data: bytes) -> str:
+def _get_mime_type_for_audio(data: bytes) -> str:
+    # Soundboard sounds are MP3 or OGG. An MP3 starts with an ID3 tag or an
+    # MPEG audio frame sync (11 set bits, so any of FF FB/FA/F3/F2/E3...); the
+    # Rapptz original only recognised FF FB and rejected OGG outright
+    if data.startswith(b'ID3') or (len(data) > 1 and data[0] == 0xFF and data[1] & 0xE0 == 0xE0):
+        return 'audio/mpeg'
+    if data.startswith(b'OggS'):
+        return 'audio/ogg'
+    raise ValueError('Unsupported audio type given (expected MP3 or OGG)')
+
+
+def _bytes_to_base64_data(data: bytes, *, audio: bool = False) -> str:
     fmt = 'data:{mime};base64,{data}'
-    mime = _get_mime_type_for_image(data, fallback=True)
+    mime = _get_mime_type_for_audio(data) if audio else _get_mime_type_for_image(data, fallback=True)
     b64 = b64encode(data).decode('ascii')
     return fmt.format(mime=mime, data=b64)
 

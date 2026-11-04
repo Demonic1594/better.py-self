@@ -31,7 +31,8 @@ from .activity import Activity, BasePresenceUpdate, UserPresenceUpdate, PartialP
 from .application import BaseAchievement
 from .audit_log import AuditLogEntry
 from .automod import AutoModerationAction, AutoModerationRuleTriggerType
-from .channel import ChannelType, DMChannel, GroupDMChannel, StageInstance
+from .channel import ChannelType, DMChannel, GroupDMChannel, StageInstance, VoiceChannelEffect
+from .soundboard import SoundboardSound
 from .directory import DirectoryEntry, PartialDirectoryEntry
 from .emoji import Emoji, PartialEmoji
 from .entitlements import Entitlement, GatewayGift
@@ -795,4 +796,23 @@ class DirectoryEntryEvent(DirectoryEntry):
 
 
 class DirectoryEntryDeleteEvent(PartialDirectoryEntry):
+    guild_id: Snowflake
+
+
+VoiceChannelEffectSendEvent = VoiceChannelEffect
+
+GuildSoundBoardSoundCreateEvent = GuildSoundBoardSoundUpdateEvent = SoundboardSound
+
+
+class GuildSoundBoardSoundsUpdateEvent(TypedDict):
+    guild_id: Snowflake
+    soundboard_sounds: List[SoundboardSound]
+
+
+# The reply to a REQUEST_SOUNDBOARD_SOUNDS (op 31), one per requested guild
+SoundboardSoundsEvent = GuildSoundBoardSoundsUpdateEvent
+
+
+class GuildSoundBoardSoundDeleteEvent(TypedDict):
+    sound_id: Snowflake
     guild_id: Snowflake

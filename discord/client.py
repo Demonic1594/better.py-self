@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import sys
 import time
@@ -40,6 +41,7 @@ from typing import (
     Coroutine,
     Dict,
     Generator,
+    Iterable,
     List,
     Literal,
     Mapping,
@@ -102,6 +104,7 @@ from .application import (
 from .stage_instance import StageInstance
 from .threads import Thread
 from .sticker import GuildSticker, StandardSticker, StickerPack, _sticker_factory
+from .soundboard import SoundboardDefaultSound, SoundboardSound
 from .profile import UserProfile
 from .connections import Connection
 from .team import Team
@@ -2346,6 +2349,132 @@ class Client:
             The sticker or ``None`` if not found.
         """
         return self._connection.get_sticker(id)
+
+    @property
+    def soundboard_sounds(self) -> List[SoundboardSound]:
+        """List[:class:`.SoundboardSound`]: The cached soundboard sounds of all guilds.
+
+        User accounts only receive a guild's sounds when they are requested, so
+        this only covers guilds passed to :meth:`request_soundboard_sounds`.
+
+        .. versionadded:: 2.3.2
+        """
+        return self._connection.soundboard_sounds
+
+    def get_soundboard_sound(self, id: int, /) -> Optional[SoundboardSound]:
+        """Returns a cached soundboard sound with the given ID.
+
+        .. versionadded:: 2.3.2
+
+        Parameters
+        -----------
+        id: :class:`int`
+            The ID to search for.
+
+        Returns
+        --------
+        Optional[:class:`.SoundboardSound`]
+            The soundboard sound or ``None`` if not found.
+        """
+        return self._connection.get_soundboard_sound(id)
+
+    async def request_soundboard_sounds(
+        self, guilds: Iterable[Snowflake], *, timeout: float = 30.0
+    ) -> List[SoundboardSound]:
+        """|coro|
+
+        Requests the soundboard sounds of the given guilds over the gateway, as
+        the official client does when the soundboard is opened, and caches them
+        (:attr:`~discord.Guild.soundboard_sounds`). Discord answers once per guild; this
+        waits for every answer.
+
+        User accounts do not receive soundboard sounds otherwise, which keeps
+        accounts in many guilds from caching sounds nobody uses.
+
+        .. versionadded:: 2.3.2
+
+        Parameters
+        -----------
+        guilds: Iterable[:class:`.abc.Snowflake`]
+            The guilds to request the sounds of.
+        timeout: :class:`float`
+            How long to wait, in seconds, for the request to be sent (the
+            gateway rate limit can delay it) and for Discord's answers. A finite
+            bound is required: if the gateway reconnects meanwhile, the answers
+            arrive on the new connection and only the timeout ends the wait.
+
+        Raises
+        -------
+        ValueError
+            ``timeout`` is not a positive, finite number.
+        ClientException
+            The client is not connected to the gateway.
+        asyncio.TimeoutError
+            The request could not be sent, or Discord did not answer for every
+            guild, in time. The guilds that did
+            answer are cached anyway (see :attr:`~discord.Guild.soundboard_sounds`).
+
+        Returns
+        --------
+        List[:class:`.SoundboardSound`]
+            The sounds of the requested guilds.
+        """
+        # 'not timeout > 0' also rejects NaN, which never compares true
+        if timeout is None or not timeout > 0 or not math.isfinite(timeout):
+            raise ValueError(f'timeout must be a positive, finite number of seconds, not {timeout!r}')
+        ws = self.ws
+        if ws is None:
+            raise ClientException('The client is not connected to the gateway.')
+        guild_ids = list(dict.fromkeys(guild.id for guild in guilds))
+        if not guild_ids:
+            return []
+
+        futures = [
+            ws.wait_for('SOUNDBOARD_SOUNDS', lambda data, gid=guild_id: int(data['guild_id']) == gid)
+            for guild_id in guild_ids
+        ]
+
+        async def request() -> None:
+            await ws.request_soundboard_sounds(guild_ids)
+            await asyncio.gather(*futures)
+
+        try:
+            # One deadline for the send too: the gateway rate limiter can hold
+            # it for up to a minute
+            await asyncio.wait_for(request(), timeout=timeout)
+        finally:
+            for future in futures:
+                if not future.done():
+                    # Unregisters the listener (DiscordWebSocket.wait_for)
+                    future.cancel()
+
+        state = self._connection
+        sounds: List[SoundboardSound] = []
+        for guild_id in guild_ids:
+            guild = state._get_guild(guild_id)
+            if guild is not None:
+                sounds.extend(guild.soundboard_sounds)
+        return sounds
+
+    async def fetch_soundboard_default_sounds(self) -> List[SoundboardDefaultSound]:
+        """|coro|
+
+        Retrieves Discord's default soundboard sounds.
+
+        .. versionadded:: 2.3.2
+
+        Raises
+        -------
+        HTTPException
+            Retrieving the default soundboard sounds failed.
+
+        Returns
+        ---------
+        List[:class:`.SoundboardDefaultSound`]
+            The default soundboard sounds.
+        """
+        data = await self.http.get_soundboard_default_sounds()
+        return [SoundboardDefaultSound(state=self._connection, data=sound) for sound in data]
 
     def get_all_channels(self) -> Generator[GuildChannel, None, None]:
         """A generator that retrieves every :class:`.abc.GuildChannel` the client can 'access'.

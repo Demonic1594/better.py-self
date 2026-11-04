@@ -73,6 +73,7 @@ __all__ = (
     'BadInviteArgument',
     'EmojiNotFound',
     'GuildStickerNotFound',
+    'SoundboardSoundNotFound',
     'ScheduledEventNotFound',
     'PartialEmojiConversionFailure',
     'BadBoolArgument',
@@ -525,6 +526,24 @@ class PartialEmojiConversionFailure(BadArgument):
     def __init__(self, argument: str) -> None:
         self.argument: str = argument
         super().__init__(f'Couldn\'t convert "{argument}" to PartialEmoji.')
+
+
+class SoundboardSoundNotFound(BadArgument):
+    """Exception raised when the bot can not find the soundboard sound.
+
+    This inherits from :exc:`BadArgument`
+
+    .. versionadded:: 2.3.2
+
+    Attributes
+    -----------
+    argument: :class:`str`
+        The sound supplied by the caller that was not found
+    """
+
+    def __init__(self, argument: str) -> None:
+        self.argument: str = argument
+        super().__init__(f'SoundboardSound "{argument}" not found.')
 
 
 class GuildStickerNotFound(BadArgument):

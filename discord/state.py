@@ -102,6 +102,7 @@ from .scheduled_event import ScheduledEvent
 from .stage_instance import StageInstance
 from .threads import Thread, ThreadMember
 from .sticker import GuildSticker
+from .soundboard import SoundboardSound
 from .settings import UserSettings, FrecencySettings, GuildSettings, ChannelSettings, TrackingSettings
 from .interactions import Interaction
 from .permissions import Permissions
@@ -1382,6 +1383,12 @@ async def logging_coroutine(coroutine: Coroutine[Any, Any, T], *, info: str) -> 
         await coroutine
     except Exception:
         _log.exception('Exception occurred during %s.', info)
+
+
+def _soundboard_sound_key(sound: SoundboardSound) -> Tuple[Any, ...]:
+    # The fields a GUILD_SOUNDBOARD_SOUND_UPDATE can change
+    emoji = sound.emoji
+    return (sound.name, sound.volume, sound.available, emoji.id if emoji else None, emoji.name if emoji else None)
 
 
 # event name -> 'on_' + event, for ConnectionState._has_listener
@@ -4082,6 +4089,87 @@ class ConnectionState:
         guild.emojis = tuple(map(lambda d: self.store_emoji(guild, d), data['emojis']))
         self.dispatch('guild_emojis_update', guild, before_emojis, guild.emojis)
 
+    def parse_soundboard_sounds(self, data: gw.SoundboardSoundsEvent) -> None:
+        # The reply to request_soundboard_sounds: the guild's full set, so it
+        # replaces whatever was cached
+        guild = self._get_guild(int(data['guild_id']))
+        if guild is None:
+            _log.debug('SOUNDBOARD_SOUNDS referencing an unknown guild ID: %s. Discarding.', data['guild_id'])
+            return
+        guild._soundboard_sounds = {}
+        for raw_sound in data['soundboard_sounds']:
+            guild._add_soundboard_sound(SoundboardSound(guild=guild, state=self, data=raw_sound))
+
+    def parse_guild_soundboard_sound_create(self, data: gw.GuildSoundBoardSoundCreateEvent) -> None:
+        guild = self._get_guild(utils._get_as_snowflake(data, 'guild_id'))
+        if guild is None:
+            _log.debug(
+                'GUILD_SOUNDBOARD_SOUND_CREATE referencing an unknown guild ID: %s. Discarding.', data.get('guild_id')
+            )
+            return
+        sound = SoundboardSound(guild=guild, state=self, data=data)
+        # Only a guild whose sounds were requested has a cache to add to; a
+        # one-sound cache would look like the guild's complete set
+        if guild._soundboard_sounds is not None:
+            guild._add_soundboard_sound(sound)
+        self.dispatch('soundboard_sound_create', sound)
+
+    def _update_soundboard_sound(self, guild: Guild, data: gw.GuildSoundBoardSoundUpdateEvent, event: str) -> None:
+        sound_id = int(data['sound_id'])
+        sound = guild.get_soundboard_sound(sound_id)
+        if sound is None:
+            # Not cached: user accounts only hold sounds of requested guilds
+            _log.debug('%s referencing an uncached sound ID: %s. Discarding.', event, sound_id)
+            return
+        old_sound = copy.copy(sound)
+        sound._update(data)
+        # An update that changes nothing dispatches nothing (as for other models)
+        if _soundboard_sound_key(old_sound) == _soundboard_sound_key(sound):
+            return
+        self.dispatch('soundboard_sound_update', old_sound, sound)
+
+    def parse_guild_soundboard_sound_update(self, data: gw.GuildSoundBoardSoundUpdateEvent) -> None:
+        guild = self._get_guild(utils._get_as_snowflake(data, 'guild_id'))
+        if guild is None:
+            _log.debug(
+                'GUILD_SOUNDBOARD_SOUND_UPDATE referencing an unknown guild ID: %s. Discarding.', data.get('guild_id')
+            )
+            return
+        self._update_soundboard_sound(guild, data, 'GUILD_SOUNDBOARD_SOUND_UPDATE')
+
+    def parse_guild_soundboard_sounds_update(self, data: gw.GuildSoundBoardSoundsUpdateEvent) -> None:
+        guild = self._get_guild(int(data['guild_id']))
+        if guild is None:
+            _log.debug('GUILD_SOUNDBOARD_SOUNDS_UPDATE referencing an unknown guild ID: %s. Discarding.', data['guild_id'])
+            return
+        for raw_sound in data['soundboard_sounds']:
+            self._update_soundboard_sound(guild, raw_sound, 'GUILD_SOUNDBOARD_SOUNDS_UPDATE')
+
+    def parse_guild_soundboard_sound_delete(self, data: gw.GuildSoundBoardSoundDeleteEvent) -> None:
+        guild = self._get_guild(int(data['guild_id']))
+        if guild is None:
+            _log.debug('GUILD_SOUNDBOARD_SOUND_DELETE referencing an unknown guild ID: %s. Discarding.', data['guild_id'])
+            return
+        sound = guild.get_soundboard_sound(int(data['sound_id']))
+        if sound is None:
+            _log.debug('GUILD_SOUNDBOARD_SOUND_DELETE referencing an uncached sound ID: %s. Discarding.', data['sound_id'])
+            return
+        guild._remove_soundboard_sound(sound)
+        self.dispatch('soundboard_sound_delete', sound)
+
+    def get_soundboard_sound(self, sound_id: Optional[int]) -> Optional[SoundboardSound]:
+        if sound_id is None:
+            return None
+        for guild in self._guilds.values():
+            sound = guild.get_soundboard_sound(sound_id)
+            if sound is not None:
+                return sound
+        return None
+
+    @property
+    def soundboard_sounds(self) -> List[SoundboardSound]:
+        return [sound for guild in self._guilds.values() for sound in guild.soundboard_sounds]
+
     def parse_guild_stickers_update(self, data: gw.GuildStickersUpdateEvent) -> None:
         guild = self._get_guild(int(data['guild_id']))
         if guild is None:
@@ -4803,6 +4891,28 @@ class ConnectionState:
         else:
             user, before, after = self._update_voice_state(data, channel_id)
             self.dispatch('voice_state_update', user, before, after)
+
+    def parse_voice_channel_effect_send(self, data: gw.VoiceChannelEffectSendEvent) -> None:
+        # Effects arrive for guild voice channels and, for user accounts, for
+        # private calls (no guild_id), which the Rapptz original did not handle
+        channel_id = int(data['channel_id'])
+        user_id = int(data['user_id'])
+        guild_id = utils._get_as_snowflake(data, 'guild_id')
+        if guild_id is not None:
+            guild = self._get_guild(guild_id)
+            if guild is None:
+                _log.debug('VOICE_CHANNEL_EFFECT_SEND referencing an unknown guild ID: %s. Discarding.', guild_id)
+                return
+            channel = guild.get_channel(channel_id)
+            user = guild.get_member(user_id)
+        else:
+            channel = self._get_private_channel(channel_id)
+            user = self.get_user(user_id)
+        if channel is None:
+            _log.debug('VOICE_CHANNEL_EFFECT_SEND referencing an unknown channel ID: %s. Discarding.', channel_id)
+            return
+        effect = VoiceChannelEffect(state=self, data=data, channel=channel, user=user)  # type: ignore # a voice channel
+        self.dispatch('voice_channel_effect', effect)
 
     def parse_voice_server_update(self, data: gw.VoiceServerUpdateEvent) -> None:
         key_id = utils._get_as_snowflake(data, 'guild_id')
