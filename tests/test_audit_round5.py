@@ -158,3 +158,23 @@ async def test_info_api_without_browser_version_falls_back(monkeypatch):
     monkeypatch.setattr(HeadersContext, 'fetch_chrome_version', staticmethod(chrome_version))
     context = await HeadersContext.default(None)  # type: ignore[arg-type]
     assert context.super_properties['browser_version'] == '130.0.0.0'
+
+
+def test_manifest_label_keyword_application_id_wins():
+    """The application_id keyword took precedence when it was written into the payload; it still does."""
+    label = ManifestLabel(data={'id': '1', 'name': 'label', 'application_id': '9'}, application_id=5)  # type: ignore[arg-type]
+    assert label.application_id == 5
+
+
+@pytest.mark.asyncio
+async def test_sane_wait_for_cancels_its_waiters_when_cancelled():
+    """A cancelled caller also left the wrapped coroutine's task pending."""
+    event = asyncio.Event()
+    before = asyncio.all_tasks()
+    waiter = asyncio.ensure_future(sane_wait_for([event.wait()], timeout=None))
+    await asyncio.sleep(0.01)
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+    await asyncio.sleep(0)
+    assert [t for t in asyncio.all_tasks() - before if not t.done()] == []

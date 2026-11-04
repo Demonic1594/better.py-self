@@ -956,8 +956,9 @@ class ManifestLabel(Hashable):
 
     def __init__(self, *, data: ManifestLabelPayload, application_id: Optional[int] = None) -> None:
         self.id: int = int(data['id'])
-        # Read the fallback instead of writing it into the caller's payload
-        self.application_id: int = int(data.get('application_id') or application_id)  # type: ignore
+        # The keyword wins, as it did when it was written into the payload, but
+        # the caller's dict is no longer modified
+        self.application_id: int = int(application_id if application_id is not None else data['application_id'])
         self.name: Optional[str] = data.get('name')
 
     def __repr__(self) -> str:

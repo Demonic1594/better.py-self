@@ -25,6 +25,12 @@ Behaviour Changes
 - The first time each cache (members, threads, presences) evicts entries because it reached its cap, the library logs it once at INFO, naming the cache.
 - The package declares ``yarl`` (imported directly; it was only installed through aiohttp) and requires ``discord_protos`` 1.2.117 or newer, the oldest 1.x release, on which every :class:`UserSettings` property reads.
 - The package metadata uses a PEP 639 license expression (``License-Expression: MIT``) instead of the deprecated license classifier; building from source needs setuptools 77 or newer.
+- :attr:`Member.voice` (and the user equivalent for private calls) is ``None`` after a voice "leave" for a user the client never saw join; it used to be a voice state with no channel.
+- :attr:`DMChannel.call` and :attr:`GroupChannel.call` are ``None`` once the channel is deleted, even if Discord sends no CALL_DELETE.
+- Streams in a guild are forgotten when the client leaves or is removed from that guild.
+- A private channel that READY_SUPPLEMENTAL sends malformed is left out of :attr:`Client.private_channels` (with a warning) instead of aborting the connection, and a malformed member is left out of its member chunk the same way.
+- ``HeadersContext.default`` uses its manual fallback, instead of raising, when the info API answers without a browser version.
+- Fetching manifest labels no longer adds ``application_id`` to the payload dicts it was given.
 - :class:`SystemChannelFlags` now includes :attr:`~SystemChannelFlags.emoji_added` (bit 256). Like the other system channel flags it is stored inverted, so a new ``SystemChannelFlags()`` has every notification turned off, including emoji notifications: its raw :attr:`~SystemChannelFlags.value` is 511, not 255. Code that builds flags from scratch for :meth:`Guild.edit` now also turns off emoji-added notifications unless it sets ``emoji_added=True``. Start from :attr:`Guild.system_channel_flags` to keep the current settings.
 
 Fixes

@@ -998,15 +998,18 @@ async def async_all(
 async def sane_wait_for(futures: Iterable[Awaitable[T]], *, timeout: Optional[float]) -> Set[asyncio.Task[T]]:
     futures = list(futures)
     ensured = [asyncio.ensure_future(fut) for fut in futures]
-    done, pending = await asyncio.wait(ensured, timeout=timeout, return_when=asyncio.ALL_COMPLETED)
-
-    if len(pending) != 0:
+    try:
+        done, pending = await asyncio.wait(ensured, timeout=timeout, return_when=asyncio.ALL_COMPLETED)
+    finally:
         # Cancel the tasks wrapped here around bare coroutines (e.g. an
-        # Event.wait()), or each timeout would leave one waiting forever.
-        # Futures and tasks the caller passed in are theirs to manage.
+        # Event.wait()) that are still waiting, whether this timed out or the
+        # caller was cancelled, or each would wait forever. Futures and tasks
+        # the caller passed in are theirs to manage.
         for original, task in zip(futures, ensured):
             if task is not original and not task.done():
                 task.cancel()
+
+    if len(pending) != 0:
         raise asyncio.TimeoutError()
 
     return done
