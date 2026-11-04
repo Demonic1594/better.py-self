@@ -1275,6 +1275,25 @@ Members
     :param after: The updated member or friend's updated info.
     :type after: Union[:class:`Member`, :class:`Relationship`]
 
+.. function:: on_raw_presence_update(payload)
+
+    Called when a user's presence changes. Unlike :func:`on_presence_update`,
+    this is called regardless of the member and guild caches, so it also
+    covers members the cache does not hold (for example ones evicted by the
+    member cache cap) and does not compare the old presence with the new one.
+
+    This event is opt-in: pass ``enable_raw_presences=True`` to :class:`Client`.
+    Presence updates are the most frequent event, so the payload is not built
+    otherwise. It fires for every ``PRESENCE_UPDATE`` (including those in a
+    ``PRESENCES_REPLACE``), even when the presence did not change or the member
+    is not cached; :func:`on_presence_update` fires only for a real change to a
+    cached member or friend.
+
+    .. versionadded:: 2.3.2
+
+    :param payload: The raw event payload data.
+    :type payload: :class:`RawPresenceUpdateEvent`
+
 .. function:: on_raw_member_list_update(data)
 
     Called when a member list update is received and parsed.
@@ -9459,6 +9478,11 @@ Message
 .. autoclass:: MessageSnapshot()
     :members:
 
+.. attributetable:: MessageInteractionMetadata
+
+.. autoclass:: MessageInteractionMetadata()
+    :members:
+
 .. attributetable:: RoleSubscriptionInfo
 
 .. autoclass:: RoleSubscriptionInfo()
@@ -9836,6 +9860,11 @@ RawEvent
 .. attributetable:: RawMessageUpdateEvent
 
 .. autoclass:: RawMessageUpdateEvent()
+    :members:
+
+.. attributetable:: RawPresenceUpdateEvent
+
+.. autoclass:: RawPresenceUpdateEvent()
     :members:
 
 .. attributetable:: RawJoinRequestDeleteEvent
