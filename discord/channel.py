@@ -2853,7 +2853,7 @@ class ForumChannel(discord.abc.GuildChannel, Hashable):
         self,
         *,
         name: Optional[str] = None,
-        category: Optional[CategoryChannel],
+        category: Optional[CategoryChannel] = None,
         reason: Optional[str] = None,
     ) -> ForumChannel:
         base = {

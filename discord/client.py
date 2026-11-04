@@ -1168,7 +1168,10 @@ class Client:
         oldest_age = 0.0
         if backlog:
             loop = self.loop
-            oldest_age = max(0.0, loop.time() - next(iter(pending.values())))  # insertion order: first is oldest
+            # The stamps come from loop.time(); after close() the loop is MISSING,
+            # and asyncio's default loop clock is time.monotonic()
+            now = time.monotonic() if loop is _loop or loop is MISSING else loop.time()
+            oldest_age = max(0.0, now - next(iter(pending.values())))  # insertion order: first is oldest
         return backlog, oldest_age, self._dispatch_created, self._dispatch_completed
 
     async def cache_stats(self) -> CacheStats:
@@ -1190,7 +1193,7 @@ class Client:
         state = self._connection
         loop = self.loop
         lag = 0.0
-        if loop is not _loop:
+        if loop is not _loop and loop is not MISSING:
             # Instantaneous scheduling lag: how long a ready callback waits
             # before running (approximately the loop's current backlog)
             start = loop.time()
@@ -1841,6 +1844,10 @@ class Client:
         self._closing_task = None
         if self._ready is not MISSING:
             self._ready.clear()
+        if self.loop is MISSING:
+            # close() drops the loop; put the sentinel back so the next
+            # login() runs the setup hook again and dispatch works
+            self.loop = _loop
         self._connection.clear(full=True)
         self.http.clear()
 

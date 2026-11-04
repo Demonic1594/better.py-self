@@ -1259,7 +1259,12 @@ def resolve_gift(code: Union[Gift, str]) -> str:
     return code
 
 
-_MARKDOWN_ESCAPE_SUBREGEX = '|'.join(r'\{0}(?=([\s\S]*((?<!\{0})\{0})))'.format(c) for c in ('*', '`', '_', '~', '|'))
+# Each of these characters is escaped only when an unescaped run of it starts
+# later in the text. Upstream checks that with a lookahead per character
+# (``\*(?=([\s\S]*((?<!\*)\*)))``), which is O(n^2) on long input;
+# _escape_markdown_sub gives the same result from one O(n) pass.
+_MARKDOWN_ESCAPE_CHARS = '*`_~|'
+_MARKDOWN_ESCAPE_SUBREGEX = r'[*`_~|]'
 
 _MARKDOWN_ESCAPE_COMMON = r'^>(?:>>)?\s|\[[^\[\]]+\]\([^)]*\)|^#{1,3}|^\s*-'
 
@@ -1352,7 +1357,29 @@ def escape_markdown(text: str, *, as_needed: bool = False, ignore_links: bool = 
         return regex.sub(replacement, text, count=0)
     else:
         text = _BACKSLASH_REGEX.sub(r'\\\\', text)
-        return _MARKDOWN_ESCAPE_REGEX.sub(r'\\\1', text)
+        return _escape_markdown_sub(text)
+
+
+def _escape_markdown_sub(text: str) -> str:
+    # The start of the last unescaped run of each character: position j with
+    # text[j] == c and text[j - 1] != c. A character at i is escaped when such
+    # a j exists after it, which is what the upstream lookahead tested.
+    last: Dict[str, int] = {}
+    for char in _MARKDOWN_ESCAPE_CHARS:
+        index = text.rfind(char)
+        if index < 0:
+            continue
+        while index > 0 and text[index - 1] == char:
+            index -= 1
+        last[char] = index
+
+    def replacement(match: re.Match[str]) -> str:
+        found = match.group(0)
+        if len(found) == 1 and found in _MARKDOWN_ESCAPE_CHARS and last.get(found, -1) <= match.start():
+            return found
+        return '\\' + found
+
+    return _MARKDOWN_ESCAPE_REGEX.sub(replacement, text)
 
 
 def escape_mentions(text: str) -> str:

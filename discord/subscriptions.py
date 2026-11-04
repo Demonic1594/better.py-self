@@ -24,6 +24,7 @@ DEALINGS IN THE SOFTWARE.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
@@ -68,6 +69,8 @@ __all__ = (
     'Subscription',
     'SubscriptionTrial',
 )
+
+_log = logging.getLogger(__name__)
 
 
 class SubscriptionItem(Hashable):
@@ -696,8 +699,15 @@ class Subscription(Hashable):
         if self.status in (SubscriptionStatus.active, SubscriptionStatus.cancelled):
             return self.current_period_end - utcnow()
         elif self.status == SubscriptionStatus.past_due:
-            # Grace expiry is now always provided
-            return self.grace_period_expires_at - utcnow()  # type: ignore
+            end = self.grace_period_expires_at
+            if end is None:
+                # Usually provided, but not always: fall back to the period end
+                _log.debug('Past-due subscription %s has no grace period expiry; using the period end.', self.id)
+                end = self.current_period_end
+                if end is None:
+                    _log.debug('Past-due subscription %s has no period end either; remaining is zero.', self.id)
+                    return timedelta()
+            return end - utcnow()
         elif self.status == SubscriptionStatus.account_hold:
             # Max hold time is 30 days
             return (self.current_period_start + timedelta(days=30)) - utcnow()

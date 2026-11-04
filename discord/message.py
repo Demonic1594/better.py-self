@@ -587,7 +587,7 @@ class MessageSnapshot(Hashable):
         self.embeds: List[Embed] = [Embed.from_dict(a) for a in data['embeds']]
         self.attachments: List[Attachment] = [Attachment(data=a, state=state) for a in data['attachments']]
         self.created_at: datetime.datetime = utils.parse_time(data['timestamp'])
-        self._edited_timestamp: Optional[datetime.datetime] = utils.parse_time(data['edited_timestamp'])
+        self._edited_timestamp: Optional[datetime.datetime] = utils.parse_time(data.get('edited_timestamp'))
         self.flags: MessageFlags = MessageFlags._from_value(data.get('flags', 0))
         self.stickers: List[StickerItem] = [StickerItem(data=d, state=state) for d in data.get('sticker_items', [])]
 

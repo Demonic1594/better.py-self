@@ -21,6 +21,10 @@ Behaviour Changes
 
 - A gateway frame that cannot be decoded no longer raises out of the receive loop. It is logged as a warning, and the session resumes on a new connection; Discord replays the events after the last sequence. Repeated failures back off like any other reconnect.
 - :meth:`Guild.audit_logs` with ``oldest_first=True`` now walks down from ``before`` (or the newest entry) to ``after`` (or the oldest entry) and buffers that range before yielding, because Discord returns entries newest first. Passing ``after`` limits the requests to the entries newer than it.
+- Member list ``SYNC`` updates now respect :class:`MemberCacheFlags`: with ``joined`` off, only your own member is cached from them, as from every other member event.
+- A ``USER_SETTINGS_PROTO_UPDATE`` with a settings type the protobuf package doesn't know is logged as a warning instead of raising :exc:`ValueError` in the parser.
+- :meth:`LabelComponent.to_submit_dict` logs a warning when the label wraps a component of a type this version doesn't know, and submits that component's payload unchanged.
+- :func:`ext.tasks.loop` with no interval (``@tasks.loop()``) now logs a warning (once per loop) when it starts without a ``count``, because it runs back to back. It still works as before.
 
 Fixes
 ~~~~~
@@ -32,6 +36,13 @@ Fixes
 - Every ``PRESENCE_UPDATE`` for your own account raised :exc:`TypeError` inside the parser, so your own presence changes were never processed.
 - :meth:`UserSettings.edit` raised :exc:`TypeError` when passed ``restricted_guilds`` (or another ``*_guilds`` privacy setting) as a list. When that setting was passed as ``MISSING``, the call silently dropped ``guild_progress_settings`` from the same edit.
 - :meth:`UserSettings.edit` ignored ``guild_progress_settings=MISSING``, which is documented to reset the field.
+- :meth:`Client.clear` after :meth:`Client.close` now lets the client start again. Before, the next :meth:`Client.start` never set up the event loop again, so no event (not even :func:`on_ready`) was dispatched. :meth:`Client.cache_stats` no longer raises on a closed client, including while an event handler is still running.
+- A forwarded message's snapshot without ``edited_timestamp`` no longer raises :exc:`KeyError`.
+- A section accessory or label component of a type this version doesn't know no longer makes ``to_dict()`` raise :exc:`AttributeError`; its payload is sent back unchanged.
+- :meth:`ForumChannel.clone` can be called without ``category``, as documented. It raised :exc:`TypeError`.
+- :attr:`Subscription.remaining` no longer raises :exc:`TypeError` for a past-due subscription without a grace period expiry; it uses the period end, or returns zero if that is missing too.
+- :func:`utils.escape_markdown` with ``as_needed=True`` took quadratic time on long input (several seconds for 20,000 asterisks). It now runs in linear time, with the same output.
+- :meth:`UserSettings.edit` sent ``dismissed_contents`` and each :class:`GuildProgress`'s dismissed contents as raw bytes, which the protobuf JSON encoder reads as base64, so the values were lost (``[1]`` was sent as empty). They are now encoded correctly.
 
 .. _vp2p3p2:
 
