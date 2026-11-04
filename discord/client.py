@@ -2416,7 +2416,8 @@ class Client:
         List[:class:`.SoundboardSound`]
             The sounds of the requested guilds.
         """
-        if timeout is None or timeout <= 0:
+        # 'not timeout > 0' also rejects NaN, which never compares true
+        if timeout is None or not timeout > 0:
             raise ValueError('timeout must be a positive number of seconds')
         ws = self.ws
         if ws is None:

@@ -3882,6 +3882,8 @@ class Guild(Hashable):
         -------
         ValueError
             The sound is not an MP3 or OGG file.
+        TypeError
+            ``emoji`` is not an :class:`Emoji`, :class:`PartialEmoji`, :class:`str` or ``None``.
         Forbidden
             You do not have permissions to create a soundboard sound.
         HTTPException

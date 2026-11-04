@@ -293,3 +293,6 @@ async def test_request_soundboard_sounds_requires_a_timeout():
     client = await _ready_client()
     with pytest.raises(ValueError):
         await client.request_soundboard_sounds([discord.Object(1)], timeout=None)  # type: ignore[arg-type]
+    for bad in (0, -1.0, float('nan')):
+        with pytest.raises(ValueError):
+            await client.request_soundboard_sounds([discord.Object(1)], timeout=bad)

@@ -274,6 +274,8 @@ class SoundboardSound(BaseSoundboardSound):
 
         Raises
         -------
+        TypeError
+            ``emoji`` is not an :class:`Emoji`, :class:`PartialEmoji`, :class:`str` or ``None``.
         Forbidden
             You do not have permissions to edit the soundboard sound.
         HTTPException
