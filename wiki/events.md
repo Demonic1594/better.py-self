@@ -31,8 +31,10 @@ Some events are off by default because they are frequent, or only useful for deb
 | `on_socket_raw_receive(msg)`, `on_socket_raw_send(payload)` | `enable_debug_events=True` | These handlers get raw frames, **without redaction**. Don't log them anywhere public. |
 
 `on_raw_typing` and `on_raw_thread_update` are planned for v2.3.4 (see the
-[roadmap](../docs/roadmap.rst)). Until then, a typing event in a channel or from
-a user the cache doesn't hold is dropped.
+[roadmap](../docs/roadmap.rst)). Until then, a typing event is dropped when its
+channel isn't cached, or when no member or user can be resolved. In guild text
+channels and threads, a member who isn't cached is built from the event's
+payload, so those still fire.
 
 ## Event groups
 

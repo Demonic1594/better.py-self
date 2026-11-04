@@ -121,7 +121,8 @@ carrying interaction metadata, so only unit tests cover parsing it.
 - **DMs:** `user.create_dm()` and `DMChannel.recipient`. Group DMs are
   `GroupChannel`, with `recipients`.
 - **Call messages:** a DM or group call message has a `CallMessage`
-  (`discord/calls.py`) with `participants` and `ended_timestamp`.
-  `CallMessage.is_ended()` is planned for v2.3.4.
+  (`discord/calls.py`) with `participants`, `ended_timestamp`, `initiator` and
+  `call_ended`, which says whether the call has ended. `call_ended` is what
+  Rapptz calls `is_ended()`.
 - **Calls:** `on_call_create`, `on_call_update` and `on_call_delete` track
   ringing calls.

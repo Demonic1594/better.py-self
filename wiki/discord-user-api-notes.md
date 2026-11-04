@@ -80,7 +80,7 @@ The library sends capabilities **`0x57fd`**, which userdoccers' examples also us
 | 4008 | Rate limited (sending too fast) | Reconnects. The library throttles its own sends to avoid this. |
 | **4010 – 4014** | Invalid shard, sharding required, invalid API version, invalid or disallowed intents | **Stops** |
 | 4015 | Too many user sessions | Reconnects (close other sessions) |
-| 1000 / 1001 | Normal close | Ends the session (it can't be resumed) |
+| 1000 / 1001 | Normal close | Ends the session, which can't be resumed. A 1000 the client sent itself stops it. A 1000 from Discord leads to a reconnect and a new session. |
 
 Per userdoccers, any code other than 1000 or 1001, or a plain TCP drop, keeps the
 session resumable for a few minutes.

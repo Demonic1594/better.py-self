@@ -23,7 +23,7 @@ client.get_soundboard_sound(sound_id)
   (dolfies/discord.py-self#929) asks for every guild at login. Asking only for
   the guilds you name matches the official client, and an account in hundreds
   of guilds doesn't cache sounds nobody uses.
-- **The timeout is required.** It must be positive and finite: `None`, 0,
+- **The timeout must be positive and finite.** It defaults to 30 s. `None`, 0,
   negatives, NaN and infinity raise `ValueError`. It covers the send as well,
   because the gateway rate limiter can hold that for up to a minute, and the
   replies. Listeners belong to the socket that exists when you call, so after a

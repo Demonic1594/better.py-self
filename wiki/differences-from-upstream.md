@@ -95,6 +95,7 @@ target or lose a custom emoji's ID, and voice effects in private calls.
 
 ## Planned
 
-`on_raw_typing`, `on_raw_thread_update`, `CallMessage.is_ended()`,
-`MemberFlags.automod_quarantined_username` and possibly `ActivityType.unknown`
-are planned for v2.3.4. See the [roadmap](../docs/roadmap.rst).
+`on_raw_typing`, `on_raw_thread_update` and possibly `ActivityType.unknown`
+are planned for v2.3.4. Two other Rapptz names already exist here under different
+names: `CallMessage.is_ended()` is `CallMessage.call_ended`, and
+`MemberFlags.automod_quarantined_username` is `automod_quarantined_name`. See the [roadmap](../docs/roadmap.rst).

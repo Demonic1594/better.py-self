@@ -28,27 +28,17 @@ Planned:
 
 - ``on_raw_typing`` and ``RawTypingEvent``
 
-  Typing events for channels or users the cache does not hold. Today those
-  ``TYPING_START`` events are dropped. ``TYPING_START`` is one of the most
+  Typing events that :func:`on_typing` drops. Today ``TYPING_START`` is dropped
+  when its channel isn't cached, or when no member or user can be resolved:
+  a DM without a recipient, a group without that recipient, or a guild member
+  who isn't cached and isn't in the payload. ``TYPING_START`` is one of the most
   frequent gateway events, so the raw event will be opt-in, the way
-  ``enable_raw_presences`` is for presences, and costs nothing when it is
-  off.
+  ``enable_raw_presences`` is for presences, and costs nothing when it is off.
 
 - ``on_raw_thread_update`` and ``RawThreadUpdateEvent``
 
   Thread updates for threads that are not cached, carrying the raw payload
   and the cached thread when there is one.
-
-- ``CallMessage.is_ended()``
-
-  Whether the call recorded by a DM or group call message has ended
-  (:class:`CallMessage` lives in ``discord/calls.py``). It is equivalent to
-  ``ended_timestamp is not None``.
-
-- ``MemberFlags.automod_quarantined_username``
-
-  The member flag bit ``1 << 7``: the member's username, nickname or global
-  name was blocked by AutoMod.
 
 - ``ActivityType.unknown``
 
@@ -69,7 +59,8 @@ Open items
 These have no release assigned yet.
 
 - **Stress benchmark soak gate.** The soak phase of ``tools/stress_bench.py``
-  fails its RSS-plateau gate by about +10.8 MiB. It fails the same way on code
+  fails its RSS-plateau gate by about +10.8 MiB (measured in stress-benchmark
+  runs during the v2.3.2 work). It fails the same way on code
   from before the audit rounds, and the count of live objects stays flat, so
   this is allocator behaviour, not a leak. Either the soak runs longer, or the
   gate measures live objects instead of RSS.
@@ -78,8 +69,9 @@ These have no release assigned yet.
   shape. The change is file-wide and changes typings only.
 - **Live check of** :attr:`Message.interaction_metadata`. Unit tests cover the
   parsing, but a live run has not yet found a message that carries it.
-- **Release tags.** ``v2.3.1`` was never tagged on GitHub. ``v2.3.2`` is tagged
-  when its GitHub release is published.
+- **The** ``request_guilds`` **deprecation warning.** ``request_guilds`` is documented as
+  deprecated in favour of ``guild_subscriptions``, but using it doesn't emit a
+  ``DeprecationWarning`` yet, as the fork's rules require.
 
 Not planned
 -----------
@@ -91,6 +83,10 @@ them to bot accounts, or because this fork already covers them:
   ``ui.View``/``ui.Modal`` for sending components, intents, sharding,
   application emojis, entitlements and SKUs, ``Guild.active_threads``,
   ``Guild.self_role``, ``AutoShardedClient``.
+- Already in this fork under another name: Rapptz's
+  ``CallMessage.is_ended()`` is :attr:`CallMessage.call_ended`, and
+  ``MemberFlags.automod_quarantined_username`` is
+  :attr:`MemberFlags.automod_quarantined_name` (the same ``1 << 7`` bit, available since 2.1).
 - Already covered here in another form: :meth:`Client.fetch_guild_preview`,
   :attr:`DMChannel.recipient`, ``ClientStatus``, and receiving every
   message component type (including the newer layout components).

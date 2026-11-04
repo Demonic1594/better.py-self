@@ -13,8 +13,10 @@ client = discord.Client(persistence_path='my_account_cache.bin')
 ## When it writes
 
 - **After READY:** the client writes a snapshot shortly after it becomes ready.
-- **On a clean `close()`:** it writes again. `Client.run` closes cleanly on
-  Ctrl+C, but **not on `SIGTERM`**, which is what `docker stop` and systemd send.
+- **On a clean `close()`:** it writes again. With `Client.run`, Ctrl+C cancels
+  the run, and its `async with` block closes the client. No test covers that
+  path, so if the final snapshot matters, close the client yourself. `SIGTERM`,
+  which is what `docker stop` and systemd send, isn't handled at all.
   Under such a supervisor, close the client from your own signal handler:
 
   ```py

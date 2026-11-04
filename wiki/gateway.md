@@ -69,20 +69,23 @@ Received: 0 `DISPATCH`, 7 `RECONNECT`, 9 `INVALIDATE_SESSION`, 10 `HELLO` and 11
   and `_refused_upgrade_status` reads the status from it. (Ported from Rapptz in
   v2.3.2, adapted to curl_cffi.)
 - **Close codes.** These codes end the connection for good, with no reconnect:
-  1000, 4004 (authentication failed), 4010, 4011, 4012, 4013 and 4014. Any other
+  4004 (authentication failed), 4010, 4011, 4012, 4013 and 4014, and 1000 when
+  the client closed the connection itself. A 1000 sent by Discord leads to a
+  reconnect (`_can_handle_close`). Any other
   code, or a connection drop, leads to a reconnect, and to a resume when that's
   possible. A bad token normally fails **before** the gateway: the HTTP login
   gets a 401 and raises `LoginFailure('Improper token has been passed')`. 4004
   is the gateway's version of the same failure. See
   [Troubleshooting](troubleshooting.md#login-failures).
 - **Your own sends** are throttled to 110 per 60 s (heartbeats skip the limit).
-  Discord closes the connection with 4008 for clients that send too fast.
+  According to Discord's user-API docs, Discord closes the connection with 4008
+  for clients that send too fast.
 
 ## Events and frames
 
 - **Frames** are decompressed and decoded (orjson when installed) in
   `received_message`, then dispatched to `ConnectionState.parse_*`. The
-  stress benchmark measures this path at about 37,000 events per second on 4 vCPUs
+  stress benchmark's baseline ([`docs/cache_tuning.rst`](../docs/cache_tuning.rst)) puts this path at about 37,000 events per second on 4 vCPUs
   without handlers.
 - **Hostile input.** A malformed or hostile frame is dropped with a warning.
   Nothing escapes the receive loop. The stress benchmark's `bomb` phase sends

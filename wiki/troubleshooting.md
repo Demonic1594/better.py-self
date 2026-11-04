@@ -95,8 +95,9 @@ From Discord's user-API docs:
 - **No `on_member_update` or `on_message_edit`.** The member or message wasn't
   cached (the caps evict cold entries). Use the raw events (`on_raw_*`).
 - **No `on_raw_presence_update`.** It's opt-in: pass `enable_raw_presences=True`.
-- **A typing event was dropped.** That happens when the channel or user isn't
-  cached. `on_raw_typing` is planned for v2.3.4.
+- **A typing event was dropped.** That happens when its channel isn't cached,
+  or when its user can't be resolved (for example a DM without a recipient).
+  `on_raw_typing` is planned for v2.3.4.
 - **Handlers seem to lag.** Watch `on_dispatch_backlog` and
   `cache_stats().dispatch_backlog`. A slow handler is holding up the queue.
 

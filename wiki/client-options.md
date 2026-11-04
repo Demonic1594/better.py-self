@@ -29,7 +29,7 @@ See [Caching and memory](caching-and-memory.md) for how to tune these.
 
 | Option | Default | Effect |
 |---|---|---|
-| `guild_subscriptions` | `True` | Subscribes to every guild at startup. Without it, large guilds (over 75,000 members) may send no message, reaction or typing events, member events stop, and the member and thread caches stay mostly empty. See [Member lists](member-lists.md). |
+| `guild_subscriptions` | `True` | Subscribes to every guild at startup. Without it, large guilds (75,000 members or more) may send no message, reaction or typing events, member events stop, and the member and thread caches stay mostly empty. See [Member lists](member-lists.md). |
 | `request_guilds` | — | **Deprecated** alias of `guild_subscriptions`. |
 | `chunk_guilds_at_startup` | `True` | Delays `on_ready` until the guilds that can be chunked have been chunked. This is slow on accounts with many guilds. |
 | `heartbeat_timeout` | `60.0` | Seconds without a `HEARTBEAT_ACK` before the WebSocket is restarted. |
