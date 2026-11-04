@@ -88,12 +88,13 @@ Received: 0 `DISPATCH`, 7 `RECONNECT`, 9 `INVALIDATE_SESSION`, 10 `HELLO` and 11
   `received_message`, then dispatched to `ConnectionState.parse_*`. The
   stress benchmark's baseline ([`docs/cache_tuning.rst`](../docs/cache_tuning.rst)) puts this path at about 37,000 events per second on 4 vCPUs
   without handlers.
-- **Hostile input.** A frame that decodes but carries hostile or malformed data
-  is handled by the parsers, which log a warning and drop it. The stress
-  benchmark's `bomb` phase sends 200k such frames and RSS stays bounded.
-  **Known gap:** a frame that fails to decode as JSON raises `ValueError` out of
-  the receive loop. `poll_event` doesn't catch it, and the benchmark catches it
-  itself. A fix is planned.
+- **Hostile input.** A frame that decodes to a JSON object but carries hostile
+  or malformed event data is handled by the parsers, which log a warning and
+  drop it. The stress benchmark's `bomb` phase sends 200k such frames and RSS
+  stays bounded. **Known gap:** a frame that fails to decode as JSON raises
+  `ValueError`, and one that decodes to an array or a scalar raises
+  `AttributeError`, out of `received_message`. `poll_event` doesn't catch
+  either, and the benchmark catches them itself. A fix is planned.
 - **Raw frames.** With `enable_debug_events=True`, `on_socket_raw_receive` and
   `on_socket_raw_send` get the raw frames. `on_socket_event_type` gets each
   event's type name.

@@ -155,8 +155,10 @@ numbers as relative to that machine; compare runs on the same host.
        snapshots in that format still load, at that cost, until the next write
        converts them.
    * - 1M malformed or truncated frames
-     - No exception escaped the receive path. 143k frames were undecodable and
-       dropped; the parsers logged 378k warnings and RSS grew 80 MiB.
+     - The parsers contained every frame that decoded: they logged 378k
+       warnings and RSS grew 80 MiB. The 143k undecodable frames raised out of
+       ``received_message`` and the benchmark counted them itself; the library
+       did not yet contain those.
 
 Open questions this baseline does not answer: real-account traffic shape
 (use ``tools/profile_live.py``), voice, and socket-level behaviour.

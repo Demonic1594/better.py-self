@@ -81,7 +81,7 @@ These shape what Discord sees, and matching the official client matters (see
 
 | Option | Default | Effect |
 |---|---|---|
-| `persistence_path` | `None` | File to snapshot the caches to after READY and on a clean `close()`, then replay on the next start. See [Persistence](persistence.md). |
+| `persistence_path` | `None` | File to snapshot the caches to after READY, then replay on the next start. A clean `close()` writes only if a READY capture is still pending, so cache changes after READY are not saved. See [Persistence](persistence.md). |
 | `persistence_max_age` | `1209600` (14 days) | Snapshots older than this cause a cold start instead of a replay. |
 
 ## `ext.commands.Bot` only

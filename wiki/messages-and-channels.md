@@ -43,16 +43,19 @@ msg = await channel.send(poll=poll)
 await msg.end_poll()
 ```
 
-- **Duration is in hours.** Since v2.3.2 the library rounds it to whole hours
-  (ported from Rapptz), because Discord accepts nothing else. In the live test,
-  1 h 20 min became 1 h.
+- **Duration is in hours.** Discord only keeps whole hours: in the live test,
+  a poll sent with 1 h 20 min came back as 1 h. The library sends the duration
+  you give it as is, and since v2.3.2 rounds a received poll's duration to whole
+  hours (ported from Rapptz). Pass whole hours to get what you asked for.
 - **Questions** can be up to 300 characters.
 - **Ending a poll.** After `end_poll()`, Discord tallies the votes in the background.
   The message `end_poll()` returns isn't marked finalised yet; fetched again 5
   seconds later, it was (live test). Re-fetch the message if you need the final
   counts.
-- **Vote events.** `on_poll_vote_add`/`on_poll_vote_remove` and their raw forms
-  fire once for each vote added or removed.
+- **Vote events.** `on_raw_poll_vote_add`/`on_raw_poll_vote_remove` fire once
+  for every vote added or removed. `on_poll_vote_add`/`on_poll_vote_remove` fire
+  only when both the message and the voting user are cached; for any other vote,
+  only the raw event fires.
 
 ## Threads
 

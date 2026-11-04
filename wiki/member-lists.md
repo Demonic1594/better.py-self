@@ -2,8 +2,10 @@
 
 Bots ask for members with intents. User accounts can't, and Discord doesn't
 push them the full member list of a large guild. It sends a user client what its
-UI would show, through **guild subscriptions**, and the full list can only be
-fetched on request (`fetch_members`, `chunk`) when you have the right permissions. This page explains what
+UI would show, through **guild subscriptions**. The full list can be fetched on
+request (`fetch_members`, `chunk`): through the gateway when you have the right
+permissions, or by scraping the member sidebar, which can return everyone in a
+small enough guild with a channel `@everyone` can see. This page explains what
 you get and how to get more.
 
 The reference is [`docs/guild_subscriptions.rst`](../docs/guild_subscriptions.rst);
