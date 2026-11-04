@@ -35,6 +35,7 @@ so.
 | [ext.commands and ext.tasks](commands-and-tasks.md) | Self-bot commands, converters, background loops |
 | [Differences from upstream](differences-from-upstream.md) | Compared with discord.py-self and with discord.py, and what is bot-only |
 | [Troubleshooting](troubleshooting.md) | Captchas, flagged accounts, login failures, 403/20002, empty member lists, voice close codes |
+| [Discord error codes](error-codes.md) | The error codes a user account runs into, what they mean, and how to read them from exceptions |
 | [Discord user API notes](discord-user-api-notes.md) | Background on Discord's user API: opcodes, close codes, super properties, limits |
 | [Development](development.md) | Checks, benchmarks, test harnesses, the release process |
 

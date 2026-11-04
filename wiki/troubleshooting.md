@@ -78,7 +78,9 @@ that's `member.voice`, or `Member.fetch_voice()`, which falls back to it.
 
 ## Other Discord error codes
 
-From Discord's user-API docs:
+[Discord error codes](error-codes.md) has the full list a user account is likely
+to see, including the 340001–340018 codes Discord uses when it restricts an
+account. The most common ones, from Discord's user-API docs:
 
 - **40333:** blocked by Cloudflare. Slow down. After 10,000 invalid requests
   (401, 403 or 429) in 10 minutes, Discord bans the IP for 24 hours.

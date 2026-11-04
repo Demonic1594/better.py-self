@@ -153,6 +153,9 @@ From Discord's design:
 
 ## Error codes worth knowing
 
+[Discord error codes](error-codes.md) covers many more, with links to the full
+community-maintained list.
+
 | Code | Meaning |
 |---|---|
 | 20002 | Only bots can use this endpoint |
