@@ -489,11 +489,14 @@ class AuditLogChanges:
         # A sound's emoji arrives as separate emoji_id and emoji_name changes,
         # and only the changed one is sent. Fold emoji_id into ``emoji`` so a
         # custom emoji keeps its ID instead of becoming a nameless PartialEmoji
-        if 'emoji_id' not in diff.__dict__:
-            return
-        emoji_id = diff.__dict__['emoji_id']
         emoji = diff.__dict__.get('emoji')
         name = emoji.name if isinstance(emoji, PartialEmoji) else None
+        if 'emoji_id' not in diff.__dict__:
+            if isinstance(emoji, PartialEmoji) and not name:
+                # emoji_name changed to null with no ID: the emoji was removed
+                diff.emoji = None
+            return
+        emoji_id = diff.__dict__['emoji_id']
         snowflake = int(emoji_id) if emoji_id is not None else 0  # 0 means no emoji
         if snowflake:
             # An omitted emoji_name only means it did not change, so it is unknown here

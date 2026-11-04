@@ -307,11 +307,15 @@ class SoundboardSound(BaseSoundboardSound):
                 else:
                     raise TypeError(f'emoji must be an Emoji, PartialEmoji, str or None, not {emoji.__class__.__name__}')
 
+                # Send both fields so switching between a custom and a unicode
+                # emoji clears the other one, as create_soundboard_sound does
                 if partial_emoji is not None:
                     if partial_emoji.id is None:
+                        payload['emoji_id'] = None
                         payload['emoji_name'] = partial_emoji.name
                     else:
                         payload['emoji_id'] = partial_emoji.id
+                        payload['emoji_name'] = None
 
         data = await self._state.http.edit_soundboard_sound(self.guild.id, self.id, reason=reason, **payload)
         return SoundboardSound(guild=self.guild, state=self._state, data=data)

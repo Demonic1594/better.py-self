@@ -346,3 +346,23 @@ def test_soundboard_audit_log_emoji_keeps_custom_emoji_id():
     assert (changes.before.emoji.id, changes.after.emoji.id) == (1, 2)
     changes = AuditLogChanges(Entry(), [{'key': 'emoji_id', 'old_value': '5', 'new_value': None}])  # type: ignore[arg-type,list-item]
     assert changes.before.emoji.id == 5 and changes.after.emoji is None
+    # A unicode emoji removed: only emoji_name changes, to null
+    changes = AuditLogChanges(Entry(), [{'key': 'emoji_name', 'old_value': 'x', 'new_value': None}])  # type: ignore[arg-type,list-item]
+    assert changes.before.emoji.name == 'x' and changes.after.emoji is None
+
+
+@pytest.mark.asyncio
+async def test_edit_sound_emoji_clears_the_other_field():
+    """Switching between a custom and a unicode emoji must clear the old one."""
+    client, state, guild, _ = await make_env()
+    payloads = []
+
+    async def edit_soundboard_sound(guild_id, sound_id, *, reason=None, **payload):
+        payloads.append(payload)
+        return _sound(guild_id)
+
+    state.http.edit_soundboard_sound = edit_soundboard_sound  # type: ignore[method-assign]
+    sound = discord.SoundboardSound(guild=guild, state=state, data=_sound(guild.id))  # type: ignore[arg-type]
+    await sound.edit(emoji='\U0001f986')
+    await sound.edit(emoji=discord.PartialEmoji(name='party', id=123))
+    assert payloads == [{'emoji_id': None, 'emoji_name': '\U0001f986'}, {'emoji_id': 123, 'emoji_name': None}]
