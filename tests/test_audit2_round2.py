@@ -58,8 +58,9 @@ async def test_cache_stats_after_close_with_a_pending_handler():
     await asyncio.sleep(0)
     assert client._dispatch_pending, 'the handler is still running'
     await client.close()
+    await asyncio.sleep(0.01)
     stats = await client.cache_stats()  # raised AttributeError on MISSING.time()
-    assert stats is not None
+    assert stats.dispatch_backlog == 1 and stats.dispatch_oldest_age > 0
     release.set()
     await asyncio.sleep(0)
 
@@ -87,6 +88,13 @@ async def test_member_list_sync_honours_member_cache_flags():
     added = set(guild._members) - before
     assert 70_001 not in added and 70_002 not in added
     assert guild.get_member(5) is not None, 'our own member is still cached'
+
+    # A member cached some other way (e.g. voice) is still refreshed, not dropped or left stale
+    guild._add_member(discord.Member(data=_member_item(70_003)['member'], guild=guild, state=state))  # type: ignore[arg-type]
+    refreshed = _member_item(70_003)
+    refreshed['member']['nick'] = 'fresh'
+    state.parse_guild_member_list_update({**payload, 'ops': [{'op': 'SYNC', 'range': [0, 99], 'items': [refreshed]}]})  # type: ignore[arg-type]
+    assert guild.get_member(70_003).nick == 'fresh'  # type: ignore[union-attr]
 
     state.member_cache_flags = discord.MemberCacheFlags.all()
     state.parse_guild_member_list_update(payload)  # type: ignore[arg-type]

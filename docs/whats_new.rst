@@ -41,7 +41,7 @@ Fixes
 - A section accessory or label component of a type this version doesn't know no longer makes ``to_dict()`` raise :exc:`AttributeError`; its payload is sent back unchanged.
 - :meth:`ForumChannel.clone` can be called without ``category``, as documented. It raised :exc:`TypeError`.
 - :attr:`Subscription.remaining` no longer raises :exc:`TypeError` for a past-due subscription without a grace period expiry; it uses the period end, or returns zero if that is missing too.
-- :func:`utils.escape_markdown` with ``as_needed=True`` took quadratic time on long input (several seconds for 20,000 asterisks). It now runs in linear time, with the same output.
+- :func:`utils.escape_markdown` with ``as_needed=True`` took quadratic time on long runs of ``*``, `````, ``_``, ``~`` or ``|`` (several seconds for 20,000 asterisks). Those characters are now handled in linear time, with the same output; the link pattern it shares with the other escape paths is unchanged.
 - :meth:`UserSettings.edit` sent ``dismissed_contents`` and each :class:`GuildProgress`'s dismissed contents as raw bytes, which the protobuf JSON encoder reads as base64, so the values were lost (``[1]`` was sent as empty). They are now encoded correctly.
 
 .. _vp2p3p2:

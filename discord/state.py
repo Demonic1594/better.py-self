@@ -4075,11 +4075,13 @@ class ConnectionState:
             for member in members:
                 guild._add_member(member)
         else:
-            # member_cache_flags.joined is off: only our own member is cached,
-            # as in every other member path
+            # member_cache_flags.joined is off: cache only our own member, as in
+            # every other member path, but still refresh members already cached
+            # (e.g. through voice) so they don't go stale
             self_id = self.self_id
+            cached = guild._members
             for member in members:
-                if member.id == self_id:
+                if member.id == self_id or member.id in cached:
                     guild._add_member(member)
 
     def parse_guild_application_command_index_update(self, data: gw.GuildApplicationCommandIndexUpdateEvent) -> None:
