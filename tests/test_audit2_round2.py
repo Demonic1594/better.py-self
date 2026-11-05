@@ -96,6 +96,15 @@ async def test_member_list_sync_honours_member_cache_flags():
     state.parse_guild_member_list_update({**payload, 'ops': [{'op': 'SYNC', 'range': [0, 99], 'items': [refreshed]}]})  # type: ignore[arg-type]
     assert guild.get_member(70_003).nick == 'fresh'  # type: ignore[union-attr]
 
+    # With the voice flag, a member in voice but not cached yet is cached from the SYNC
+    state.member_cache_flags = discord.MemberCacheFlags(voice=True, joined=False)
+    guild._voice_states[70_004] = object()  # type: ignore[assignment]
+    state.parse_guild_member_list_update(
+        {**payload, 'ops': [{'op': 'SYNC', 'range': [0, 99], 'items': [_member_item(70_004)]}]}
+    )  # type: ignore[arg-type]
+    assert guild.get_member(70_004) is not None
+    guild._voice_states.pop(70_004, None)
+
     state.member_cache_flags = discord.MemberCacheFlags.all()
     state.parse_guild_member_list_update(payload)  # type: ignore[arg-type]
     assert guild.get_member(70_001) is not None and guild.get_member(70_002) is not None

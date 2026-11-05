@@ -21,7 +21,7 @@ Behaviour Changes
 
 - A gateway frame that cannot be decoded no longer raises out of the receive loop. It is logged as a warning, and the session resumes on a new connection; Discord replays the events after the last sequence. Repeated failures back off like any other reconnect.
 - :meth:`Guild.audit_logs` with ``oldest_first=True`` now walks down from ``before`` (or the newest entry) to ``after`` (or the oldest entry) and buffers that range before yielding, because Discord returns entries newest first. Passing ``after`` limits the requests to the entries newer than it.
-- Member list ``SYNC`` updates now respect :class:`MemberCacheFlags`: with ``joined`` off, only your own member is cached from them, as from every other member event.
+- Member list ``SYNC`` updates now respect :class:`MemberCacheFlags`: with ``joined`` off, they add only your own member and, with ``voice`` on, members in a voice channel, as every other member event does. Members already cached are still updated.
 - A ``USER_SETTINGS_PROTO_UPDATE`` with a settings type the protobuf package doesn't know is logged as a warning instead of raising :exc:`ValueError` in the parser.
 - :meth:`LabelComponent.to_submit_dict` logs a warning when the label wraps a component of a type this version doesn't know, and submits that component's payload unchanged.
 - :func:`ext.tasks.loop` with no interval (``@tasks.loop()``) now logs a warning (once per loop) when it starts without a ``count``, because it runs back to back. It still works as before.
