@@ -13,6 +13,10 @@ this repository's code at **v2.3.2**. Where a fact comes from somewhere else,
 such as Discord's behaviour, an upstream project or a live test, the page says
 so.
 
+These pages live in the repository's [`wiki/`](../wiki) folder and are
+published to the GitHub Wiki on every merge to `master`. To change one, edit
+the file in a pull request: edits made on the Wiki tab are overwritten.
+
 > **Before you start:** automating a user account is against Discord's Terms
 > of Service and can get the account disabled. Use a bot account for anything
 > a bot can do.
