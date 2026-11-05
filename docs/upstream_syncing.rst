@@ -224,6 +224,30 @@ Lifecycle, audio and messages
     ``_pipe_writer`` closes stdin when its source raises, ``_pipe_reader``
     stops at EOF, ``_kill_process`` waits at most 5 seconds, and
     ``_probe_codec_fallback`` uses ``subprocess.run`` with a timeout.
+    ``Client.clear`` puts the loop sentinel back after ``close()`` (which sets
+    ``MISSING``), so the next ``login`` runs the setup hook again;
+    ``cache_stats`` and ``_dispatch_backlog_stats`` treat ``MISSING`` like the
+    sentinel (the backlog age falls back to ``time.monotonic()``).
+
+Second audit, P2 fixes
+    ``parse_guild_member_list_update`` caches SYNC members only with
+    ``member_cache_flags.joined`` (our own member always).
+    ``parse_user_settings_proto_update`` logs and returns on a settings type
+    ``discord_protos`` doesn't know. ``UserSettings.edit`` base64-encodes the
+    bytes fields (``dismissed_contents``, each ``GuildProgress``'s dismissed
+    content via ``_progress_payload``) for ``ParseDict``. ``MessageSnapshot`` reads
+    ``edited_timestamp`` with ``.get``. ``SectionComponent`` and
+    ``LabelComponent`` keep the raw payload of a child of unknown type
+    (``_raw_accessory`` / ``_raw_component``) and send it back from
+    ``to_dict``. ``ForumChannel.clone`` defaults ``category`` to ``None``.
+    ``Subscription.remaining`` falls back to the period end for a past-due
+    subscription with no grace expiry. ``ext.tasks.Loop.start`` warns once per
+    loop about a zero interval with no count (still allowed, as upstream).
+    ``utils.escape_markdown(as_needed=True)`` uses a plain character class
+    and ``_escape_markdown_sub`` (one ``rfind`` per character) instead of
+    upstream's per-character ``[\s\S]*`` lookahead, which is O(n^2); the
+    output is the same. **Conflict points:** upstream changes to
+    ``escape_markdown``, the component classes, or these parsers.
 
 Persistence format
     Snapshots are version 2: newline-delimited JSON (a header record, then one

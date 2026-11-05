@@ -157,6 +157,7 @@ class Loop(Generic[LF]):
         self.count: Optional[int] = count
         self._current_loop = 0
         self._handle: Optional[SleepHandle] = None
+        self._zero_interval_warned: bool = False
         self._task: Optional[asyncio.Task[None]] = None
         self._injected = None
         self._valid_exception = (
@@ -420,6 +421,15 @@ class Loop(Generic[LF]):
             args = (self._injected, *args)
 
         self._has_failed = False
+        if self._sleep == 0 and self.count is None and not self._zero_interval_warned:
+            # Valid, and kept for compatibility, but easy to hit by accident with
+            # @tasks.loop(): the body runs back to back, so one that never awaits
+            # anything slow keeps a CPU core busy. Said once per loop.
+            self._zero_interval_warned = True
+            _log.warning(
+                'Loop %s has a zero interval and no count; it runs back to back. Pass seconds, minutes, hours or time.',
+                self._name,
+            )
         self._task = asyncio.create_task(self._loop(*args, **kwargs), name=self._name)
         return self._task
 

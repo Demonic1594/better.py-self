@@ -93,6 +93,18 @@ __all__ = (
 _log = logging.getLogger(__name__)
 
 
+def _b64(data: bytes) -> str:
+    return base64.b64encode(data).decode('ascii')
+
+
+def _progress_payload(progress: GuildProgress) -> Dict[str, Any]:
+    # GuildProgress.to_dict() keeps the raw bytes (its documented shape); the
+    # protobuf JSON payload needs them as base64
+    payload = progress.to_dict()
+    payload['dismissed_guild_content'] = _b64(payload['dismissed_guild_content'])
+    return payload
+
+
 class _ProtoSettings:
     __slots__ = (
         '_state',
@@ -893,14 +905,15 @@ class UserSettings(_ProtoSettings):
             # MISSING resets the field, like every other setting
             progress = kwargs.pop('guild_progress_settings')
             guilds['guilds'] = (
-                {guild.guild_id: guild.to_dict() for guild in progress} if progress is not MISSING else MISSING
+                {guild.guild_id: _progress_payload(guild) for guild in progress} if progress is not MISSING else MISSING
             )
 
         user_content = {}
         if 'dismissed_contents' in kwargs:
             contents = kwargs.pop('dismissed_contents')
+            # Protobuf JSON takes bytes fields as base64 strings: raw bytes were sent as empty
             user_content['dismissed_contents'] = (
-                struct.pack(f'>{len(contents)}B', *contents) if contents is not MISSING else MISSING
+                _b64(struct.pack(f'>{len(contents)}B', *contents)) if contents is not MISSING else MISSING
             )
         if 'last_dismissed_promotion_start_date' in kwargs:
             user_content['last_dismissed_outbound_promotion_start_date'] = (

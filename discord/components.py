@@ -25,7 +25,7 @@ DEALINGS IN THE SOFTWARE.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, ClassVar, Iterable, List, Literal, Optional, Tuple, Union, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, Iterable, List, Literal, Optional, Tuple, Union, overload
 
 from .asset import AssetMixin
 from .colour import Colour
@@ -963,7 +963,7 @@ class SectionComponent(Component):
         The component ID, if Discord provided one.
     """
 
-    __slots__ = ('children', 'accessory', 'id', 'message')
+    __slots__ = ('children', 'accessory', 'id', 'message', '_raw_accessory')
     __repr_info__ = ('children', 'accessory', 'id')
 
     def __init__(self, data: SectionComponentPayload, message: ComponentWithMessage = MISSING) -> None:
@@ -971,6 +971,8 @@ class SectionComponent(Component):
         self.id = data.get('id')
         self.children: List[Component] = []
         self.accessory: Component = _component_factory(data['accessory'], message)  # pyright: ignore[reportAttributeAccessIssue]
+        # Kept only when the accessory's type is unknown, so to_dict() can send it back unchanged
+        self._raw_accessory: Optional[Dict[str, Any]] = data['accessory'] if self.accessory is None else None  # type: ignore
         for component_data in data['components']:
             component = _component_factory(component_data, message)
             if component is not None:
@@ -984,7 +986,7 @@ class SectionComponent(Component):
         payload = {
             'type': self.type.value,
             'components': [component.to_dict() for component in self.children],
-            'accessory': self.accessory.to_dict(),
+            'accessory': self.accessory.to_dict() if self.accessory is not None else self._raw_accessory,
         }
         if self.id is not None:
             payload['id'] = self.id
@@ -1453,7 +1455,7 @@ class LabelComponent(Component):
         The ID of this component.
     """
 
-    __slots__ = ('label', 'description', 'component', 'id', 'message')
+    __slots__ = ('label', 'description', 'component', 'id', 'message', '_raw_component')
     __repr_info__ = ('label', 'description', 'component', 'id')
 
     def __init__(self, data: LabelComponentPayload, message: ComponentWithMessage = MISSING) -> None:
@@ -1462,13 +1464,16 @@ class LabelComponent(Component):
         self.label = data['label']
         self.description = data.get('description')
         self.component: Component = _component_factory(data['component'], message)  # type: ignore
+        # Kept only when the child's type is unknown, so to_dict() can send it back unchanged
+        self._raw_component: Optional[Dict[str, Any]] = data['component'] if self.component is None else None  # type: ignore
 
     @property
     def type(self) -> Literal[ComponentType.label]:
         return ComponentType.label
 
     def to_dict(self) -> LabelComponentPayload:
-        payload = {'type': self.type.value, 'label': self.label, 'component': self.component.to_dict()}
+        component = self.component.to_dict() if self.component is not None else self._raw_component
+        payload = {'type': self.type.value, 'label': self.label, 'component': component}
         if self.description:
             payload['description'] = self.description
         if self.id is not None:
@@ -1480,7 +1485,12 @@ class LabelComponent(Component):
         files: Optional[List[_FileBase]] = None,
         attachments: Optional[List[PartialAttachmentPayload]] = None,
     ) -> LabelComponentPayload:
-        payload = {'type': self.type.value, 'component': self.component.to_submit_dict(files, attachments)}
+        if self.component is None:
+            _log.warning('Label %r wraps a component of an unknown type; submitting it unchanged.', self.label)
+            component = self._raw_component
+        else:
+            component = self.component.to_submit_dict(files, attachments)
+        payload = {'type': self.type.value, 'component': component}
         if self.id is not None:
             payload['id'] = self.id
         return payload  # type: ignore

@@ -3348,7 +3348,13 @@ class ConnectionState:
             self.dispatch('note_update', user, text)
 
     def parse_user_settings_proto_update(self, data: gw.ProtoSettingsEvent):
-        type = UserSettingsType(data['settings']['type'])
+        raw_type = data['settings']['type']
+        try:
+            type = UserSettingsType(raw_type)
+        except ValueError:
+            # A type newer than discord_protos knows: log it instead of failing the parser
+            _log.warning('USER_SETTINGS_PROTO_UPDATE referencing an unknown type: %s', raw_type)
+            return
         if type == UserSettingsType.preloaded_user_settings:
             settings = self.settings
             if settings:
@@ -4065,9 +4071,17 @@ class ConnectionState:
                     f'Detected guild {guild} with manually overriden member list groups: online members not cached by the Gateway.'
                 )
                 request.handle_manual_override(guild._true_online_count)
-        else:
+        elif self.member_cache_flags.joined:
             for member in members:
                 guild._add_member(member)
+        else:
+            # member_cache_flags.joined is off: cache what the flags allow (our
+            # own member, members in voice with the voice flag), and refresh
+            # members already cached so they don't go stale
+            cached = guild._members
+            for member in members:
+                if member.id in cached or guild._should_cache_member(member):
+                    guild._add_member(member)
 
     def parse_guild_application_command_index_update(self, data: gw.GuildApplicationCommandIndexUpdateEvent) -> None:
         guild = self._get_guild(int(data['guild_id']))
