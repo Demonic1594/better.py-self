@@ -130,29 +130,39 @@ def _slug(heading: str) -> str:
     return re.sub(r'[^\w\- ]', '', heading).replace(' ', '-')
 
 
+def _prose_lines(text: str):
+    # Lines outside fenced code blocks, with the same fence rules as the sync
+    fence = None
+    for line in text.split('\n'):
+        new = sync_wiki._next_fence(line, fence)
+        if fence is None and new is None:
+            yield line
+        fence = new
+
+
 def test_anchors_point_at_headings(tmp_path):
     out = tmp_path / 'wiki'
     sync_wiki.main([str(ROOT / 'wiki'), str(out), '--repo', REPO])
-    anchors = {}
-    for page in out.glob('*.md'):
-        text = page.read_text(encoding='utf-8')
-        headings, fence = [], None
-        for line in text.split('\n'):
-            new = sync_wiki._next_fence(line, fence)
-            if fence is None and new is None and re.match(r'#+ ', line):
-                headings.append(line.lstrip('#').strip())
-            fence = new
-        anchors[page.stem] = {_slug(h) for h in headings}
+    prose = {page.stem: list(_prose_lines(page.read_text(encoding='utf-8'))) for page in out.glob('*.md')}
+    anchors = {
+        name: {_slug(line.lstrip('#').strip()) for line in lines if re.match(r'#+ ', line)} for name, lines in prose.items()
+    }
     missing = []
-    for page in out.glob('*.md'):
-        for match in sync_wiki._LINK.finditer(page.read_text(encoding='utf-8')):
-            target = match.group(2)
-            if target.startswith(('http://', 'https://')) or '#' not in target:
-                continue
-            name, _, anchor = target.partition('#')
-            if anchor not in anchors.get(name or page.stem, set()):
-                missing.append((page.name, target))
+    for name, lines in prose.items():
+        for line in lines:
+            for match in sync_wiki._LINK.finditer(line):
+                target = match.group(2)
+                if target.startswith(('http://', 'https://')) or '#' not in target:
+                    continue
+                page, _, anchor = target.partition('#')
+                if anchor not in anchors.get(page or name, set()):
+                    missing.append((name, target))
     assert missing == []
+
+
+def test_prose_lines_skip_fenced_examples():
+    text = '# Real\n```md\n# Sample\n[go](#sample)\n```\n[ok](#real)'
+    assert list(_prose_lines(text)) == ['# Real', '[ok](#real)']
 
 
 def test_longer_fence_holds_a_shorter_one():
