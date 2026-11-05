@@ -140,24 +140,32 @@ def _prose_lines(text: str):
         fence = new
 
 
+def _missing_anchors(pages):
+    """``(page, target)`` for every ``#anchor`` link in ``pages`` (name -> text)
+    that matches no heading. Fenced code is skipped; links may span lines."""
+    prose = {name: '\n'.join(_prose_lines(text)) for name, text in pages.items()}
+    anchors = {name: {_slug(m.group(1)) for m in re.finditer(r'^#+ (.+)$', text, re.M)} for name, text in prose.items()}
+    missing = []
+    for name, text in prose.items():
+        for match in sync_wiki._LINK.finditer(text):
+            target = match.group(2)
+            if target.startswith(('http://', 'https://')) or '#' not in target:
+                continue
+            page, _, anchor = target.partition('#')
+            if anchor not in anchors.get(page or name, set()):
+                missing.append((name, target))
+    return missing
+
+
 def test_anchors_point_at_headings(tmp_path):
     out = tmp_path / 'wiki'
     sync_wiki.main([str(ROOT / 'wiki'), str(out), '--repo', REPO])
-    prose = {page.stem: list(_prose_lines(page.read_text(encoding='utf-8'))) for page in out.glob('*.md')}
-    anchors = {
-        name: {_slug(line.lstrip('#').strip()) for line in lines if re.match(r'#+ ', line)} for name, lines in prose.items()
-    }
-    missing = []
-    for name, lines in prose.items():
-        for line in lines:
-            for match in sync_wiki._LINK.finditer(line):
-                target = match.group(2)
-                if target.startswith(('http://', 'https://')) or '#' not in target:
-                    continue
-                page, _, anchor = target.partition('#')
-                if anchor not in anchors.get(page or name, set()):
-                    missing.append((name, target))
-    assert missing == []
+    assert _missing_anchors({page.stem: page.read_text(encoding='utf-8') for page in out.glob('*.md')}) == []
+
+
+def test_anchor_check_skips_fences_and_follows_multiline_links():
+    page = '# Real\n```md\n# Sample\n[go](#sample)\n```\n[ok](#real)\n[split\ntext](#missing)'
+    assert _missing_anchors({'Home': page}) == [('Home', '#missing')]
 
 
 def test_prose_lines_skip_fenced_examples():

@@ -28,6 +28,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
+          # The current master, not the triggering commit: an older queued run
+          # must not publish older pages over a newer one
+          ref: master
           persist-credentials: false
 
       - name: Set up CPython
