@@ -140,14 +140,29 @@ def _prose_lines(text: str):
         fence = new
 
 
+# An inline code span: a backtick run, then the next run of exactly the same
+# length (CommonMark). It may wrap lines but not cross a paragraph break.
+_SPAN = re.compile(r'(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)', re.S)
+
+
+def _mask_code_spans(text: str) -> str:
+    # Blank out inline code one paragraph at a time, keeping offsets and line breaks
+    def blank(match: re.Match) -> str:
+        return re.sub(r'[^\n]', ' ', match.group(0))
+
+    parts = re.split(r'(\n[ \t]*\n)', text)
+    return ''.join(part if i % 2 else _SPAN.sub(blank, part) for i, part in enumerate(parts))
+
+
 def _missing_anchors(pages):
     """``(page, target)`` for every ``#anchor`` link in ``pages`` (name -> text)
-    that matches no heading. Fenced code is skipped; links may span lines."""
+    that matches no heading. Fenced code and inline code are skipped; links may
+    span lines."""
     prose = {name: '\n'.join(_prose_lines(text)) for name, text in pages.items()}
     anchors = {name: {_slug(m.group(1)) for m in re.finditer(r'^#+ (.+)$', text, re.M)} for name, text in prose.items()}
     missing = []
     for name, text in prose.items():
-        for match in sync_wiki._LINK.finditer(text):
+        for match in sync_wiki._LINK.finditer(_mask_code_spans(text)):
             target = match.group(2)
             if target.startswith(('http://', 'https://')) or '#' not in target:
                 continue
@@ -166,6 +181,21 @@ def test_anchors_point_at_headings(tmp_path):
 def test_anchor_check_skips_fences_and_follows_multiline_links():
     page = '# Real\n```md\n# Sample\n[go](#sample)\n```\n[ok](#real)\n[split\ntext](#missing)'
     assert _missing_anchors({'Home': page}) == [('Home', '#missing')]
+
+
+def test_anchor_check_skips_inline_code():
+    page = (
+        '# Real\n'
+        'Write `[go](#sample)` or ``[a `b`](#x)`` literally, even `[w\nrapped](#y)`.\n'
+        '[ok](#real) [`code` text](#gone)\n'
+        '\n'
+        'A stray ` here\n'
+        '\n'
+        '[after](#missing) and ` there'
+    )
+    # The stray backticks sit in different paragraphs, so they don't pair up
+    # and hide the broken link between them
+    assert _missing_anchors({'Home': page}) == [('Home', '#gone'), ('Home', '#missing')]
 
 
 def test_prose_lines_skip_fenced_examples():
