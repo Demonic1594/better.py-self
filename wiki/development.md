@@ -103,6 +103,25 @@ v2.3.2 test rounds:
 - **Tokens.** Keep them in a file that isn't committed, scan the DEBUG logs for
   token fragments afterwards, then shred the file and rotate the tokens.
 
+## The wiki
+
+The pages in `wiki/` are the source of truth. On every push to `master` that
+touches `wiki/`, the `Wiki` workflow (`.github/workflows/wiki.yml`) runs
+`tools/sync_wiki.py` and pushes the result to the repository's GitHub Wiki.
+The script renames `README.md` to `Home.md`, drops `.md` from links between
+pages, points `../` links at the files on GitHub, and writes `_Sidebar.md`
+and `_Footer.md`. To preview the rendered pages locally:
+
+```sh
+python tools/sync_wiki.py wiki /tmp/wiki-preview --repo Demonic1594/better.py-self
+```
+
+`tests/test_sync_wiki.py` checks that every link in the rendered wiki
+resolves. Run it after adding or renaming a page.
+
+The workflow only publishes from `master` (a manual run from another branch
+does nothing), and it needs the wiki to have at least one page, which it has.
+
 ## Releasing
 
 Follow the v2.3.0, v2.3.1 and v2.3.2 release commits:

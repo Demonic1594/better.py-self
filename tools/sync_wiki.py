@@ -1,0 +1,149 @@
+"""
+Render the repository's ``wiki/`` folder for the GitHub Wiki.
+
+``wiki/`` is the source of truth: it is reviewed in pull requests like the
+rest of the repository. The GitHub Wiki is a separate git repository whose
+pages are addressed by name, so the files need three changes on the way:
+
+- ``README.md`` becomes ``Home.md`` (the wiki's front page);
+- links to other pages lose their ``.md`` (``gateway.md#x`` -> ``gateway#x``,
+  ``README.md`` -> ``Home``);
+- links that leave the folder (``../docs/api.rst``) point at the file on
+  GitHub, since the wiki can't reach the repository's files.
+
+It also writes ``_Sidebar.md`` (every page, by its title) and ``_Footer.md``
+(where to edit). ``.github/workflows/wiki.yml`` runs it on every push to
+master that touches ``wiki/`` and pushes the result to ``<repo>.wiki.git``.
+
+Usage: ``python tools/sync_wiki.py SRC DEST --repo OWNER/NAME [--ref master]``.
+DEST's existing ``*.md`` files are replaced, so pages deleted from ``wiki/``
+are deleted from the wiki too; anything else in DEST (``.git``) is kept.
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from pathlib import Path, PurePosixPath
+from typing import Dict, List, Optional
+
+# Inline links and images: [text](target) / ![alt](target). Reference-style
+# links aren't used in wiki/; code spans are skipped below.
+_LINK = re.compile(r'(!?\[[^\]]*\])\(([^()\s]+)\)')
+_FENCE = re.compile(r'^(```|~~~)')
+_CODE_SPAN = re.compile(r'(`+)(.+?)\1')
+
+
+def page_name(filename: str) -> str:
+    stem = filename[:-3] if filename.endswith('.md') else filename
+    return 'Home' if stem == 'README' else stem
+
+
+def rewrite_target(target: str, pages: set, repo: str, ref: str, root: Optional[Path] = None) -> str:
+    if target.startswith(('http://', 'https://', 'mailto:', '#')):
+        return target
+    path, _, anchor = target.partition('#')
+    suffix = f'#{anchor}' if anchor else ''
+    if '/' not in path and path in pages:
+        return page_name(path) + suffix
+    if path.startswith('../'):
+        rel = PurePosixPath(path[3:])
+        if '..' in rel.parts:
+            return target  # leaves the repository: leave it alone
+        if root is not None:
+            # GitHub wants /tree/ for folders and /blob/ for files
+            kind = 'tree' if (root / str(rel)).is_dir() else 'blob'
+        else:
+            kind = 'blob' if rel.suffix else 'tree'
+        rel_str = '' if str(rel) == '.' else str(rel)
+        return f'https://github.com/{repo}/{kind}/{ref}/{rel_str}'.rstrip('/') + suffix
+    if path.endswith('.md'):
+        # e.g. ./page.md or a page that doesn't exist: it would 404 on the wiki
+        print(f'warning: link to {target!r} is not a page in wiki/; left as is', file=sys.stderr)
+    return target
+
+
+def rewrite_line(line: str, pages: set, repo: str, ref: str, root: Optional[Path] = None) -> str:
+    # Leave links that start inside inline code alone; a code span inside a
+    # link's text (``[`api.rst`](../docs/api.rst)``) is fine
+    spans = [m.span() for m in _CODE_SPAN.finditer(line)]
+
+    def replace(match: re.Match[str]) -> str:
+        start = match.start()
+        if any(a <= start < b for a, b in spans):
+            return match.group(0)
+        return f'{match.group(1)}({rewrite_target(match.group(2), pages, repo, ref, root)})'
+
+    return _LINK.sub(replace, line)
+
+
+def rewrite(text: str, pages: set, repo: str, ref: str, root: Optional[Path] = None) -> str:
+    lines = text.split('\n')
+    in_fence = False
+    for i, line in enumerate(lines):
+        if _FENCE.match(line.lstrip()):
+            in_fence = not in_fence
+            continue
+        if not in_fence:
+            lines[i] = rewrite_line(line, pages, repo, ref, root)
+    return '\n'.join(lines)
+
+
+def title_of(text: str, fallback: str) -> str:
+    in_fence = False
+    for line in text.split('\n'):
+        if _FENCE.match(line.lstrip()):
+            in_fence = not in_fence
+        elif not in_fence and line.startswith('# '):
+            return line[2:].strip()
+    return fallback
+
+
+def render(src: Path, repo: str, ref: str) -> Dict[str, str]:
+    sources = sorted(p for p in src.glob('*.md'))
+    if not any(p.name == 'README.md' for p in sources):
+        raise SystemExit(f'{src}/README.md is missing: it becomes the wiki Home page')
+    pages = {p.name for p in sources}
+    rendered: Dict[str, str] = {}
+    titles: Dict[str, str] = {}
+    for path in sources:
+        text = path.read_text(encoding='utf-8')
+        name = page_name(path.name)
+        rendered[f'{name}.md'] = rewrite(text, pages, repo, ref, src.resolve().parent)
+        titles[name] = title_of(text, name)
+
+    sidebar = ['**[Home](Home)**', '']
+    sidebar += [f'- [{titles[n]}]({n})' for n in sorted(titles, key=lambda n: titles[n].lower()) if n != 'Home']
+    rendered['_Sidebar.md'] = '\n'.join(sidebar) + '\n'
+    rendered['_Footer.md'] = (
+        f'Generated from [`wiki/`](https://github.com/{repo}/tree/{ref}/wiki) in the repository. '
+        'Edit the files there in a pull request; edits made here are overwritten on the next sync.\n'
+    )
+    return rendered
+
+
+def main(argv: List[str]) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
+    parser.add_argument('src', type=Path)
+    parser.add_argument('dest', type=Path)
+    parser.add_argument('--repo', required=True, help='OWNER/NAME, for links back to the repository')
+    parser.add_argument('--ref', default='master', help='branch the repository links point at')
+    args = parser.parse_args(argv)
+
+    rendered = render(args.src, args.repo, args.ref)
+    args.dest.mkdir(parents=True, exist_ok=True)
+    for old in args.dest.glob('*.md'):
+        if old.name not in rendered:
+            old.unlink()
+            print(f'removed {old.name}')
+    for name, text in rendered.items():
+        target = args.dest / name
+        if not target.exists() or target.read_text(encoding='utf-8') != text:
+            target.write_text(text, encoding='utf-8')
+            print(f'wrote {name}')
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

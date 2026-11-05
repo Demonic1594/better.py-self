@@ -1,0 +1,63 @@
+name: Wiki
+
+# Publishes wiki/ to the GitHub Wiki. wiki/ is the source of truth (reviewed
+# in pull requests); the Wiki tab is a rendered copy, see tools/sync_wiki.py.
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - 'wiki/**'
+      - 'tools/sync_wiki.py'
+      - '.github/workflows/wiki.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: wiki
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only master is reviewed: a manual run from another branch must not publish
+    if: github.repository == 'Demonic1594/better.py-self' && github.ref == 'refs/heads/master'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up CPython
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The token goes in a per-command header, never in the remote URL or .git/config
+      - name: Clone the wiki
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          AUTH="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          git -c http.extraheader="$AUTH" clone --depth 1 "https://github.com/${GITHUB_REPOSITORY}.wiki.git" wiki-repo
+
+      - name: Render wiki/ into it
+        run: python tools/sync_wiki.py wiki wiki-repo --repo "${GITHUB_REPOSITORY}" --ref master
+
+      - name: Commit and push
+        working-directory: wiki-repo
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "The wiki is already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Sync from ${GITHUB_REPOSITORY}@${GITHUB_SHA::7}"
+          AUTH="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          git -c http.extraheader="$AUTH" push
