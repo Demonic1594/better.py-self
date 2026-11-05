@@ -129,13 +129,14 @@ def rewrite_target(target: str, pages: set, repo: str, ref: str, root: Optional[
 
 
 def rewrite_prose(prose: str, pages: set, repo: str, ref: str, root: Optional[Path] = None) -> str:
-    # Links may span lines. Leave links that start inside inline code alone;
-    # a code span inside a link's text (``[`api.rst`](../docs/api.rst)``) is fine
+    # Links may wrap lines but not cross a blank line. Leave a link alone when
+    # it starts or ends inside inline code; a whole code span inside a link's
+    # text (``[`api.rst`](../docs/api.rst)``) is fine
     spans = code_spans(prose)
 
     def replace(match: re.Match[str]) -> str:
-        start = match.start()
-        if any(a <= start < b for a, b in spans):
+        start, last = match.start(), match.end() - 1
+        if _BLANK_LINE.search(match.group(0)) or any(a <= start < b or a <= last < b for a, b in spans):
             return match.group(0)
         return f'{match.group(1)}({rewrite_target(match.group(2), pages, repo, ref, root)})'
 

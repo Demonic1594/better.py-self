@@ -204,6 +204,13 @@ def test_rewrite_skips_code_spans_that_wrap():
     # A span that opens on one line and closes on the next hides the link between
     literal = 'Write `the link\n[g](gateway.md)` as is.'
     assert _rw(literal) == literal
+    # Nor is a link whose target sits inside a code span
+    assert _rw('[a `](gateway.md)` b') == '[a `](gateway.md)` b'
+
+
+def test_links_do_not_cross_paragraphs():
+    assert _rw('[a\n\nb](gateway.md)') == '[a\n\nb](gateway.md)'
+    assert _rw('[a\n \nb](gateway.md)') == '[a\n \nb](gateway.md)'
 
 
 def test_longer_fence_holds_a_shorter_one():
