@@ -63,7 +63,7 @@ def test_render_the_real_wiki(tmp_path):
     repo_url = re.compile(rf'https://github.com/{re.escape(REPO)}/(blob|tree)/master/?(.*)')
     unresolved = []
     for page in out.glob('*.md'):
-        text = page.read_text(encoding='utf-8')
+        text = _prose(page.read_text(encoding='utf-8'), masked=True)
         assert '](../' not in text, page.name
         for match in sync_wiki._LINK.finditer(text):
             target = match.group(2)
@@ -130,39 +130,22 @@ def _slug(heading: str) -> str:
     return re.sub(r'[^\w\- ]', '', heading).replace(' ', '-')
 
 
-def _prose_lines(text: str):
-    # Lines outside fenced code blocks, with the same fence rules as the sync
-    fence = None
-    for line in text.split('\n'):
-        new = sync_wiki._next_fence(line, fence)
-        if fence is None and new is None:
-            yield line
-        fence = new
-
-
-# An inline code span: a backtick run, then the next run of exactly the same
-# length (CommonMark). It may wrap lines but not cross a paragraph break.
-_SPAN = re.compile(r'(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)', re.S)
-
-
-def _mask_code_spans(text: str) -> str:
-    # Blank out inline code one paragraph at a time, keeping offsets and line breaks
-    def blank(match: re.Match) -> str:
-        return re.sub(r'[^\n]', ' ', match.group(0))
-
-    parts = re.split(r'(\n[ \t]*\n)', text)
-    return ''.join(part if i % 2 else _SPAN.sub(blank, part) for i, part in enumerate(parts))
+def _prose(text: str, *, masked: bool = False) -> str:
+    # The prose outside fenced blocks, with the same rules as the sync. Blocks
+    # are joined by a blank line, so neither a link nor a code span joins two.
+    chunks = [chunk for prose, chunk in sync_wiki.blocks(text) if prose]
+    return '\n\n'.join(sync_wiki.mask_code(c) if masked else c for c in chunks)
 
 
 def _missing_anchors(pages):
     """``(page, target)`` for every ``#anchor`` link in ``pages`` (name -> text)
     that matches no heading. Fenced code and inline code are skipped; links may
     span lines."""
-    prose = {name: '\n'.join(_prose_lines(text)) for name, text in pages.items()}
+    prose = {name: _prose(text) for name, text in pages.items()}
     anchors = {name: {_slug(m.group(1)) for m in re.finditer(r'^#+ (.+)$', text, re.M)} for name, text in prose.items()}
     missing = []
     for name, text in prose.items():
-        for match in sync_wiki._LINK.finditer(_mask_code_spans(text)):
+        for match in sync_wiki._LINK.finditer(sync_wiki.mask_code(text)):
             target = match.group(2)
             if target.startswith(('http://', 'https://')) or '#' not in target:
                 continue
@@ -198,9 +181,29 @@ def test_anchor_check_skips_inline_code():
     assert _missing_anchors({'Home': page}) == [('Home', '#gone'), ('Home', '#missing')]
 
 
-def test_prose_lines_skip_fenced_examples():
+def test_prose_skips_fenced_examples():
     text = '# Real\n```md\n# Sample\n[go](#sample)\n```\n[ok](#real)'
-    assert list(_prose_lines(text)) == ['# Real', '[ok](#real)']
+    assert _prose(text) == '# Real\n\n[ok](#real)'
+    assert sync_wiki.blocks(text) == [
+        (True, '# Real'),
+        (False, '```md\n# Sample\n[go](#sample)\n```'),
+        (True, '[ok](#real)'),
+    ]
+
+
+def test_rewrite_follows_links_across_lines():
+    text = 'See the [api\nreference](../docs/api.rst) and [the\ngateway](gateway.md#x).'
+    expected = f'See the [api\nreference](https://github.com/{REPO}/blob/master/docs/api.rst) and [the\ngateway](gateway#x).'
+    assert _rw(text) == expected
+
+
+def test_rewrite_skips_code_spans_that_wrap():
+    text = '`[api\nreference](../docs/api.rst)` and ``[g](gateway.md)``\n\nA stray ` then [g](gateway.md)\n\nand ` here'
+    expected = '`[api\nreference](../docs/api.rst)` and ``[g](gateway.md)``\n\nA stray ` then [g](gateway)\n\nand ` here'
+    assert _rw(text) == expected
+    # A span that opens on one line and closes on the next hides the link between
+    literal = 'Write `the link\n[g](gateway.md)` as is.'
+    assert _rw(literal) == literal
 
 
 def test_longer_fence_holds_a_shorter_one():

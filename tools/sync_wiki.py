@@ -26,7 +26,7 @@ import argparse
 import re
 import sys
 from pathlib import Path, PurePosixPath
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 # Inline links and images: [text](target) / ![alt](target). Reference-style
 # links aren't used in wiki/; code spans are skipped below.
@@ -52,7 +52,51 @@ def _next_fence(line: str, fence: Optional[str]) -> Optional[str]:
     return None if closes else fence
 
 
-_CODE_SPAN = re.compile(r'(`+)(.+?)\1')
+# An inline code span (CommonMark): a backtick run closed by the next run of
+# exactly the same length. It may wrap lines but never crosses a blank line.
+_CODE_SPAN = re.compile(r'(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)', re.S)
+_BLANK_LINE = re.compile(r'\n[ \t]*\n')
+
+
+def code_spans(text: str) -> List[Tuple[int, int]]:
+    """``(start, end)`` of every inline code span in ``text``, one paragraph at
+    a time so that stray backticks in different paragraphs never pair up."""
+    spans: List[Tuple[int, int]] = []
+    start = 0
+    for brk in [*_BLANK_LINE.finditer(text), None]:
+        end = brk.start() if brk else len(text)
+        spans += [m.span() for m in _CODE_SPAN.finditer(text, start, end)]
+        if brk:
+            start = brk.end()
+    return spans
+
+
+def mask_code(text: str) -> str:
+    """``text`` with inline code blanked out, keeping offsets and line breaks."""
+    chars = list(text)
+    for a, b in code_spans(text):
+        chars[a:b] = [c if c == '\n' else ' ' for c in text[a:b]]
+    return ''.join(chars)
+
+
+def blocks(text: str) -> List[Tuple[bool, str]]:
+    """``text`` split into ``(is_prose, chunk)`` runs of whole lines: prose, or
+    a fenced block with its fences. Joining the chunks with ``\\n`` restores it."""
+    out: List[Tuple[bool, str]] = []
+    run: List[str] = []
+    run_prose = True
+    fence: Optional[str] = None
+    for line in text.split('\n'):
+        new = _next_fence(line, fence)
+        prose = fence is None and new is None
+        if prose != run_prose and run:
+            out.append((run_prose, '\n'.join(run)))
+            run = []
+        run_prose = prose
+        run.append(line)
+        fence = new
+    out.append((run_prose, '\n'.join(run)))
+    return out
 
 
 def page_name(filename: str) -> str:
@@ -84,10 +128,10 @@ def rewrite_target(target: str, pages: set, repo: str, ref: str, root: Optional[
     return target
 
 
-def rewrite_line(line: str, pages: set, repo: str, ref: str, root: Optional[Path] = None) -> str:
-    # Leave links that start inside inline code alone; a code span inside a
-    # link's text (``[`api.rst`](../docs/api.rst)``) is fine
-    spans = [m.span() for m in _CODE_SPAN.finditer(line)]
+def rewrite_prose(prose: str, pages: set, repo: str, ref: str, root: Optional[Path] = None) -> str:
+    # Links may span lines. Leave links that start inside inline code alone;
+    # a code span inside a link's text (``[`api.rst`](../docs/api.rst)``) is fine
+    spans = code_spans(prose)
 
     def replace(match: re.Match[str]) -> str:
         start = match.start()
@@ -95,18 +139,11 @@ def rewrite_line(line: str, pages: set, repo: str, ref: str, root: Optional[Path
             return match.group(0)
         return f'{match.group(1)}({rewrite_target(match.group(2), pages, repo, ref, root)})'
 
-    return _LINK.sub(replace, line)
+    return _LINK.sub(replace, prose)
 
 
 def rewrite(text: str, pages: set, repo: str, ref: str, root: Optional[Path] = None) -> str:
-    lines = text.split('\n')
-    fence: Optional[str] = None
-    for i, line in enumerate(lines):
-        new = _next_fence(line, fence)
-        if fence is None and new is None:
-            lines[i] = rewrite_line(line, pages, repo, ref, root)
-        fence = new
-    return '\n'.join(lines)
+    return '\n'.join(rewrite_prose(chunk, pages, repo, ref, root) if prose else chunk for prose, chunk in blocks(text))
 
 
 def title_of(text: str, fallback: str) -> str:
