@@ -31,7 +31,27 @@ from typing import Dict, List, Optional
 # Inline links and images: [text](target) / ![alt](target). Reference-style
 # links aren't used in wiki/; code spans are skipped below.
 _LINK = re.compile(r'(!?\[[^\]]*\])\(([^()\s]+)\)')
-_FENCE = re.compile(r'^(```|~~~)')
+_FENCE = re.compile(r'^(`{3,}|~{3,})')
+
+
+def _next_fence(line: str, fence: Optional[str]) -> Optional[str]:
+    """The open fence marker after ``line``, or None outside a fenced block.
+
+    A block closes only on a marker of the same character that is at least
+    as long as the opening one, with nothing after it (CommonMark), so a
+    ````-block can show a ```-example.
+    """
+    stripped = line.lstrip()
+    match = _FENCE.match(stripped)
+    if match is None:
+        return fence
+    marker = match.group(1)
+    if fence is None:
+        return marker
+    closes = marker[0] == fence[0] and len(marker) >= len(fence) and not stripped[len(marker) :].strip()
+    return None if closes else fence
+
+
 _CODE_SPAN = re.compile(r'(`+)(.+?)\1')
 
 
@@ -80,23 +100,22 @@ def rewrite_line(line: str, pages: set, repo: str, ref: str, root: Optional[Path
 
 def rewrite(text: str, pages: set, repo: str, ref: str, root: Optional[Path] = None) -> str:
     lines = text.split('\n')
-    in_fence = False
+    fence: Optional[str] = None
     for i, line in enumerate(lines):
-        if _FENCE.match(line.lstrip()):
-            in_fence = not in_fence
-            continue
-        if not in_fence:
+        new = _next_fence(line, fence)
+        if fence is None and new is None:
             lines[i] = rewrite_line(line, pages, repo, ref, root)
+        fence = new
     return '\n'.join(lines)
 
 
 def title_of(text: str, fallback: str) -> str:
-    in_fence = False
+    fence: Optional[str] = None
     for line in text.split('\n'):
-        if _FENCE.match(line.lstrip()):
-            in_fence = not in_fence
-        elif not in_fence and line.startswith('# '):
+        new = _next_fence(line, fence)
+        if fence is None and new is None and line.startswith('# '):
             return line[2:].strip()
+        fence = new
     return fallback
 
 

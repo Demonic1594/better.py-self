@@ -136,7 +136,13 @@ def test_anchors_point_at_headings(tmp_path):
     anchors = {}
     for page in out.glob('*.md'):
         text = page.read_text(encoding='utf-8')
-        anchors[page.stem] = {_slug(h) for h in re.findall(r'^#+ (.+)$', text, re.M)}
+        headings, fence = [], None
+        for line in text.split('\n'):
+            new = sync_wiki._next_fence(line, fence)
+            if fence is None and new is None and re.match(r'#+ ', line):
+                headings.append(line.lstrip('#').strip())
+            fence = new
+        anchors[page.stem] = {_slug(h) for h in headings}
     missing = []
     for page in out.glob('*.md'):
         for match in sync_wiki._LINK.finditer(page.read_text(encoding='utf-8')):
@@ -147,3 +153,11 @@ def test_anchors_point_at_headings(tmp_path):
             if anchor not in anchors.get(name or page.stem, set()):
                 missing.append((page.name, target))
     assert missing == []
+
+
+def test_longer_fence_holds_a_shorter_one():
+    text = '````md\n```\n[g](gateway.md)\n# not a title\n```\n````\n# Title\n[e](events.md)'
+    assert _rw(text) == '````md\n```\n[g](gateway.md)\n# not a title\n```\n````\n# Title\n[e](events)'
+    assert sync_wiki.title_of(text, 'x') == 'Title'
+    # A tilde fence isn't closed by backticks
+    assert _rw('~~~\n```\n[g](gateway.md)\n~~~\n[g](gateway.md)') == '~~~\n```\n[g](gateway.md)\n~~~\n[g](gateway)'
