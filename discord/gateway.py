@@ -587,10 +587,11 @@ class DiscordWebSocket:
                 await ws.resume()
         except BaseException:
             # Nobody else holds this socket yet: a failed or cancelled handshake
-            # (the connect timeout, say) would leave it open
+            # (the connect timeout, say) would leave it open. 4000 and not 1000,
+            # which would end a session that can still be resumed
             if not socket.closed:
                 try:
-                    await asyncio.wait_for(asyncio.shield(socket.close(1000)), timeout=5.0)
+                    await asyncio.wait_for(asyncio.shield(socket.close(4000)), timeout=5.0)
                 except BaseException:
                     _log.debug('Ignoring an error closing the gateway socket after a failed handshake.', exc_info=True)
             raise
