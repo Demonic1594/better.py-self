@@ -31,6 +31,7 @@ import os
 import sys
 import time
 import uuid
+import warnings
 from datetime import datetime
 from typing import (
     Any,
@@ -641,6 +642,14 @@ class Client:
             _log.warning('eager_dispatch requires Python 3.12 or newer; event handlers will be scheduled normally.')
             eager_dispatch = False
         self._eager_dispatch: bool = eager_dispatch
+
+        if 'request_guilds' in options:
+            # Still honoured (ConnectionState reads it when guild_subscriptions is absent)
+            warnings.warn(
+                'request_guilds is deprecated, use guild_subscriptions instead.',
+                DeprecationWarning,
+                stacklevel=2,
+            )
 
         throttle_window = options.pop('throttle_window', None)
         throttle_window = 300.0 if throttle_window is None else float(throttle_window)
