@@ -126,7 +126,8 @@ client does. Pace clicks on the "click" lane (3.0 s).
 
 Sending Components V2 layouts (text displays, containers and so on) from a user
 account works too. Before the November 2026 audit it raised `NameError`, and
-passing your own `flags` changed that `MessageFlags` object.
+when you passed your own `flags`, the library also changed that
+`MessageFlags` object; it now works on a copy.
 
 **`Message.interaction_metadata`** (new in v2.3.2) describes the interaction that
 produced a bot's message: which command, button or modal it was, who used it

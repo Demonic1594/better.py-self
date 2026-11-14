@@ -145,9 +145,12 @@ chunked have been chunked. On an account with many large guilds, set it to
 
 ## The log says "Member chunk request ... got no reply"
 
-A `Guild.chunk()` request heard nothing back for a minute, so it was failed
+A new `Guild.chunk()` or `fetch_members()` call found that the running
+request had heard nothing back for over a minute, so that request was failed
 and a new one was sent. The waiters of the old request get `ClientException`;
-calling `chunk()` again is safe. See [Member lists](member-lists.md).
+calling `chunk()` again is safe. A single `chunk()` whose reply is lost is not
+detected this way and keeps waiting, so use `asyncio.wait_for` around it if you
+need a bound. See [Member lists](member-lists.md).
 
 ## The log says "Ignoring unknown Client option(s)"
 

@@ -112,7 +112,8 @@ heartbeat.start()
   after errors the loop can handle. `add_exception_type(...)` adds more. Since
   the November 2026 audit, types added on a cog's class-level loop
   (`MyCog.my_loop.add_exception_type(...)`) also apply to each cog instance's
-  loop.
+  loop, as long as they are added before the instance first uses the loop
+  (each instance copies the list then).
 - **Stopping.** `stop()` lets the current iteration finish; `cancel()` stops now.
 - **Timezones.** Since v2.3.1, loops whose `time=` values mix timezones run correctly.
 

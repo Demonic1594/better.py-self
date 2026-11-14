@@ -93,8 +93,8 @@ for the full tuning guide):
   reconnecting, a ``HELLO`` or ``READY`` missing its fields triggers a
   reconnect instead of stopping the client, and a duplicate
   ``GUILD_MEMBER_ADD`` is ignored
-- A full-codebase audit against both upstreams (November 2026) fixed about 60
-  bugs, many of them still present in discord.py-self or discord.py, each with
+- A full-codebase audit against both upstreams (November 2026) fixed dozens
+  of bugs, many of them still present in discord.py-self or discord.py, each with
   a regression test. The report, with what was left and why, is
   `docs/audit_2026-11.md <docs/audit_2026-11.md>`_
 

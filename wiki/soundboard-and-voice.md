@@ -153,8 +153,9 @@ For audio, install the `[voice]` extra (`PyNaCl`, `davey`) and connect with
   a timeout did this, and every later `connect()` raised "Already connected to
   a voice channel".
 - **IP discovery times out.** The voice server's IP discovery reply is a single
-  UDP packet. If it is lost during a reconnect, the wait now ends after 10
-  seconds and the reconnect is retried, instead of hanging.
+  UDP packet. If it is lost, the wait now ends after 10 seconds instead of
+  hanging. The connect (or the automatic reconnect) then fails and the client
+  disconnects from voice, so call `connect()` again.
 - **FFmpeg errors reach `after`** also when the source is wrapped in
   `PCMVolumeTransformer`.
 
