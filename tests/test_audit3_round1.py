@@ -253,8 +253,13 @@ async def test_stalled_chunk_request_is_replaced():
     await state.chunk_guild(guild, wait=False)
     assert state._chunk_requests[guild.id] is stale and len(sent) == 1
 
-    stale.last_activity -= 3600
-    await state.chunk_guild(guild, wait=False)
+    # An hour later, with no reply in between
+    real_time = state.loop.time
+    state.loop.time = lambda: real_time() + 3600  # type: ignore
+    try:
+        await state.chunk_guild(guild, wait=False)
+    finally:
+        del state.loop.time  # type: ignore
     assert state._chunk_requests[guild.id] is not stale and len(sent) == 2
     with pytest.raises(discord.ClientException):
         await waiter
