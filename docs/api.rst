@@ -1414,6 +1414,14 @@ Messages
     denotes an "embed" only edit, which is an edit in which only the embeds are updated by the Discord
     embed server.
 
+    When such a partial update is for a message that is not in the cache,
+    :attr:`RawMessageUpdateEvent.message` is ``None``, since there is nothing to
+    build the message from. The IDs and :attr:`RawMessageUpdateEvent.data` are still set.
+
+    .. versionchanged:: 2.3.3
+
+        Also dispatched for a partial update of a message that is not cached.
+
     :param payload: The raw event payload data.
     :type payload: :class:`RawMessageUpdateEvent`
 

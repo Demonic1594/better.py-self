@@ -97,6 +97,15 @@ Received: 0 `DISPATCH`, 7 `RECONNECT`, 9 `INVALIDATE_SESSION`, 10 `HELLO` and 11
   with 4000 and resumes on a new one, and Discord replays the events after the
   last sequence. Repeated failures back off like any other reconnect. In
   2.3.2 and earlier, such a frame escaped `poll_event` and stopped the client.
+- **Unusable `HELLO` or `READY`.** A `HELLO` without a usable
+  `heartbeat_interval`, or a `READY` without `session_id` or
+  `resume_gateway_url`, is logged as a warning and the client reconnects (it
+  identifies again after a broken `READY`, since there is no session to
+  resume). These used to raise `KeyError` out of the receive loop and stop the
+  client.
+- **Failed handshake.** If sending IDENTIFY or RESUME fails, or the connect
+  timeout cancels it, the new socket is closed with 4000 instead of being left
+  open.
 - **Raw frames.** With `enable_debug_events=True`, `on_socket_raw_receive` and
   `on_socket_raw_send` get the raw frames. `on_socket_event_type` gets each
   event's type name.

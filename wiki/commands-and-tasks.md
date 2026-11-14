@@ -72,6 +72,21 @@ How they resolve an argument:
 Each converter raises its own documented `BadArgument` subclass
 (`MemberNotFound`, `ChannelNotFound` and so on) when it fails.
 
+### Checks, cooldowns and flags
+
+Fixed in the November 2026 audit (all of them also affect discord.py-self and
+discord.py):
+
+- **Check order.** Checks added with decorators run top decorator first, on
+  every copy of a command. Each copy, including the one made for every cog
+  instance, used to reverse the order again.
+- **`max_concurrency`** releases the slot it took, even when the bucket key
+  changes while the command runs (`BucketType.role` when the author's top
+  role changes, `BucketType.category` when the channel moves). The slot used
+  to leak, and later invocations hit `MaxConcurrencyReached` for good.
+- **Flags.** A `FlagConverter` value that touches the next flag
+  (`-name:foo-age:3` with `prefix='-'`) keeps its last character.
+
 ## Background tasks
 
 ```py
@@ -94,7 +109,11 @@ heartbeat.start()
     can't be combined with the relative arguments.
   - `count` limits the number of iterations; `None` runs forever.
 - **Recovery.** `reconnect=True` restarts the loop with exponential backoff
-  after errors the loop can handle. `add_exception_type(...)` adds more.
+  after errors the loop can handle. `add_exception_type(...)` adds more. Since
+  the November 2026 audit, types added on a cog's class-level loop
+  (`MyCog.my_loop.add_exception_type(...)`) also apply to each cog instance's
+  loop, as long as they are added before the instance first uses the loop
+  (each instance copies the list then).
 - **Stopping.** `stop()` lets the current iteration finish; `cancel()` stops now.
 - **Timezones.** Since v2.3.1, loops whose `time=` values mix timezones run correctly.
 

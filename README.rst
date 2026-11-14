@@ -90,12 +90,18 @@ for the full tuning guide):
   memory (11 abuse-driven defect fixes, each regression-gated)
 - The gateway recovers on its own. A 5xx on the resume URL falls back to the
   default gateway, a receive timeout closes the stalled socket before
-  reconnecting, and a duplicate ``GUILD_MEMBER_ADD`` is ignored
+  reconnecting, a ``HELLO`` or ``READY`` missing its fields triggers a
+  reconnect instead of stopping the client, and a duplicate
+  ``GUILD_MEMBER_ADD`` is ignored
+- A full-codebase audit against both upstreams (November 2026) fixed dozens
+  of bugs, many of them still present in discord.py-self or discord.py, each with
+  a regression test. The report, with what was left and why, is
+  `docs/audit_2026-11.md <docs/audit_2026-11.md>`_
 
 **Credentials stay out of logs**
 
 - DEBUG logging redacts the known credential fields (tokens, passwords,
-  emails, phone numbers, voice keys and other secrets) in gateway events, HTTP
+  emails, phone numbers, billing details, voice keys and other secrets) in gateway events, HTTP
   bodies and voice payloads. Webhook and interaction tokens are masked in
   logged URLs and rate-limit keys. The live tests found no token fragment in
   about 50 MB of DEBUG logs. Redaction works on a fixed list of key names, so

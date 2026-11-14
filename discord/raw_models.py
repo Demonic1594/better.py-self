@@ -168,7 +168,7 @@ class RawMessageUpdateEvent(_RawReprMixin):
     cached_message: Optional[:class:`Message`]
         The cached message, if found in the internal message cache. Represents the message before
         it is modified by the data in :attr:`RawMessageUpdateEvent.data`.
-    message: :class:`Message`
+    message: Optional[:class:`Message`]
         The updated message.
 
         This is ``None`` when Discord sends a partial update (for example
