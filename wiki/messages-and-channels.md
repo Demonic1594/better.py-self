@@ -55,7 +55,21 @@ await msg.end_poll()
 - **Vote events.** `on_raw_poll_vote_add`/`on_raw_poll_vote_remove` fire once
   for every vote added or removed. `on_poll_vote_add`/`on_poll_vote_remove` fire
   only when both the message and the voting user are cached; for any other vote,
-  only the raw event fires.
+  only the raw event fires. `PollAnswer.self_voted` only changes for your own
+  votes; before the November 2026 audit, any vote event overwrote it.
+- **`Poll.copy()`** keeps `multiple` and `layout_type` (it used to drop them).
+
+## Pins and reactions
+
+- **`channel.pins(oldest_first=True)`** returns the pins oldest first across
+  pages. Discord only pages pins newest first, so the library fetches the
+  whole requested range before yielding the first one; with `limit=None` on a
+  channel with many pins, prefer the default order if you don't need it
+  reversed. (Before the November 2026 audit, each page of 50 was reversed on
+  its own.)
+- **Super reactions** update `Reaction.burst_count` and `Reaction.me_burst`;
+  normal ones update `normal_count` and `me`. `count` is the sum. Before the
+  November 2026 audit, a super reaction was counted as a normal one.
 
 ## Threads
 
@@ -109,6 +123,10 @@ All of them are parsed into their classes in `discord/components.py`, matching
 Rapptz's set. A user account can also click buttons and choose from selects
 (`Button.click()`, `SelectMenu.choose()`) and submit modals, as the official
 client does. Pace clicks on the "click" lane (3.0 s).
+
+Sending Components V2 layouts (text displays, containers and so on) from a user
+account works too. Before the November 2026 audit it raised `NameError`, and
+passing your own `flags` changed that `MessageFlags` object.
 
 **`Message.interaction_metadata`** (new in v2.3.2) describes the interaction that
 produced a bot's message: which command, button or modal it was, who used it

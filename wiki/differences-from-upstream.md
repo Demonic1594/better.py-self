@@ -37,6 +37,15 @@ public is removed or renamed, and every new parameter is optional.
 - **Hardening.** The fork survived thousands of mutated gateway payloads, zlib
   bombs, ReDoS floods and hostile persistence snapshots. Each defect found has a
   regression test.
+- **Bugs fixed that upstream still has.** A full audit in November 2026 fixed
+  about 60 bugs, many of them also in discord.py-self or discord.py: for
+  example Components V2 sends raising `NameError`, `channel.edit(overwrites=...)`
+  raising `TypeError`, `THREAD_LIST_SYNC` dropping thread members, super
+  reactions counted as normal ones, `SequenceProxy` (behind `Client.guilds`
+  and `Guild.members`) copying the collection on every access, and
+  `max_concurrency` leaking slots. The list is in the
+  [audit report](../docs/audit_2026-11.md) and the
+  [changelog](../docs/whats_new.rst).
 - **The Rapptz ports listed below.**
 
 **What it doesn't carry:**

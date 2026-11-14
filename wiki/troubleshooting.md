@@ -138,6 +138,16 @@ chunked have been chunked. On an account with many large guilds, set it to
 - **`send_sound` fails:** check that you're **in** the channel, not server muted or
   suppressed, and have `speak` and `use_soundboard`. Sounds from another guild
   need Nitro.
+- **"Already connected to a voice channel" after a failed `connect()`:** fixed
+  after v2.3.2; a failed or cancelled connect now cleans up. On older versions,
+  call `disconnect(force=True)` on `guild.voice_client` (or the client's
+  `voice_clients`) first.
+
+## The log says "Member chunk request ... got no reply"
+
+A `Guild.chunk()` request heard nothing back for a minute, so it was failed
+and a new one was sent. The waiters of the old request get `ClientException`;
+calling `chunk()` again is safe. See [Member lists](member-lists.md).
 
 ## The log says "Ignoring unknown Client option(s)"
 

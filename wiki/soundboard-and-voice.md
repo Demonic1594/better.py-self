@@ -147,6 +147,17 @@ Not tested live: playing a sound from another guild, which needs Nitro.
 For audio, install the `[voice]` extra (`PyNaCl`, `davey`) and connect with
 `await voice_channel.connect()`, which returns a `VoiceClient`.
 
+- **A failed connect cleans up.** If `connect()` fails for any reason, or is
+  cancelled (by `asyncio.wait_for`, say), the voice client is disconnected and
+  unregistered before the error is raised. Before the November 2026 audit only
+  a timeout did this, and every later `connect()` raised "Already connected to
+  a voice channel".
+- **IP discovery times out.** The voice server's IP discovery reply is a single
+  UDP packet. If it is lost during a reconnect, the wait now ends after 10
+  seconds and the reconnect is retried, instead of hanging.
+- **FFmpeg errors reach `after`** also when the source is wrapped in
+  `PCMVolumeTransformer`.
+
 **Encryption.** Discord's voice servers now require **DAVE**, Discord's
 end-to-end encryption. `davey` implements it, and the voice gateway handles the
 DAVE opcodes 21–25. Without it, connections fail; upstream reports close code

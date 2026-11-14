@@ -42,8 +42,9 @@ through `utils._redact` and `utils._RedactedLog` first. The code is in
   wherever they appear: `token`, `auth_token`, `analytics_token`,
   `access_token`, `refresh_token`, `secret`, `secret_key`, `backup_codes`,
   `password`, `new_password`, `email`, `phone`, `ticket`, `captcha_key`,
-  `payment_source_token`, `billing_address_token`, `purchase_token` and
-  `two_way_link_code`.
+  `payment_source_token`, `billing_address_token`, `billing_address`, `bank`,
+  `purchase_token` and `two_way_link_code`. (`billing_address` and `bank`
+  were added after v2.3.2; the payment-source requests send them.)
 - **Only those keys.** Redaction works on that list. A credential Discord adds
   under a new key name isn't caught until it's added, so still treat DEBUG logs
   as sensitive, and don't post them publicly without reading them first.

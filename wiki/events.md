@@ -20,6 +20,10 @@ Most events come in two forms:
   pass a payload object holding the IDs, the raw data and the cached object if
   there is one. They can still be skipped when the payload is unusable, for
   example `on_raw_member_remove` for a guild the client doesn't know.
+  `on_raw_message_edit` fires even for a partial update (only the embeds of an
+  unfurled link, say) of a message that isn't cached; its `message` is `None`
+  then, and the IDs and `data` are set. Before this was fixed (after v2.3.2)
+  that update raised in the parser and the event was lost.
 
 Use the raw form when you must not miss an event because of the cache.
 

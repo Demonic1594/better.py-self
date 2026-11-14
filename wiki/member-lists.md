@@ -76,6 +76,14 @@ isn't kept up to date afterwards.
 if you have one of the three permissions, or if it isn't large by the same rule
 (`member_count + hoisted roles + 2` under 1,000) and has a channel everyone can see.
 
+A second `chunk()` while one is running joins the running request. If that
+request gets no reply at all for a minute (longer for very large guilds), for
+example because it was lost on a connection that died and was then resumed,
+the library logs `Member chunk request for guild ID ... got no reply; sending a
+new one.`, fails the old waiters with `ClientException` and sends a new
+request. Before this was fixed (after v2.3.2) such a request stayed registered
+and every later `chunk()` waited forever.
+
 ### Live numbers (v2.3.2)
 
 `fetch_members(cache=True)` on a 694-member guild returned all 694 members in

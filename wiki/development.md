@@ -17,7 +17,7 @@ python3 -m pip install -U build pytest pytest-asyncio "ruff==0.12.*" pyright
 ```sh
 ruff format --check && ruff check                        # CI pins ruff 0.12
 PYRIGHT_PYTHON_FORCE_VERSION=1.1.394 pyright discord     # 0 errors required
-python -m pytest -q                                      # ~644 tests, about 2.5-3 minutes
+python -m pytest -q                                      # ~775 tests, about 2.5-3 minutes
 cd docs && sphinx-build -b html -n -T -W --keep-going . _build   # warnings are errors
 ```
 
