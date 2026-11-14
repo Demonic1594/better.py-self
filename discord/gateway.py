@@ -104,6 +104,11 @@ def _invalid_session_delay() -> float:
     return random.uniform(1.0, 5.0)
 
 
+def _log_close_outcome(future: asyncio.Future[Any]) -> None:
+    if not future.cancelled() and future.exception() is not None:
+        _log.debug('Closing the gateway socket after a failed handshake failed: %r.', future.exception())
+
+
 class ReconnectWebSocket(Exception):
     """Signals to safely reconnect the websocket.
 
@@ -593,8 +598,8 @@ class DiscordWebSocket:
                 try:
                     closer = asyncio.ensure_future(socket.close(4000))
                     # If the wait below gives up, the close still finishes on its own;
-                    # retrieve its outcome so it never warns about an unretrieved exception
-                    closer.add_done_callback(lambda f: f.cancelled() or f.exception())
+                    # retrieve (and log) its outcome so it is never left unretrieved
+                    closer.add_done_callback(_log_close_outcome)
                     await asyncio.wait_for(asyncio.shield(closer), timeout=5.0)
                 except BaseException:
                     _log.debug('Ignoring an error closing the gateway socket after a failed handshake.', exc_info=True)
