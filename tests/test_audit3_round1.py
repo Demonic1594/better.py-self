@@ -293,9 +293,7 @@ def test_request_guilds_warns_and_still_works():
 
 
 def _recording_http():
-    from discord.http import HTTPClient
-
-    http = HTTPClient.__new__(HTTPClient)
+    http = discord.Client().http
     calls = []
 
     def request(route, **kwargs):
@@ -313,7 +311,6 @@ def test_entitlement_filters_are_sent():
     http.get_user_app_entitlements(1, sku_ids=[2], exclude_consumed=True)
     route, kwargs = calls[0]
     assert kwargs['params']['sku_ids'] == [2] and 'exclude_consumed' in kwargs['params']
-    http.__dict__.clear()  # nothing for __del__ to close
 
 
 def test_validation_error_closes_owned_files(tmp_path):
