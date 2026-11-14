@@ -131,6 +131,10 @@ class StageInstance(Hashable):
 
     @classmethod
     def from_invite(cls, invite: Invite, data: InviteStageInstancePayload, /) -> Self:
+        # Imported for annotations only at module level (a circular import), so
+        # building the members below raised NameError for every stage invite
+        from .member import Member
+
         state = invite._state
         payload: StageInstancePayload = {
             'id': cls._resolve_stage_instance_id(invite),

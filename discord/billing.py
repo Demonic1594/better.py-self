@@ -128,7 +128,8 @@ class BillingAddress:
         return self.to_dict() != other.to_dict()
 
     def __hash__(self) -> int:
-        return hash(self.to_dict())
+        # A dict is unhashable; hash its items (keys are unique, values are strings)
+        return hash(tuple(sorted(self.to_dict().items())))
 
     @classmethod
     def from_dict(cls, data: BillingAddressPayload, state: ConnectionState) -> Self:

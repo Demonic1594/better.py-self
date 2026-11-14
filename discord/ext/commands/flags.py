@@ -569,7 +569,12 @@ class FlagConverter(metaclass=FlagsMeta):
 
             flag = flags.get(key)
             if last_position and last_flag is not None:
-                value = argument[last_position : begin - 1].lstrip()
+                # Drop the one separator before the next flag, if there is one. Cutting
+                # a character unconditionally ate the end of a value that touched it
+                value = argument[last_position:begin]
+                if value[-1:].isspace():
+                    value = value[:-1]
+                value = value.lstrip()
                 if not value:
                     raise MissingFlagArgument(last_flag)
 

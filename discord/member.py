@@ -496,6 +496,11 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
         self._flags = _flags
         _display_name_style = get('display_name_styles', None)
         _collectibles = get('collectibles', None)
+        # Never compared or stored before, so a new guild avatar decoration was
+        # neither cached nor reported. Left as it is when the payload omits it
+        _decoration = get('avatar_decoration_data', MISSING)
+        if _decoration is MISSING:
+            _decoration = self._avatar_decoration_data
 
         # Note: _flags is assigned but intentionally not compared,
         # matching the original change-detection semantics
@@ -509,6 +514,7 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
             or _banner != self._banner
             or _display_name_style != self._display_name_style
             or _collectibles != self._collectibles
+            or _decoration != self._avatar_decoration_data
         ):
             old = Member._copy(self)
             self.nick = nick
@@ -520,6 +526,7 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
             self._banner = _banner
             self._display_name_style = _display_name_style
             self._collectibles = _collectibles
+            self._avatar_decoration_data = _decoration
             self._raw_premium_since = raw_premium
             self._raw_timed_out_until = raw_timeout
             return old
@@ -1179,8 +1186,13 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
         data = None
 
         if nick is not MISSING:
-            payload['nick'] = nick
-            me_payload['nick'] = nick
+            # Our own nickname goes through the "modify current member" request
+            # only; sending it to both changed it and then raised Forbidden from
+            # the second request on accounts without manage_nicknames
+            if me:
+                me_payload['nick'] = nick
+            else:
+                payload['nick'] = nick
 
         if avatar is not MISSING:
             if isinstance(avatar, RecentAvatar):
@@ -1244,6 +1256,12 @@ class Member(discord.abc.Messageable, discord.abc.Connectable, _UserTag):
         if me and me_payload:
             data = await http.edit_me(self.guild.id, **me_payload)
             me_payload = {}
+        elif me_payload:
+            _log.warning(
+                'Member.edit(%s) only applies to your own member; ignored for member ID %s.',
+                ', '.join(sorted(me_payload)),
+                self.id,
+            )
 
         if deafen is not MISSING:
             payload['deaf'] = deafen

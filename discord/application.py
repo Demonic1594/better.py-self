@@ -2112,8 +2112,8 @@ class PartialApplication(_BaseApplication):
             ApplicationInstallParams.from_application(self, params) if params else None
         )
         self.embedded_activity_config: Optional[EmbeddedActivityConfig] = (
-            EmbeddedActivityConfig(data=data['embedded_activity_config'], application=self)
-            if 'embedded_activity_config' in data
+            EmbeddedActivityConfig(data=embedded_config, application=self)
+            if (embedded_config := data.get('embedded_activity_config'))  # the key can be present and null
             else None
         )
 
@@ -2195,7 +2195,11 @@ class PartialApplication(_BaseApplication):
     @property
     def install_url(self) -> Optional[str]:
         """:class:`str`: The URL to install the application."""
-        return self.custom_install_url or self.install_params.url if self.install_params else None
+        # `a or b if c else None` parses as `(a or b) if c else None`, which dropped
+        # the custom URL of an application without install parameters
+        if self.custom_install_url:
+            return self.custom_install_url
+        return self.install_params.url if self.install_params else None
 
     @property
     def primary_sku_url(self) -> Optional[str]:
@@ -2630,7 +2634,9 @@ class Application(PartialApplication):
         # Hacky, but I want these to be persisted
         existing = getattr(self, 'bot', None)
         bot = data.get('bot')
-        if existing and bot:
+        # The parent class has already stored a plain User here; only an
+        # ApplicationBot from an earlier update is kept and updated in place
+        if isinstance(existing, ApplicationBot) and bot:
             existing._update(bot)
         else:
             self.bot: Optional[ApplicationBot] = ApplicationBot(data=bot, state=state, application=self) if bot else existing
@@ -3448,11 +3454,11 @@ class Application(PartialApplication):
             payload['genres'] = [int(g) for g in genres]
         if content_ratings:
             payload['content_ratings'] = {
-                content_rating.agency: content_rating.to_dict() for content_rating in content_ratings
+                str(content_rating.agency.value): content_rating.to_dict() for content_rating in content_ratings
             }
         if system_requirements:
             payload['system_requirements'] = {
-                system_requirement.os: system_requirement.to_dict() for system_requirement in system_requirements
+                str(system_requirement.os.value): system_requirement.to_dict() for system_requirement in system_requirements
             }
         if release_date is not None:
             payload['release_date'] = release_date.isoformat()

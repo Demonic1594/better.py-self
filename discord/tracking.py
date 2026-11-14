@@ -133,8 +133,12 @@ class ContextProperties(metaclass=ContextPropertiesMeta):
     def _encode_data(self) -> str:
         try:
             target = self.target
+            # Only the entries of SOURCES use a constant: the default is evaluated
+            # first, so any other target raises KeyError and is encoded from the full
+            # data below. That is what keeps the extra keys of a location context
+            # (guild, channel and so on), which the LOCATIONS constants do not carry
             return self.LOCATIONS.get(target, self.SOURCES[target])
-        except KeyError:
+        except (KeyError, TypeError):
             return b64encode(json.dumps(self._data, separators=(',', ':')).encode()).decode('utf-8')
 
     @classmethod
@@ -416,6 +420,9 @@ class HeadersContext:
             try:
                 properties = data['properties']
                 browser_major_version = int(properties['browser_version'].split('.')[0])
+                # Every request reads the user agent from these properties
+                if not isinstance(properties['browser_user_agent'], str):
+                    raise TypeError('browser_user_agent is not a string')
             except (KeyError, TypeError, ValueError, AttributeError):
                 # An answer without usable properties is as good as no answer
                 _log.warning('Info API returned no usable browser version. Falling back to manual retrieval...')
@@ -515,6 +522,8 @@ class HeadersContext:
             bv = int(data['metadata']['native_chrome_version'].split('.')[0])  # type: ignore
         except Exception:
             raise InvalidData('Invalid native Chrome version in API response')
+        if not isinstance(data.get('properties'), dict):
+            raise InvalidData('Missing super properties in API response')
 
         return cls(
             platform='Windows',

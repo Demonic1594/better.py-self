@@ -1037,7 +1037,9 @@ class PermissionOverwrite:
         if value is None:
             self._values.pop(key, None)
         else:
-            self._values[key] = value
+            # 1 and 0 pass the check above (1 == True) but pair() tests identity,
+            # so they were stored and then silently left out of the overwrite
+            self._values[key] = bool(value)
 
     def pair(self) -> Tuple[Permissions, Permissions]:
         """Tuple[:class:`Permissions`, :class:`Permissions`]: Returns the (allow, deny) pair from this overwrite."""

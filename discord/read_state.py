@@ -191,7 +191,9 @@ class ReadState:
         if self.type == ReadStateType.channel:
             return resource.last_message_id or 0  # type: ignore
         elif self.type == ReadStateType.scheduled_events:
-            return max(resource.scheduled_events, key=attrgetter('id')).id  # type: ignore
+            # A guild with no events has nothing to compare against
+            latest = max(resource.scheduled_events, key=attrgetter('id'), default=None)  # type: ignore
+            return latest.id if latest is not None else 0
         return 0
 
     @property

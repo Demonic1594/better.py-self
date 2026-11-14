@@ -215,8 +215,9 @@ class Connection(PartialConnection):
 
     def __init__(self, *, data: ConnectionPayload, state: ConnectionState):
         self._state = state
-        self._update(data)
+        # Before _update(), which sets it when the payload carries one
         self.access_token: Optional[str] = None
+        self._update(data)
 
     def _update(self, data: ConnectionPayload):
         super()._update(data)
@@ -234,7 +235,7 @@ class Connection(PartialConnection):
             pass
 
         self.integrations: List[Integration] = [
-            Integration(data=i, guild=self._resolve_guild(i)) for i in data.get('integrations') or []
+            Integration(data=i, guild=self._resolve_guild(i), state=self._state) for i in data.get('integrations') or []
         ]
 
     def _resolve_guild(self, data: IntegrationPayload) -> Guild:

@@ -736,9 +736,9 @@ class Embed:
         except (TypeError, IndexError, AttributeError):
             raise IndexError('field index out of range')
 
-        field['name'] = str(name)
-        field['value'] = str(value)
-        field['inline'] = inline
+        # Replace the entry instead of editing it: for an embed built by from_dict()
+        # the field dicts still belong to the caller's payload
+        self._fields[index] = {**field, 'name': str(name), 'value': str(value), 'inline': inline}
         return self
 
     def to_dict(self) -> EmbedData:

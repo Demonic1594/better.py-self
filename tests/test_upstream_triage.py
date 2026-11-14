@@ -94,7 +94,13 @@ class _RecordingSession:
 
 
 _PROPERTIES = {
-    'properties': {'os': 'Mac OS X', 'browser': 'Chrome', 'browser_version': '150.0.0.0', 'client_build_number': 1},
+    'properties': {
+        'os': 'Mac OS X',
+        'browser': 'Chrome',
+        'browser_version': '150.0.0.0',
+        'browser_user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/150.0.0.0',
+        'client_build_number': 1,
+    },
     'encoded': 'x',
     'extra_gateway_properties': {},
 }

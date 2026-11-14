@@ -1928,7 +1928,8 @@ class AudioContext:
         self.user_id = user_id
         self.muted = data.muted
         self.volume = data.volume
-        self.modified_at = parse_timestamp(data.modified_at)
+        # 0 parses to None, which to_dict() and the settings payload cannot take
+        self.modified_at = parse_timestamp(data.modified_at) or datetime.fromtimestamp(0, tz=timezone.utc)
         return self
 
     def to_dict(self) -> Dict[str, Any]:

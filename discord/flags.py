@@ -177,14 +177,23 @@ class BaseFlags:
         self.value = value
         return self
 
+    @classmethod
+    def _from_bits(cls, value: int) -> Self:
+        # Always takes the combined bit value. Subclasses such as ArrayFlags
+        # override _from_value to take another representation (a list of
+        # positions), which made every operator below raise TypeError for them
+        self = cls.__new__(cls)
+        self.value = value
+        return self
+
     def __or__(self, other: Self) -> Self:
-        return self._from_value(self.value | other.value)
+        return self._from_bits(self.value | other.value)
 
     def __and__(self, other: Self) -> Self:
-        return self._from_value(self.value & other.value)
+        return self._from_bits(self.value & other.value)
 
     def __xor__(self, other: Self) -> Self:
-        return self._from_value(self.value ^ other.value)
+        return self._from_bits(self.value ^ other.value)
 
     def __ior__(self, other: Self) -> Self:
         self.value |= other.value
@@ -199,7 +208,7 @@ class BaseFlags:
         return self
 
     def __invert__(self) -> Self:
-        return self._from_value(self.value ^ self._INVERT_MASK)
+        return self._from_bits(self.value ^ self._INVERT_MASK)
 
     def __bool__(self) -> bool:
         return self.value != self.DEFAULT_VALUE
