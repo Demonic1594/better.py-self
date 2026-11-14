@@ -1013,7 +1013,8 @@ class SKUPrice:
     @property
     def discounts(self) -> int:
         """:class:`int`: Returns the amount of discounts applied to the SKU price."""
-        return self.amount - (self.sale_amount or self.amount)
+        # A sale amount of 0 (free) is a discount of the full amount, not none
+        return self.amount - (self.sale_amount if self.sale_amount is not None else self.amount)
 
 
 class ContentRating:
@@ -1507,13 +1508,16 @@ class SKU(Hashable):
             payload['genres'] = [int(g) for g in genres] if genres else []
         if content_ratings is not MISSING:
             payload['content_ratings'] = (
-                {content_rating.agency: content_rating.to_dict() for content_rating in content_ratings}
+                {str(content_rating.agency.value): content_rating.to_dict() for content_rating in content_ratings}
                 if content_ratings
                 else {}
             )
         if system_requirements is not MISSING:
             payload['system_requirements'] = (
-                {system_requirement.os: system_requirement.to_dict() for system_requirement in system_requirements}
+                {
+                    str(system_requirement.os.value): system_requirement.to_dict()
+                    for system_requirement in system_requirements
+                }
                 if system_requirements
                 else {}
             )
@@ -2250,7 +2254,7 @@ class SubscriptionPlan(Hashable):
             The previewed purchase price.
         """
         data = await self._state.http.preview_sku_purchase(
-            self.id,
+            self.sku_id,  # was self.id, the plan's own ID
             payment_source.id if payment_source else None,
             self.id,
             currency=currency,

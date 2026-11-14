@@ -25,7 +25,6 @@ DEALINGS IN THE SOFTWARE.
 from __future__ import annotations
 
 import copy
-import asyncio
 from datetime import datetime, timezone
 import logging
 from operator import attrgetter
@@ -810,6 +809,9 @@ class GuildChannel:
 
                 perms.append(payload)
             options['permission_overwrites'] = perms
+        # The mapping is keyed by Role/Member objects and was sent along with the
+        # payload it was converted into, which failed to serialise
+        options.pop('overwrites', None)
 
         try:
             ch_type = options['type']
@@ -2189,6 +2191,7 @@ class Messageable:
             else None
         )
 
+        buffered: List[Any] = []
         while True:
             retrieve = max_limit if limit is None else min(limit, max_limit)
             if retrieve < 1:
@@ -2212,7 +2215,11 @@ class Messageable:
                 limit = 0
 
             if oldest_first:
-                items = reversed(items)
+                # Discord only pages newest first, so the whole range is buffered
+                # and reversed at the end; reversing each page on its own gave
+                # the newest page first, then the next, and so on
+                buffered.extend(items or ())
+                continue
 
             count = 0
             for count, m in enumerate(items, start=1):
@@ -2222,6 +2229,11 @@ class Messageable:
 
             if count < max_limit:
                 break
+
+        for m in reversed(buffered):
+            message = state.create_message(channel=channel, data=m['message'])
+            message._pinned_at = utils.parse_time(m['pinned_at'])
+            yield message  # pyright: ignore[reportReturnType]
 
     def pins(
         self,
@@ -2781,11 +2793,16 @@ class Connectable(Protocol):
                 self_mute=self_mute,
                 self_video=self_video,
             )
-        except asyncio.TimeoutError:
+        except BaseException:
+            # Any failure (not only a timeout), and a cancellation, must unregister
+            # the voice client, or every later connect() raised "Already connected"
             try:
                 await voice.disconnect(force=True)
             except Exception:
-                pass  # We don't care if disconnect failed because connection failed
+                _log.debug('Ignoring an error disconnecting after a failed voice connect.', exc_info=True)
+            finally:
+                if state._voice_clients.get(key_id) is voice:
+                    state._remove_voice_client(key_id)
             raise  # Re-raise
 
         return voice

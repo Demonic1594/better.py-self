@@ -255,15 +255,21 @@ class SequenceProxy(Sequence[T_co]):
     def __init__(self, proxied: Collection[T_co], *, sorted: bool = False):
         self.__proxied: Collection[T_co] = proxied
         self.__sorted: bool = sorted
+        self.__is_copied: bool = False
 
-    @cached_property
+    @property
     def __copied(self) -> List[T_co]:
-        if self.__sorted:
-            # The type checker thinks the variance is wrong, probably due to the comparison requirements
-            self.__proxied = sorted(self.__proxied)  # type: ignore
-        else:
-            self.__proxied = list(self.__proxied)
-        return self.__proxied
+        # Copies (and sorts) once. This was a cached_property, but name mangling
+        # stored the result under a name nothing reads, so every index, iteration
+        # and membership test copied (or re-sorted) the whole collection again
+        if not self.__is_copied:
+            if self.__sorted:
+                # The type checker thinks the variance is wrong, probably due to the comparison requirements
+                self.__proxied = sorted(self.__proxied)  # type: ignore
+            else:
+                self.__proxied = list(self.__proxied)
+            self.__is_copied = True
+        return self.__proxied  # type: ignore
 
     def __repr__(self) -> str:
         return f'SequenceProxy({self.__proxied!r})'
@@ -772,6 +778,8 @@ _SENSITIVE_KEYS: FrozenSet[str] = frozenset(
         'captcha_key',
         'payment_source_token',
         'billing_address_token',
+        'billing_address',
+        'bank',
         'purchase_token',
         'two_way_link_code',
     }
@@ -954,12 +962,20 @@ def _parse_ratelimit_header(request: Any, *, use_clock: bool = False) -> float:
             # into an exception; don't defer the bucket in that case
             logging.getLogger(__name__).debug('Rate limit headers lack both reset fields; not deferring.')
             return 0.0
-        utc = datetime.timezone.utc
-        now = datetime.datetime.now(utc)
-        reset = datetime.datetime.fromtimestamp(float(reset_at), utc)
-        return (reset - now).total_seconds()
+        try:
+            utc = datetime.timezone.utc
+            now = datetime.datetime.now(utc)
+            reset = datetime.datetime.fromtimestamp(float(reset_at), utc)
+            return (reset - now).total_seconds()
+        except (ValueError, OverflowError, OSError):
+            logging.getLogger(__name__).debug('Unparsable X-Ratelimit-Reset %r; not deferring.', reset_at)
+            return 0.0
     else:
-        return float(reset_after)
+        try:
+            return float(reset_after)
+        except ValueError:
+            logging.getLogger(__name__).debug('Unparsable X-Ratelimit-Reset-After %r; not deferring.', reset_after)
+            return 0.0
 
 
 async def maybe_coroutine(f: MaybeAwaitableFunc[P, T], *args: P.args, **kwargs: P.kwargs) -> T:

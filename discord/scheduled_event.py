@@ -143,7 +143,7 @@ class ScheduledEvent(Hashable):
         self.entity_type: EntityType = try_enum(EntityType, data['entity_type'])
         self.entity_id: Optional[int] = _get_as_snowflake(data, 'entity_id')
         self.start_time: datetime = parse_time(data['scheduled_start_time'])
-        self.privacy_level: PrivacyLevel = try_enum(PrivacyLevel, data['status'])
+        self.privacy_level: PrivacyLevel = try_enum(PrivacyLevel, data.get('privacy_level', 2))
         self.status: EventStatus = try_enum(EventStatus, data['status'])
         self._cover_image: Optional[str] = data.get('image', None)
         self.user_count: int = data.get('user_count', 0)
@@ -515,6 +515,10 @@ class ScheduledEvent(Hashable):
         entity_type = entity_type or getattr(channel, '_scheduled_event_entity_type', MISSING)
         if entity_type is MISSING:
             if channel and isinstance(channel, Object):
+                # Imported for annotations only at module level (a circular import),
+                # so these names did not exist here at runtime
+                from .channel import StageChannel, VoiceChannel
+
                 if channel.type is VoiceChannel:
                     entity_type = EntityType.voice
                 elif channel.type is StageChannel:

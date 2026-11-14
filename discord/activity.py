@@ -1165,6 +1165,11 @@ class Activity(BaseActivity):
             return self.to_dict() == other.to_dict()
         return NotImplemented
 
+    def __hash__(self) -> int:
+        # Defining __eq__ alone made instances unhashable, against the documented
+        # hash(x). Both fields are part of to_dict(), so equal activities hash equal
+        return hash((self.type, self.name))
+
     def to_dict(self) -> ActivityPayload:
         ret: ActivityPayload = {
             'type': self.type.value,
@@ -1785,6 +1790,7 @@ class CustomActivity(BaseActivity):
     @classmethod
     def from_dict(cls, data: ActivityPayload, *, state: ConnectionState, **kwargs: Any) -> Self:
         self = cls.__new__(cls)
+        self._state = state  # copy() reads it; it was never set on a received status
         self.id = data.get('id', '')
         self.type = ActivityType.custom
         self.name = data.get('state')
@@ -1967,6 +1973,7 @@ class HangActivity(BaseActivity):
     @classmethod
     def from_dict(cls, data: ActivityPayload, *, state: ConnectionState, **kwargs: Any) -> Self:
         self = cls.__new__(cls)
+        self._state = state  # copy() reads it; it was never set on a received status
         self.id = data.get('id', '')
         self.type = ActivityType.hang
         self.name = 'Hang Status'

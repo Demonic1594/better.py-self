@@ -4719,8 +4719,9 @@ class Guild(Hashable):
         else:
             colours['primary_color'] = actual_colour.value
 
-        actual_secondary_colour = secondary_colour or secondary_color
-        actual_tertiary_colour = tertiary_colour or tertiary_color
+        # Not `x or y`: None (clear the colour) and 0 (black) are valid values
+        actual_secondary_colour = secondary_colour if secondary_colour is not MISSING else secondary_color
+        actual_tertiary_colour = tertiary_colour if tertiary_colour is not MISSING else tertiary_color
 
         if actual_secondary_colour is not MISSING:
             if actual_secondary_colour is None:

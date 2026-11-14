@@ -5260,25 +5260,27 @@ class Client:
             payload['animate_stickers'] = animate_stickers.value
 
         friend_source_flags = kwargs.pop('friend_source_flags', None)
-        if friend_source_flags:
-            payload['friend_source_flags'] = friend_source_flags.to_dict()
+        # `is not None` here and below: an empty flags value or list is how these are cleared.
+        # FriendSourceFlags has no public to_dict(), so this used to raise AttributeError
+        if friend_source_flags is not None:
+            payload['friend_source_flags'] = friend_source_flags._to_dict()
 
         friend_discovery_flags = kwargs.pop('friend_discovery_flags', None)
-        if friend_discovery_flags:
+        if friend_discovery_flags is not None:
             payload['friend_discovery_flags'] = friend_discovery_flags.value
 
         restricted_guilds = kwargs.pop('restricted_guilds', None)
-        if restricted_guilds:
+        if restricted_guilds is not None:
             restricted_guilds = [str(x.id) for x in restricted_guilds]
             payload['restricted_guilds'] = restricted_guilds
 
         activity_restricted_guilds = kwargs.pop('activity_restricted_guilds', None)
-        if activity_restricted_guilds:
+        if activity_restricted_guilds is not None:
             activity_restricted_guilds = [str(x.id) for x in activity_restricted_guilds]
             payload['activity_restricted_guild_ids'] = activity_restricted_guilds
 
         activity_joining_restricted_guilds = kwargs.pop('activity_joining_restricted_guilds', None)
-        if activity_joining_restricted_guilds:
+        if activity_joining_restricted_guilds is not None:
             activity_joining_restricted_guilds = [str(x.id) for x in activity_joining_restricted_guilds]
             payload['activity_joining_restricted_guild_ids'] = activity_joining_restricted_guilds
 

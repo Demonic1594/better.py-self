@@ -466,8 +466,9 @@ class Command(_BaseCommand, Generic[CogT, P, T]):
         self.hidden: bool = kwargs.get('hidden', False)
 
         try:
-            checks = func.__commands_checks__
-            checks.reverse()
+            # A reversed copy: reversing the function's own list flipped the order
+            # again for every Command built from it (copy(), each cog instance)
+            checks = func.__commands_checks__[::-1]
         except AttributeError:
             checks = kwargs.get('checks', [])
 

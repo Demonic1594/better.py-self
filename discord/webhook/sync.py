@@ -185,7 +185,8 @@ class WebhookAdapter:
 
                         data = response.text or None
                         try:
-                            if data and response.headers['Content-Type'] == 'application/json':
+                            # Media type only: a "; charset=utf-8" parameter is still JSON
+                            if data and response.headers['Content-Type'].split(';', 1)[0].strip() == 'application/json':
                                 data = json.loads(data)
                         except KeyError:
                             pass
@@ -234,7 +235,8 @@ class WebhookAdapter:
                         continue
                     raise
 
-            if response:
+            # Not `if response:`, which is False for a requests.Response with an error status
+            if response is not None:
                 if response.status_code >= 500:
                     raise DiscordServerError(response, data)
                 raise HTTPException(response, data)

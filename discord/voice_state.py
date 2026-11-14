@@ -651,7 +651,7 @@ class VoiceConnectionState:
                 # connecting leaving it in a bad state.  Since there's no nice way to transfer state to the new one, we have to do this.
                 try:
                     await asyncio.wait_for(self._disconnected.wait(), timeout=self.timeout)
-                except TimeoutError:
+                except asyncio.TimeoutError:  # not the builtin TimeoutError before Python 3.11
                     _log.debug('Timed out waiting for voice disconnection confirmation.')
                 except asyncio.CancelledError:
                     # Finish the cleanup below first, then honour the cancellation

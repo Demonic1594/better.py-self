@@ -313,6 +313,8 @@ class Loop(Generic[LF]):
         copy._before_loop = self._before_loop
         copy._after_loop = self._after_loop
         copy._error = self._error
+        # Exception types added on the class-level loop apply to each instance's copy
+        copy._valid_exception = self._valid_exception
         setattr(obj, self.coro.__name__, copy)
         return copy
 
