@@ -156,8 +156,12 @@ class PollAnswer:
         if added:
             self._vote_count += 1
         else:
-            self._vote_count -= 1
-        self.self_voted = self_voted
+            # A poll loaded without its results starts at zero; never go below it
+            self._vote_count = max(self._vote_count - 1, 0)
+        # `self_voted` says whether this vote is our own. Only then does our state change:
+        # another user's vote must not clear it, and removing our own vote must
+        if self_voted:
+            self.self_voted = added
 
     def _update_with_results(self, payload: PollAnswerCountPayload) -> None:
         self._vote_count = int(payload['count'])
@@ -582,7 +586,9 @@ class Poll:
             The copy of the poll.
         """
 
-        new = self.__class__(question=self.question, duration=self.duration)
+        new = self.__class__(
+            question=self.question, duration=self.duration, multiple=self.multiple, layout_type=self.layout_type
+        )
 
         # We want to return a stateless copy of the poll, so we should not
         # override new._answers as our answers may contain a state

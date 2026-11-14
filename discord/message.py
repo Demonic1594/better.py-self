@@ -348,7 +348,8 @@ class Attachment(Hashable):
             The number of bytes written.
         """
         data = await self.read(use_cached=use_cached)
-        if isinstance(fp, io.BufferedIOBase):
+        if isinstance(fp, (io.BufferedIOBase, io.RawIOBase)):
+            # An unbuffered binary file (buffering=0) is a stream too, not a path
             written = fp.write(data)
             if seek_begin:
                 fp.seek(0)
@@ -2305,15 +2306,29 @@ class Message(PartialMessage, Hashable):
 
     def _add_reaction(self, data, emoji, user_id) -> Reaction:
         reaction = utils.find(lambda r: r.emoji == emoji, self.reactions)
-        is_me = data['me'] = user_id == self._state.self_id
+        is_me = user_id == self._state.self_id
+        # A super reaction counts towards burst_count/me_burst, not the normal ones
+        burst = bool(data.get('burst'))
+        data['me'] = is_me and not burst
+        data['me_burst'] = is_me and burst
 
         if reaction is None:
             reaction = Reaction(message=self, data=data, emoji=emoji)
+            # The event carries no count_details, so the constructor could only
+            # derive these from `me`; this is the first reaction of either kind
+            reaction.normal_count = 0 if burst else 1
+            reaction.burst_count = 1 if burst else 0
             self.reactions.append(reaction)
         else:
             reaction.count += 1
-            if is_me:
-                reaction.me = is_me
+            if burst:
+                reaction.burst_count += 1
+                if is_me:
+                    reaction.me_burst = True
+            else:
+                reaction.normal_count += 1
+                if is_me:
+                    reaction.me = True
 
         return reaction
 
@@ -2328,8 +2343,16 @@ class Message(PartialMessage, Hashable):
         # sent bad data, or we stored improperly
         reaction.count -= 1
 
-        if user_id == self._state.self_id:
-            reaction.me = False
+        is_me = user_id == self._state.self_id
+        if data.get('burst'):
+            # Removing a super reaction leaves a normal one by the same user in place
+            reaction.burst_count = max(reaction.burst_count - 1, 0)
+            if is_me:
+                reaction.me_burst = False
+        else:
+            reaction.normal_count = max(reaction.normal_count - 1, 0)
+            if is_me:
+                reaction.me = False
         if reaction.count == 0:
             # This raises ValueError if something went wrong as well
             self.reactions.remove(reaction)

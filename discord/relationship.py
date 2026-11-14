@@ -427,6 +427,14 @@ class FriendSuggestion(Hashable):
 
     __slots__ = ('user', 'reasons', 'from_user_contacts', '_state')
 
+    @property
+    def id(self) -> int:
+        """:class:`int`: The suggested user's ID. Equality and hashing use it.
+
+        .. versionadded:: 2.3.3
+        """
+        return self.user.id
+
     def __init__(self, *, state: ConnectionState, data: FriendSuggestionPayload):
         self._state = state
         self.user = state.store_user(data['suggested_user'])

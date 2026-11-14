@@ -376,10 +376,15 @@ class _Semaphore:
 
 
 class MaxConcurrency:
-    __slots__ = ('number', 'per', 'wait', '_mapping')
+    __slots__ = ('number', 'per', 'wait', '_mapping', '_held')
 
     def __init__(self, number: int, *, per: BucketType, wait: bool) -> None:
         self._mapping: Dict[Any, _Semaphore] = {}
+        # Message ID -> the key its slot was taken under. The key is derived from
+        # live state (the author's top role, the channel's category), which can
+        # change while the command runs; releasing under a recomputed key left
+        # the original slot taken forever
+        self._held: Dict[int, Any] = {}
         self.per: BucketType = per
         self.number: int = number
         self.wait: bool = wait
@@ -410,11 +415,22 @@ class MaxConcurrency:
         acquired = await sem.acquire(wait=self.wait)
         if not acquired:
             raise MaxConcurrencyReached(self.number, self.per)
+        message_id = self._message_id(message)
+        if message_id is not None:
+            self._held[message_id] = key
+
+    @staticmethod
+    def _message_id(message: Union[Message, Context[Any]]) -> Optional[int]:
+        # acquire() is given the Context and release() sometimes the Message
+        return getattr(getattr(message, 'message', message), 'id', None)
 
     async def release(self, message: Union[Message, Context[Any]]) -> None:
         # Technically there's no reason for this function to be async
         # But it might be more useful in the future
-        key = self.get_key(message)
+        try:
+            key = self._held.pop(self._message_id(message))  # type: ignore # None is never a key
+        except KeyError:
+            key = self.get_key(message)
 
         try:
             sem = self._mapping[key]

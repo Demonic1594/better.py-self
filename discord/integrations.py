@@ -124,9 +124,10 @@ class Integration:
         'scopes',
     )
 
-    def __init__(self, *, data: IntegrationPayload, guild: Guild) -> None:
+    def __init__(self, *, data: IntegrationPayload, guild: Guild, state: Optional[ConnectionState] = None) -> None:
         self.guild: Guild = guild
-        self._state: ConnectionState = guild._state
+        # A connection's integration can come without a guild, so the caller passes the state
+        self._state: ConnectionState = state if state is not None else guild._state
         self._from_data(data)
 
     def __repr__(self) -> str:

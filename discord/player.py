@@ -216,7 +216,8 @@ class FFmpegAudio(AudioSource):
 
     def _check_process_returncode(self) -> None:
         """Set _current_error if FFmpeg exited with a non-zero code."""
-        if self._process is MISSING:
+        # Reached from __del__, so a constructor that raised early has set nothing yet
+        if getattr(self, '_process', MISSING) is MISSING:
             return
 
         ret = self._process.poll()
@@ -294,17 +295,21 @@ class FFmpegAudio(AudioSource):
                 # ffmpeg then waited forever and playback hung with no error and no `after`
                 _log.exception('Reading the audio source for %s failed; ending the stream.', self)
                 data = b''
+            # cleanup() on another thread resets these to MISSING (falsy) mid-read
+            stdin = self._stdin
             if not data:
-                if self._stdin is not None:
-                    self._stdin.close()
+                if stdin:
+                    stdin.close()
                 return
             try:
-                if self._stdin is not None:
-                    self._stdin.write(data)
+                if stdin:
+                    stdin.write(data)
             except Exception:
                 _log.debug('Write error for %s, this is probably not a problem.', self, exc_info=True)
                 # at this point the source data is either exhausted or the process is fubar
-                self._process.terminate()
+                process = self._process
+                if process:
+                    process.terminate()
                 return
 
     def _pipe_reader(self, dest: IO[bytes]) -> None:
@@ -765,6 +770,12 @@ class PCMVolumeTransformer(AudioSource, Generic[AT]):
 
     def cleanup(self) -> None:
         self.original.cleanup()
+
+    @property
+    def _current_error(self) -> Optional[Exception]:
+        # AudioPlayer reads this off its source to report an FFmpeg failure to
+        # `after`; without it, wrapping the source in a volume transformer hid the error
+        return getattr(self.original, '_current_error', None)
 
     def read(self) -> bytes:
         ret = self.original.read()

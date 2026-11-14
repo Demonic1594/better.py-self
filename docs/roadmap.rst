@@ -69,9 +69,12 @@ These have no release assigned yet.
   shape. The change is file-wide and changes typings only.
 - **Live check of** :attr:`Message.interaction_metadata`. Unit tests cover the
   parsing, but a live run has not yet found a message that carries it.
-- **The** ``request_guilds`` **deprecation warning.** ``request_guilds`` is documented as
-  deprecated in favour of ``guild_subscriptions``, but using it doesn't emit a
-  ``DeprecationWarning`` yet, as the fork's rules require.
+- **Follow-ups from the November 2026 audit** (``docs/audit_2026-11.md``,
+  "Remaining issues"). The larger ones: the voice handshake races (a
+  replaced UDP socket, the state-event lost wakeup, ``disconnect()`` during a
+  handshake), ``UserSettings.edit(client_theme=MISSING)`` not resetting the
+  theme, partial presence users clearing fields they omit, and closing the
+  HTTP session when :meth:`Client.login` fails outside ``async with``.
 
 Not planned
 -----------

@@ -601,8 +601,8 @@ class AuditLogChanges:
         if colours is not None:
             # handle colours to multiple colour attributes
             colour = Colour(colours['primary_color'])
-            secondary_colour = colours['secondary_color']
-            tertiary_colour = colours['tertiary_color']
+            secondary_colour = colours.get('secondary_color')
+            tertiary_colour = colours.get('tertiary_color')
         else:
             colour = None
             secondary_colour = None
@@ -806,9 +806,9 @@ class AuditLogEntry(Hashable):
                     channel = self.guild.get_channel_or_thread(channel_id) or Object(id=channel_id)
 
                 self.extra = _AuditLogProxyAutoModAction(
-                    automod_rule_name=extra['auto_moderation_rule_name'],
+                    automod_rule_name=extra.get('auto_moderation_rule_name'),
                     automod_rule_trigger_type=enums.try_enum(
-                        enums.AutoModRuleTriggerType, int(extra['auto_moderation_rule_trigger_type'])
+                        enums.AutoModRuleTriggerType, int(extra.get('auto_moderation_rule_trigger_type') or 0)
                     ),
                     channel=channel,
                 )
@@ -940,17 +940,20 @@ class AuditLogEntry(Hashable):
         # So figure out which change has the full invite data
         changeset = self.before if self.action is enums.AuditLogAction.invite_delete else self.after
 
+        # An invite_update entry only lists the fields that changed, so any of
+        # these can be missing from the changeset
+        flags = getattr(changeset, 'flags', None)
         fake_payload: InvitePayload = {
-            'max_age': changeset.max_age,
-            'max_uses': changeset.max_uses,
-            'code': changeset.code,
-            'temporary': changeset.temporary,
-            'uses': changeset.uses,
-            'flags': changeset.flags.value,
+            'max_age': getattr(changeset, 'max_age', 0),
+            'max_uses': getattr(changeset, 'max_uses', 0),
+            'code': getattr(changeset, 'code', None),
+            'temporary': getattr(changeset, 'temporary', False),
+            'uses': getattr(changeset, 'uses', 0),
+            'flags': flags.value if flags is not None else 0,
             'channel': None,  # type: ignore # the channel is passed to the Invite constructor directly
         }
 
-        obj = Invite(state=self._state, data=fake_payload, guild=self.guild, channel=changeset.channel)
+        obj = Invite(state=self._state, data=fake_payload, guild=self.guild, channel=getattr(changeset, 'channel', None))
         try:
             obj.inviter = changeset.inviter
         except AttributeError:

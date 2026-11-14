@@ -104,6 +104,11 @@ def _invalid_session_delay() -> float:
     return random.uniform(1.0, 5.0)
 
 
+def _log_close_outcome(future: asyncio.Future[Any]) -> None:
+    if not future.cancelled() and future.exception() is not None:
+        _log.debug('Closing the gateway socket after a failed handshake failed: %r.', future.exception())
+
+
 class ReconnectWebSocket(Exception):
     """Signals to safely reconnect the websocket.
 
@@ -580,11 +585,25 @@ class DiscordWebSocket:
         client._connection._update_references(ws)
         _log.debug('Connected to %s.', gateway)
 
-        if not resume or session is None:
-            await ws.identify()
-            return ws
-
-        await ws.resume()
+        try:
+            if not resume or session is None:
+                await ws.identify()
+            else:
+                await ws.resume()
+        except BaseException:
+            # Nobody else holds this socket yet: a failed or cancelled handshake
+            # (the connect timeout, say) would leave it open. 4000 and not 1000,
+            # which would end a session that can still be resumed
+            if not socket.closed:
+                try:
+                    closer = asyncio.ensure_future(socket.close(4000))
+                    # If the wait below gives up, the close still finishes on its own;
+                    # retrieve (and log) its outcome so it is never left unretrieved
+                    closer.add_done_callback(_log_close_outcome)
+                    await asyncio.wait_for(asyncio.shield(closer), timeout=5.0)
+                except BaseException:
+                    _log.debug('Ignoring an error closing the gateway socket after a failed handshake.', exc_info=True)
+            raise
         return ws
 
     def wait_for(
@@ -685,6 +704,29 @@ class DiscordWebSocket:
         await self.send_as_json(payload)
         _log.debug('Gateway has sent the RESUME payload.')
 
+    async def _abandon_socket(self) -> None:
+        """Stops the heartbeat and closes the socket (4000, so the session stays resumable).
+
+        For data from the gateway that cannot be used; the caller then raises
+        :exc:`ReconnectWebSocket`.
+        """
+        keep_alive = self._keep_alive
+        self._keep_alive = None
+        if keep_alive:
+            keep_alive.stop()
+        try:
+            if not self.socket.closed:
+                try:
+                    await asyncio.wait_for(self.socket.close(4000), timeout=5.0)
+                except Exception:
+                    _log.debug('Ignoring an error closing the gateway socket after a bad frame.', exc_info=True)
+        finally:
+            if keep_alive:
+                # After the close (and on cancellation too), so a heartbeat
+                # blocked on the old socket fails fast; _join cancels it after
+                # 5 seconds otherwise
+                await keep_alive._join()
+
     async def received_message(self, msg: Any, /) -> None:
         size = len(msg)
         try:
@@ -710,22 +752,7 @@ class DiscordWebSocket:
                 type(e).__name__,
                 e,
             )
-            keep_alive = self._keep_alive
-            self._keep_alive = None
-            if keep_alive:
-                keep_alive.stop()
-            try:
-                if not self.socket.closed:
-                    try:
-                        await asyncio.wait_for(self.socket.close(4000), timeout=5.0)
-                    except Exception:
-                        _log.debug('Ignoring an error closing the gateway socket after a bad frame.', exc_info=True)
-            finally:
-                if keep_alive:
-                    # After the close (and on cancellation too), so a heartbeat
-                    # blocked on the old socket fails fast; _join cancels it after
-                    # 5 seconds otherwise
-                    await keep_alive._join()
+            await self._abandon_socket()
             raise ReconnectWebSocket from None
         msg = cast(Any, decoded)
 
@@ -766,8 +793,16 @@ class DiscordWebSocket:
                 return
 
             if op == self.HELLO:
-                self._hello_trace = data.get('_trace', [])
-                interval = data['heartbeat_interval'] / 1000.0
+                try:
+                    self._hello_trace = data.get('_trace', [])
+                    interval = data['heartbeat_interval'] / 1000.0
+                    if not interval > 0:
+                        raise ValueError(f'invalid heartbeat interval {interval!r}')
+                except (KeyError, TypeError, AttributeError, ValueError) as e:
+                    # This used to escape the receive loop and stop the client
+                    _log.warning('Gateway sent an unusable HELLO (%s: %s). Reconnecting.', type(e).__name__, e)
+                    await self._abandon_socket()
+                    raise ReconnectWebSocket from None
                 if self._keep_alive is not None:
                     # A repeated HELLO must not leak the previous heartbeat task
                     self._keep_alive.stop()
@@ -795,10 +830,18 @@ class DiscordWebSocket:
             return
 
         if event == 'READY':
-            self._session_trace = data.get('_trace', [])
-            self.sequence = msg['s']
-            self.session_id = data['session_id']
-            self.gateway = yarl.URL(data['resume_gateway_url'])
+            try:
+                self._session_trace = data.get('_trace', [])
+                self.sequence = msg['s']
+                session_id = data['session_id']
+                gateway = yarl.URL(data['resume_gateway_url'])
+            except (KeyError, TypeError, AttributeError, ValueError) as e:
+                # There is no session to resume without these, so identify again
+                _log.warning('Gateway sent an unusable READY (%s: %s). Reconnecting.', type(e).__name__, e)
+                await self._abandon_socket()
+                raise ReconnectWebSocket(resume=False) from None
+            self.session_id = session_id
+            self.gateway = gateway
 
             _log.info('Connected to Gateway (session ID: %s).', self.session_id)
 
@@ -1672,7 +1715,9 @@ class DiscordVoiceWebSocket:
 
         fut.add_done_callback(lambda f: state.remove_socket_listener(get_ip_packet))
         state.add_socket_listener(get_ip_packet)
-        recv = await fut
+        # The reply is a single UDP datagram; if it is lost, nothing else wakes this
+        # up and the voice reconnect that got here waits forever
+        recv = await asyncio.wait_for(fut, timeout=10.0)
 
         _log.debug('Received IP discovery packet: %s.', recv)
 

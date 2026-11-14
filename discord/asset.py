@@ -118,7 +118,8 @@ class AssetMixin:
         """
 
         data = await self.read()
-        if isinstance(fp, io.BufferedIOBase):
+        if isinstance(fp, (io.BufferedIOBase, io.RawIOBase)):
+            # An unbuffered binary file (buffering=0) is a stream too, not a path
             written = fp.write(data)
             if seek_begin:
                 fp.seek(0)

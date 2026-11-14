@@ -25,6 +25,21 @@ Behaviour Changes
 - A ``USER_SETTINGS_PROTO_UPDATE`` with a settings type the protobuf package doesn't know is logged as a warning instead of raising :exc:`ValueError` in the parser.
 - :meth:`LabelComponent.to_submit_dict` logs a warning when the label wraps a component of a type this version doesn't know, and submits that component's payload unchanged.
 - :func:`ext.tasks.loop` with no interval (``@tasks.loop()``) now logs a warning (once per loop) when it starts without a ``count``, because it runs back to back. It still works as before.
+- Passing ``request_guilds`` to :class:`Client` now emits a :exc:`DeprecationWarning`. It has been documented as deprecated since 2.1 and still works as an alias of ``guild_subscriptions``.
+- :func:`on_raw_message_edit` now also fires for a partial update (for example the embeds of an unfurled link) of a message that is not cached. :attr:`RawMessageUpdateEvent.message` is ``None`` in that case, since there is nothing to build the message from; the IDs and :attr:`RawMessageUpdateEvent.data` are set.
+- Reaction events keep :attr:`Reaction.normal_count` and :attr:`Reaction.burst_count` up to date, and a super reaction sets :attr:`Reaction.me_burst` instead of :attr:`Reaction.me`.
+- :meth:`abc.Messageable.pins` with ``oldest_first=True`` fetches the whole requested range before yielding, because Discord only pages pins newest first.
+- :meth:`abc.Connectable.connect` now disconnects and unregisters the voice client after any failure or a cancellation, not only after a timeout. The original exception is still raised.
+- :meth:`Member.edit` on another member logs a warning when it is given fields that only apply to your own member (``avatar``, ``banner``, ``bio``, ``pronouns`` and the like). They were ignored without a word before, and still are not sent.
+- ``Application.entitlements`` and :meth:`Client.fetch_entitlements` now send their ``exclude_consumed`` and ``sku_ids`` filters, so consumed entitlements are left out by default as documented.
+- :class:`PermissionOverwrite` stores ``1`` and ``0`` as ``True`` and ``False``. They were accepted before but then left out of the overwrite.
+- A member chunk request that has had no reply for a minute (longer for very large guilds) is failed with :exc:`ClientException` and replaced by the next :meth:`Guild.chunk` or :meth:`Guild.fetch_members` call, instead of being joined.
+- A ``HELLO`` or ``READY`` from the gateway that lacks its required fields is logged as a warning and the client reconnects. It used to raise out of :meth:`Client.connect`.
+- An unavailable call (``CALL_DELETE`` with ``unavailable``) stays in the cache and on its channel, flagged :attr:`PrivateCall.unavailable`.
+- |commands| Checks added with decorators run in the same order (top decorator first) on every copy of a command. Before, each copy, including the one made for every cog instance, reversed the order again.
+- |commands| A :class:`~ext.commands.FlagConverter` value that touches the next flag (``-name:foo-age:3`` with ``prefix='-'``) keeps its last character.
+- An answer from the client-properties info API without a user agent is not used; the client falls back to its own lookup, as it does for other unusable answers.
+- ``opus.Encoder.encode`` pads a PCM buffer shorter than one frame with silence.
 
 Fixes
 ~~~~~
@@ -43,6 +58,43 @@ Fixes
 - :attr:`Subscription.remaining` no longer raises :exc:`TypeError` for a past-due subscription without a grace period expiry; it uses the period end, or returns zero if that is missing too.
 - :func:`utils.escape_markdown` with ``as_needed=True`` took quadratic time on long runs of ``*``, `````, ``_``, ``~`` or ``|`` (several seconds for 20,000 asterisks). Those characters are now handled in linear time, with the same output; the link pattern it shares with the other escape paths is unchanged.
 - :meth:`UserSettings.edit` sent ``dismissed_contents`` and each :class:`GuildProgress`'s dismissed contents as raw bytes, which the protobuf JSON encoder reads as base64, so the values were lost (``[1]`` was sent as empty). They are now encoded correctly.
+- Sending a message with Components V2 raised :exc:`NameError`, with or without ``flags``. When ``flags`` was passed, the caller's :class:`MessageFlags` object was also modified.
+- ``edit(overwrites=...)`` on a guild channel raised :exc:`TypeError`: the mapping was sent along with the payload built from it.
+- :meth:`abc.Messageable.pins` with ``oldest_first=True`` reversed each page on its own, so more than 50 pins came out of order.
+- ``THREAD_LIST_SYNC`` dropped every thread member it carried, so :attr:`Thread.members` stayed empty after a sync.
+- :attr:`PollAnswer.self_voted` was overwritten by every vote event: another user's vote cleared it and removing your own vote set it. A vote removal can no longer take :attr:`PollAnswer.vote_count` below zero.
+- :meth:`Poll.copy` dropped ``multiple`` and ``layout_type``.
+- A guild member's new avatar decoration (``GUILD_MEMBER_UPDATE``) was neither stored nor reported through :func:`on_member_update`.
+- :meth:`Member.edit` with ``nick`` on your own member sent the nickname twice; the second request raised :exc:`Forbidden` on accounts without :attr:`Permissions.manage_nicknames`, after the nickname had already changed.
+- :meth:`Role.edit` and :meth:`Guild.create_role` ignored ``secondary_colour=None``, ``tertiary_colour=None`` and a colour of ``0``.
+- Reading your own :attr:`Member.status` or :attr:`Member.activities` before the client connected (for example in ``setup_hook`` after a persistence replay) raised :exc:`AttributeError`.
+- A member list scrape that finished after a newer one for the same guild had started removed the newer one's registration, so its updates were dropped.
+- A relationship in ``READY_SUPPLEMENTAL`` that references an unknown user is skipped instead of aborting the whole event.
+- A failed or cancelled gateway handshake left its websocket open.
+- Voice: a lost IP discovery reply during a reconnect made the voice connection wait forever; it now times out after 10 seconds and reconnects. On Python 3.10 a timeout while waiting for the disconnect confirmation escaped :meth:`VoiceClient.disconnect` before the cleanup ran.
+- An FFmpeg failure did not reach the ``after`` callback when the source was wrapped in :class:`PCMVolumeTransformer`. The piped-input writer thread no longer raises :exc:`AttributeError` when the source is cleaned up while it reads, and a source whose constructor raised no longer prints an ignored exception when collected.
+- ``|``, ``&``, ``^`` and ``~`` raised :exc:`TypeError` on :class:`ApplicationCommandContext`, :class:`ApplicationIntegrationType` and :class:`AutoModPresets`.
+- :class:`utils.SequenceProxy` (what :attr:`Client.guilds`, :attr:`Guild.members`, :attr:`Guild.roles` and others return) copied, and where sorted re-sorted, the whole collection on every index, iteration and membership test. It now does so once.
+- :meth:`ScheduledEvent.edit` raised :exc:`NameError` when given a :class:`Object` as ``channel``, and :attr:`ScheduledEvent.privacy_level` was read from the event's status.
+- A stage invite that lists members raised :exc:`NameError` when it was built.
+- :attr:`ReadState.last_entity_id` raised :exc:`ValueError` for a guild without scheduled events.
+- :class:`FriendSuggestion` could not be hashed or compared (it had no ``id``); it now has :attr:`FriendSuggestion.id`, the suggested user's ID.
+- :attr:`PrivateCall.region` raised :exc:`AttributeError` when the call was created without a region; it is ``None`` then.
+- :meth:`Client.edit_legacy_settings` raised :exc:`AttributeError` when given ``friend_source_flags``, and ignored empty flags and empty guild lists, so those settings could not be cleared.
+- ``Application.bot`` was a plain :class:`User` instead of an :class:`ApplicationBot`. ``install_url`` returned ``None`` for an application with a custom install URL but no install parameters.
+- ``SubscriptionPlan.preview_purchase`` sent the plan's ID as the SKU ID. ``SKU.edit`` and ``Application.create_sku`` raised :exc:`TypeError` when given content ratings or system requirements. ``SKUPrice.discounts`` was ``0`` for an item on sale for free. ``hash()`` of a ``BillingAddress`` raised :exc:`TypeError`.
+- :class:`Activity` was unhashable. ``copy()`` raised :exc:`AttributeError` on a received :class:`CustomActivity` or :class:`HangActivity`.
+- ``Connection.access_token`` was always ``None``, even when Discord sent one.
+- :class:`SyncWebhook` raised :exc:`RuntimeError` instead of :exc:`DiscordServerError` after five server errors, and did not parse JSON bodies whose content type carries a charset.
+- Audit log entries: the target of an ``invite_update`` entry raised :exc:`AttributeError`, and an AutoMod entry without a rule name, or role colours without a tertiary colour, raised :exc:`KeyError`.
+- An ``AudioContext`` with a modification time of zero made :meth:`UserSettings.edit` raise :exc:`AttributeError`.
+- :meth:`Embed.set_field_at` on an embed built with :meth:`Embed.from_dict` modified the dictionary it was built from.
+- ``Attachment.save`` and ``Asset.save`` treated an unbuffered binary file (``buffering=0``) as a path.
+- Files opened by the library from a path were left open when :meth:`abc.Messageable.send` rejected its arguments (more than 10 files, say).
+- DEBUG logs now redact ``billing_address`` and ``bank``, which the payment source requests send.
+- A webhook response with unparsable rate limit headers no longer raises after the request succeeded.
+- |commands| ``max_concurrency`` with a bucket whose key changes while the command runs (``BucketType.role`` when the author's top role changes, ``BucketType.category`` when the channel moves) never released its slot.
+- |tasks| Exception types added to a loop on the class (``MyCog.my_loop.add_exception_type``) were not applied to the loop of each instance.
 
 .. _vp2p3p2:
 

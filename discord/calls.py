@@ -175,7 +175,9 @@ class PrivateCall:
         try:
             self.region: str = data['region']
         except KeyError:
-            pass
+            # Keep the known region on a partial update, but never leave the slot unset
+            if not hasattr(self, 'region'):
+                self.region = None  # type: ignore
 
         channel = self.channel
         recipients = self._get_recipients()

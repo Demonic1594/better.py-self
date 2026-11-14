@@ -171,19 +171,30 @@ class RawMessageUpdateEvent(_RawReprMixin):
     message: :class:`Message`
         The updated message.
 
+        This is ``None`` when Discord sends a partial update (for example
+        only the embeds of an unfurled link) for a message that is not in
+        the cache, since there is nothing to build the message from. The
+        IDs and :attr:`data` are still available.
+
         .. versionadded:: 2.1
     """
 
     __slots__ = ('message_id', 'channel_id', 'guild_id', 'data', 'cached_message', 'message')
 
-    def __init__(self, data: MessageUpdateEvent, message: Message) -> None:
-        self.message_id: int = message.id
-        self.channel_id: int = message.channel.id
+    def __init__(self, data: MessageUpdateEvent, message: Optional[Message]) -> None:
         self.data: MessageUpdateEvent = data
-        self.message: Message = message
+        self.message: Message = message  # type: ignore # None only for an uncached partial update
         self.cached_message: Optional[Message] = None
+        if message is None:
+            self.message_id: int = int(data['id'])
+            self.channel_id: int = int(data['channel_id'])
+            guild_id = data.get('guild_id')
+            self.guild_id: Optional[int] = int(guild_id) if guild_id is not None else None
+            return
 
-        self.guild_id: Optional[int] = message.guild.id if message.guild else None
+        self.message_id = message.id
+        self.channel_id = message.channel.id
+        self.guild_id = message.guild.id if message.guild else None
 
 
 class RawReactionActionEvent(_RawReprMixin):

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+from functools import wraps
 import io
 import logging
 import math
@@ -324,6 +325,38 @@ def _component_is_v2(component: Component) -> bool:
     return False
 
 
+def _close_files_on_error(func: T) -> T:
+    """Closes the files passed to ``func`` when it raises.
+
+    The caller only takes ownership of the files (closing them once the request
+    is done) through the object ``func`` returns, so a validation error would
+    otherwise leave every handle open.
+    """
+
+    @wraps(func)  # type: ignore # func is a callable
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return func(*args, **kwargs)  # type: ignore
+        except BaseException:
+            candidates: List[Any] = [kwargs.get('file')]
+            for key in ('files', 'attachments'):
+                value = kwargs.get(key)
+                if isinstance(value, (list, tuple)):
+                    candidates.extend(value)
+            for candidate in candidates:
+                if isinstance(candidate, _FileBase):
+                    try:
+                        candidate.close()
+                    except Exception:
+                        _log.debug(
+                            'Ignoring an error closing %r after invalid message parameters.', candidate, exc_info=True
+                        )
+            raise
+
+    return wrapper  # type: ignore
+
+
+@_close_files_on_error
 def handle_message_parameters(
     content: Optional[str] = MISSING,
     *,
@@ -464,9 +497,15 @@ def handle_message_parameters(
         payload['components'] = component_payload
 
         if has_v2_components:
+            # Only imported for annotations at module level, so both branches
+            # below raised NameError for any Components V2 message
+            from .flags import MessageFlags
+
             if payload.get('content') or payload.get('embeds') or payload.get('sticker_ids') or poll not in (MISSING, None):
                 raise ValueError('Components v2 messages cannot contain content, embeds, stickers, or polls')
             if flags is not MISSING:
+                # On a copy: the flags object belongs to the caller
+                flags = MessageFlags._from_value(flags.value)
                 flags.components_v2 = True
             else:
                 flags = MessageFlags(components_v2=True)
@@ -3869,7 +3908,7 @@ class HTTPClient:
             payload['mode'] = mode
 
         return self.request(
-            Route('PUT', f'/guilds/{guild_id}/onboarding', guild_id=guild_id),
+            Route('PUT', '/guilds/{guild_id}/onboarding', guild_id=guild_id),
             json=payload,
             reason=reason,
         )
@@ -3891,9 +3930,9 @@ class HTTPClient:
         if sku_ids:
             params['sku_ids'] = sku_ids
         return self.request(
-            Route(
-                'GET', '/users/@me/applications/{application_id}/entitlements', application_id=application_id, params=params
-            )
+            # The query used to be passed to Route, which dropped it
+            Route('GET', '/users/@me/applications/{application_id}/entitlements', application_id=application_id),
+            params=params,
         )
 
     def get_user_entitlements(

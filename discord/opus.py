@@ -402,6 +402,12 @@ class Encoder(_OpusStruct):
         _lib.opus_encoder_ctl(self._state, CTL_SET_PLP, min(100, max(0, int(percentage * 100))))
 
     def encode(self, pcm: bytes, frame_size: int) -> bytes:
+        # libopus reads frame_size samples per channel whatever the buffer holds.
+        # A short read from a custom AudioSource made it read past the end of the
+        # bytes object, so pad it with silence
+        required = frame_size * self.SAMPLE_SIZE
+        if len(pcm) < required:
+            pcm = pcm.ljust(required, b'\x00')
         max_data_bytes = len(pcm)
         # bytes can be used to reference pointer
         pcm_ptr = ctypes.cast(pcm, c_int16_ptr)  # type: ignore

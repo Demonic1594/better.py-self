@@ -365,7 +365,11 @@ class ApplicationProfile(Hashable):
     @property
     def install_url(self) -> Optional[str]:
         """:class:`str`: The URL to install the application."""
-        return self.custom_install_url or self.install_params.url if self.install_params else None
+        # `a or b if c else None` parses as `(a or b) if c else None`, which dropped
+        # the custom URL of an application without install parameters
+        if self.custom_install_url:
+            return self.custom_install_url
+        return self.install_params.url if self.install_params else None
 
     @property
     def primary_sku_url(self) -> Optional[str]:

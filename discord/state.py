@@ -303,6 +303,7 @@ class ChunkRequest:
         'waiters',
         'reverse',
         'unclaimed',
+        'last_activity',
     )
 
     def __init__(
@@ -334,8 +335,12 @@ class ChunkRequest:
         # between; without this it was dropped and the caller hung until its
         # timeout. Claimed by exactly one later wait.
         self.unclaimed: Optional[List[Member]] = None
+        # When the request was made or last received a chunk; a request that has
+        # been silent for too long is not joined by new callers
+        self.last_activity: float = loop.time()
 
     def add_members(self, members: List[Member]) -> None:
+        self.last_activity = self.loop.time()
         if self.reverse:
             members = members[::-1]
 
@@ -578,10 +583,11 @@ class MemberSidebar:
                 else:
                     future.set_result(self.buffer)
 
-        try:
-            del self.state._scrape_requests[self.guild.id]
-        except KeyError:
-            pass
+        # Only our own registration: a newer scrape of the same guild (a fresh
+        # READY while this one was running) must keep receiving its updates
+        requests = self.state._scrape_requests
+        if requests.get(self.guild.id) is self:
+            del requests[self.guild.id]
 
     def start(self):
         utils._spawn_background(self.wrapper(), loop=self.loop)
@@ -1305,17 +1311,27 @@ class FakeClientPresence(Presence):
     @property
     def client_status(self) -> ClientStatus:
         state = self._state
-        status = str(getattr(state.all_session, 'status', state.ws.status))
+        session = state.all_session
+        if session is not None:
+            status = str(session.status)
+        else:
+            # No websocket yet (before connect, as after a persistence replay):
+            # the status is not known
+            ws = state.ws
+            status = str(ws.status) if ws is not None else 'unknown'
         client_status = {str(session.client): str(session.status) for session in state._sessions.values()}
         return ClientStatus(status, client_status)  # type: ignore
 
     @property
     def activities(self) -> Tuple[ActivityTypes, ...]:
-        return getattr(
-            self._state.all_session,
-            'activities',
-            tuple(create_activity(d, self._state, self._state.self_id) for d in self._state.ws.activities),
-        )
+        state = self._state
+        session = state.all_session
+        if session is not None:
+            return session.activities
+        ws = state.ws
+        if ws is None:
+            return ()
+        return tuple(create_activity(d, state, state.self_id) for d in ws.activities)
 
 
 class CacheStats(NamedTuple):
@@ -1753,6 +1769,26 @@ class ConnectionState:
             sum(map(len, (guild._threads for guild in guilds))),
             cap,
         )
+
+    def _live_chunk_request(self, guild: Guild) -> Optional[ChunkRequest]:
+        """Returns the guild's pending chunk request, unless it has stalled.
+
+        A request whose reply never comes (lost on a connection that died
+        silently and was then resumed, say) used to stay registered forever, so
+        every later :meth:`Guild.chunk` joined it and never returned. One that has
+        heard nothing for well past the chunk timeout is failed and dropped, so
+        the caller sends a new request.
+        """
+        request = self._chunk_requests.get(guild.id)
+        if request is None:
+            return None
+        idle = self.loop.time() - request.last_activity
+        if idle <= 60.0 or idle <= self._chunk_timeout(guild):
+            return request
+        _log.warning('Member chunk request for guild ID %s got no reply; sending a new one.', guild.id)
+        del self._chunk_requests[guild.id]
+        request.fail(ClientException('The member chunk request got no reply.'))
+        return None
 
     def _fail_pending_chunk_requests(self, reason: str) -> None:
         requests = self._chunk_requests
@@ -2475,7 +2511,9 @@ class ConnectionState:
         finally:
             # Make sure we don't block it forever
             manager.blocked = False
-            self._ready_task = None
+            # A cancelled run can get here after its replacement was scheduled
+            if self._ready_task is asyncio.current_task():
+                self._ready_task = None
 
     def _schedule_gc_freeze(self) -> None:
         # The cyclic GC periodically rescans every tracked object; after READY
@@ -2680,7 +2718,11 @@ class ConnectionState:
                 continue
             else:
                 if 'user' not in relationship:
-                    relationship['user'] = temp_users[int(relationship.pop('user_id'))]
+                    try:
+                        relationship['user'] = temp_users[int(relationship.pop('user_id'))]
+                    except KeyError:
+                        _log.debug('READY_SUPPLEMENTAL relationship %s references an unknown user. Skipping.', r_id)
+                        continue
                 self._relationships[r_id] = Relationship(state=self, data=relationship)
 
         # Relationship presence parsing
@@ -3137,8 +3179,13 @@ class ConnectionState:
             else:
                 cached_message._update(data)
         elif self._has_listener('raw_message_edit'):
-            updated_message = Message(channel=channel, data=data, state=self)  # type: ignore
-            raw = RawMessageUpdateEvent(data=data, message=updated_message)
+            if 'type' in data and 'content' in data:
+                updated_message = Message(channel=channel, data=data, state=self)  # type: ignore
+                raw = RawMessageUpdateEvent(data=data, message=updated_message)
+            else:
+                # A partial update for a message that isn't cached: there is nothing to
+                # build a Message from, but the raw event still fires with the IDs
+                raw = RawMessageUpdateEvent(data=data, message=None)
             self.dispatch('raw_message_edit', raw)
 
     def parse_message_ack(self, data: gw.MessageAckEvent) -> None:
@@ -3811,6 +3858,10 @@ class ConnectionState:
             threads = guild._filter_threads(channel_ids)
 
         new_threads = {}
+        # Every thread in the payload, known or new: `threads` is emptied of the
+        # known ones below and never held the new ones, so looking the members
+        # up in it dropped all of them
+        synced: Dict[int, Thread] = {}
         for d in data.get('threads', []):
             thread = threads.pop(int(d['id']), None)
             if thread is not None:
@@ -3820,11 +3871,12 @@ class ConnectionState:
             else:
                 thread = Thread(guild=guild, state=self, data=d)
                 new_threads[thread.id] = thread
+            synced[thread.id] = thread
         old_threads = [t for t in threads.values() if t.id not in new_threads]
 
         for member in data.get('members', []):
             try:  # Note: member['id'] is the thread_id
-                thread = threads[int(member['id'])]
+                thread = synced[int(member['id'])]
             except KeyError:
                 continue
             else:
@@ -4353,7 +4405,7 @@ class ConnectionState:
                 }
             )
         ):
-            request = self._chunk_requests.get(guild.id)
+            request = self._live_chunk_request(guild)
             if request is None:
                 self._chunk_requests[guild.id] = request = ChunkRequest(guild.id, self.loop, self._get_guild, cache=cache)
                 try:
@@ -4397,7 +4449,7 @@ class ConnectionState:
         self, guild: Guild, *, nonce: Optional[str] = None, wait: bool = True, cache: Optional[bool] = None
     ) -> Union[List[Member], asyncio.Future[List[Member]]]:
         cache = cache or self.member_cache_flags.joined
-        request = self._chunk_requests.get(guild.id)
+        request = self._live_chunk_request(guild)
         if request is None:
             self._chunk_requests[guild.id] = request = ChunkRequest(
                 guild.id, self.loop, self._get_guild, cache=cache, nonce=nonce
@@ -4859,14 +4911,18 @@ class ConnectionState:
         self.dispatch('call_update', old_call, call)
 
     def parse_call_delete(self, data: gw.CallDeleteEvent) -> None:
-        call = self._calls.pop(int(data['channel_id']), None)
+        channel_id = int(data['channel_id'])
+        call = self._calls.get(channel_id)
         if call is not None:
             if data.get('unavailable'):
+                # The call still exists; it stays cached (and reachable through its
+                # channel) so the CALL_CREATE that brings it back updates it
                 old_call = copy.copy(call)
                 call.unavailable = True
                 self.dispatch('call_update', old_call, call)
                 return
 
+            del self._calls[channel_id]
             call._delete()
             self._call_message_cache.pop(call._message_id, None)
             # Purge any voice states still pointing at the deleted call's channel
