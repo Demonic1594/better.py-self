@@ -157,12 +157,13 @@ For audio, install the `[voice]` extra (`PyNaCl`, `davey`) and connect with
   hanging. What happens next depends on where it was lost:
   - during `connect()`: the call fails and the client disconnects from voice,
     so call `connect()` again;
-  - during the automatic reconnect after a dropped voice socket: the library
-    keeps retrying by itself and logs `Could not connect to voice...
-    Retrying...` each time. Don't call `connect()` then; it would raise
-    "Already connected to a voice channel".
-  - during a resume after being moved (close codes 4014/4022): the client
-    disconnects, so call `connect()` again.
+  - during a resume (close code 4015, a network error without a close code,
+    or 4014/4022 after being moved): the client gives up and disconnects
+    from voice, so call `connect()` again;
+  - during the automatic reconnect after any other close: the library keeps
+    retrying by itself and logs `Could not connect to voice... Retrying...`
+    each time. Don't call `connect()` then; it would raise "Already connected
+    to a voice channel".
 - **FFmpeg errors reach `after`** also when the source is wrapped in
   `PCMVolumeTransformer`.
 
