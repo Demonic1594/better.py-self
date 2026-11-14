@@ -799,3 +799,27 @@ def test_stage_instance_from_an_invite_with_members(monkeypatch):
     data = {'topic': 't', 'participant_count': 1, 'speaker_count': 0, 'members': [{'user': up(100), 'roles': []}]}
     instance = StageInstance.from_invite(invite, data)  # type: ignore
     assert instance._members == ['100'] and len(built) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('error', [RuntimeError('send failed'), asyncio.CancelledError()])
+async def test_failed_handshake_closes_its_socket(monkeypatch, error):
+    """The socket belongs to nobody until IDENTIFY/RESUME has been sent; a
+    failure or the connect timeout's cancellation left it open."""
+    from discord.gateway import DiscordWebSocket
+    from test_rapptz_ports import RESUME_URL, _FakeSocket, _ready_client
+
+    client = await _ready_client()
+    socket = _FakeSocket()
+
+    async def ws_connect(url, **kwargs):
+        return socket
+
+    async def resume(self):
+        raise error
+
+    monkeypatch.setattr(client.http, 'ws_connect', ws_connect)
+    monkeypatch.setattr(DiscordWebSocket, 'resume', resume)
+    with pytest.raises(type(error)):
+        await DiscordWebSocket.from_client(client, gateway=RESUME_URL, session='abc', sequence=5, resume=True)
+    assert socket.close_calls == [4000], 'closed with a code that keeps the session resumable'
