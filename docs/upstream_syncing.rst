@@ -283,6 +283,59 @@ Upstream issue and PR triage (2026-11-03)
     server), and the unmerged feature PRs #896 (frecency settings) and #934
     (profile editing), which are still in review upstream.
 
+Audit round 3 (2026-11-14)
+    A full read of the code against upstream ``master`` (unchanged since the
+    recorded sync) and Rapptz/discord.py ``65232c3``; the report is
+    ``docs/audit_2026-11.md``. Every Rapptz fix since mid-2025 that applies
+    to user accounts was found to be present already. The fixes below are in
+    code that still matched upstream (and often Rapptz), so upstream merges
+    there need care:
+
+    - ``abc.py``: ``_edit`` pops ``overwrites``; ``pins(oldest_first=True)``
+      buffers and reverses the whole range; ``Connectable.connect`` cleans up
+      on any ``BaseException``.
+    - ``http.py``: ``handle_message_parameters`` is wrapped by
+      ``_close_files_on_error`` and imports ``MessageFlags`` at runtime for
+      Components V2; ``get_user_app_entitlements`` passes ``params`` to
+      ``request``; the onboarding route uses a placeholder.
+    - ``gateway.py``: ``_abandon_socket`` (shared by the bad-frame path and
+      the new HELLO/READY guards); ``from_client`` closes the socket when
+      IDENTIFY/RESUME fails; voice ``discover_ip`` waits at most 10 seconds.
+    - ``state.py``: ``ChunkRequest.last_activity`` and
+      ``_live_chunk_request``; ``parse_thread_list_sync`` resolves members
+      against every synced thread; ``parse_call_delete`` keeps unavailable
+      calls; ``parse_message_update`` dispatches the raw event for uncached
+      partial updates (``RawMessageUpdateEvent`` accepts ``message=None``);
+      ``MemberSidebar.done`` only removes its own registration.
+    - ``message.py`` / ``poll.py``: burst-aware ``_add_reaction`` /
+      ``_remove_reaction``; ``PollAnswer._handle_vote_event`` only changes
+      ``self_voted`` for our own votes.
+    - ``flags.py``: the operators build results with ``BaseFlags._from_bits``,
+      because ``ArrayFlags._from_value`` takes a list.
+    - ``utils.py``: ``SequenceProxy`` copies once behind a flag (the
+      ``cached_property`` never cached, in Rapptz as well).
+    - ``ext/commands``: ``MaxConcurrency._held`` remembers the key each
+      message acquired; ``Command.__init__`` takes a reversed copy of
+      ``__commands_checks__``; ``FlagConverter.parse_flags`` only drops a
+      whitespace separator.
+    - ``member.py``: ``_update`` tracks ``avatar_decoration_data``; ``edit``
+      sends ``nick`` once for our own member and warns about self-only fields
+      on other members (Rapptz raises ``ValueError`` there; we keep the call
+      working).
+    - Smaller one-line fixes in ``application.py``, ``store.py``,
+      ``billing.py``, ``profile.py``, ``activity.py``, ``connections.py``,
+      ``integrations.py``, ``audit_logs.py``, ``scheduled_event.py``,
+      ``stage_instance.py``, ``read_state.py``, ``relationship.py``,
+      ``calls.py``, ``player.py``, ``opus.py``, ``permissions.py``,
+      ``role.py``, ``guild.py``, ``tracking.py``, ``webhook/sync.py`` and
+      ``voice_state.py``.
+
+    Reviewed and deliberately left as upstream has them (see the report):
+    the bucket wait in ``Ratelimit.__aexit__``, the typing re-subscribe in
+    ``_requeue_subscriptions``, ``AudioPlayer.set_source`` not cleaning up
+    the old source, ``Loop.stop`` not interrupting the sleep, and one
+    ``raw_thread_member_remove`` per removed member.
+
 Ported from Rapptz/discord.py, round 3: soundboard (2026-11-04)
     a70217a + 5734996 + 442ad40 + 9a1b91d, with the user-account flow of the
     closed dolfies/discord.py-self#929 (gateway op 31 REQUEST_SOUNDBOARD_SOUNDS
