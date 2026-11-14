@@ -160,7 +160,8 @@ For audio, install the `[voice]` extra (`PyNaCl`, `davey`) and connect with
   - during a resume (close code 4015, a network error without a close code,
     or 4014/4022 after being moved): the client gives up and disconnects
     from voice, so call `connect()` again;
-  - during the automatic reconnect after any other close: the library keeps
+  - during the automatic reconnect after any other close (with `reconnect=True`,
+    the default): the library keeps
     retrying by itself and logs `Could not connect to voice... Retrying...`
     each time. Don't call `connect()` then; it would raise "Already connected
     to a voice channel".

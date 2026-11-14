@@ -78,7 +78,7 @@ if you have one of the three permissions, or if it isn't large by the same rule
 
 A second `chunk()` while one is running joins the running request. When a
 `chunk()` or `fetch_members()` call finds that the running request has had no
-reply at all for a minute (longer for very large guilds), for example because
+reply at all for 60 seconds (one second per 10,000 members above 600,000), for example because
 it was lost on a connection that died and was then resumed, the library logs
 `Member chunk request for guild ID ... got no reply; sending a new one.`,
 fails the old waiters with `ClientException` and sends a new request. Before
