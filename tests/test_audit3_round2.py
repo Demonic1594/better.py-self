@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import io
 import logging
 import types
@@ -10,6 +11,7 @@ import types
 import pytest
 
 import discord
+from discord import utils
 
 from test_persistence import ready_payload, supplemental_for, up
 from test_user_paths import _client
@@ -368,3 +370,118 @@ async def test_voice_ip_discovery_times_out(monkeypatch):
     assert seen == [10.0]
     await asyncio.sleep(0)
     assert listeners == [], 'the socket listener is removed again'
+
+
+@pytest.mark.asyncio
+async def test_voice_disconnect_survives_the_confirmation_timeout(monkeypatch):
+    """Before Python 3.11 ``asyncio.TimeoutError`` is not the builtin
+    ``TimeoutError`` the handler named, so the timeout escaped disconnect()
+    before the voice client was cleaned up. (On 3.11+ the two are one class.)"""
+    from discord.voice_state import ConnectionFlowState, VoiceConnectionState
+
+    cleaned = []
+
+    class State(VoiceConnectionState):
+        async def _voice_disconnect(self):
+            return None
+
+        def _pause_socket_reader(self):
+            return None
+
+        def _stop_socket_reader(self):
+            return None
+
+        def _inside_runner(self):
+            return False
+
+    state = State.__new__(State)
+    state.ws = None
+    state.socket = None
+    state.timeout = 1.0
+    state._state = ConnectionFlowState.connected
+    state._state_event = asyncio.Event()
+    state._connected = asyncio.Event()
+    state._disconnected = asyncio.Event()
+    state.voice_client = types.SimpleNamespace(stop=lambda: None, cleanup=lambda: cleaned.append(True))
+
+    async def wait_for(awaitable, timeout):
+        awaitable.close()
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(asyncio, 'wait_for', wait_for)
+    await state.disconnect(wait=True)
+    assert cleaned == [True]
+    assert state.state is ConnectionFlowState.disconnected
+
+
+def test_ffmpeg_writer_thread_survives_a_cleanup_mid_read():
+    """cleanup() on another thread resets the pipes to MISSING while the writer
+    is inside source.read(); it then called ``MISSING.terminate()``."""
+    from discord.player import FFmpegAudio
+
+    audio = FFmpegAudio.__new__(FFmpegAudio)
+    terminated = []
+    audio._process = types.SimpleNamespace(terminate=lambda: terminated.append(True))  # type: ignore
+    audio._stdin = io.BytesIO()  # type: ignore
+
+    class Source:
+        def read(self, size):
+            # What FFmpegAudio.cleanup() does, from the other thread
+            audio._process = audio._stdin = utils.MISSING
+            return b'data'
+
+    audio._pipe_writer(Source())  # type: ignore # raised AttributeError
+    assert terminated == []
+
+
+def test_sync_webhook_parses_json_with_a_charset():
+    from discord.webhook import sync as sync_webhook
+
+    class Response:
+        status_code = 200
+        text = '{"id": "1"}'
+        headers = {'Content-Type': 'application/json; charset=utf-8'}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+    class Session:
+        def request(self, *args, **kwargs):
+            return Response()
+
+    route = sync_webhook.Route('GET', '/webhooks/{webhook_id}', webhook_id=1)
+    assert sync_webhook.WebhookAdapter().request(route, Session()) == {'id': '1'}  # type: ignore # was the raw text
+
+
+def test_audio_context_with_a_zero_timestamp():
+    from discord.settings import AudioContext
+
+    data = types.SimpleNamespace(muted=False, volume=100.0, modified_at=0)
+    context = AudioContext._from_settings(7, data=data, state=None)  # type: ignore
+    assert context.modified_at == datetime.datetime.fromtimestamp(0, tz=datetime.timezone.utc)
+    assert context._to_settings_dict()['modified_at'] == '0'  # raised AttributeError on None
+    assert context.to_dict()['modified_at'].startswith('1970-01-01')
+
+
+@pytest.mark.asyncio
+async def test_sku_edit_serialises_ratings_and_requirements():
+    """The payload was keyed by enum members, which the JSON encoder rejects."""
+    from discord.store import SKU, ContentRating, SystemRequirements
+
+    sku = SKU.__new__(SKU)
+    sku.id = 1
+    sent = {}
+
+    async def edit_sku(sku_id, payload):
+        sent.update(utils._from_json(utils._to_json(payload)))
+        raise RuntimeError('stop')
+
+    sku._state = types.SimpleNamespace(http=types.SimpleNamespace(edit_sku=edit_sku))  # type: ignore
+    rating = ContentRating(agency=discord.ContentRatingAgency.esrb, rating=discord.ESRBRating.everyone, descriptors=[])
+    requirements = SystemRequirements(discord.OperatingSystem.linux, minimum_ram=1)
+    with pytest.raises(RuntimeError, match='stop'):
+        await sku.edit(content_ratings=[rating], system_requirements=[requirements])
+    assert list(sent['content_ratings']) == ['1'] and list(sent['system_requirements']) == ['3']
