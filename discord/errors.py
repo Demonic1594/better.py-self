@@ -202,7 +202,10 @@ class RateLimited(DiscordException):
     and the timeout is greater than the configured maximum using
     the ``max_ratelimit_timeout`` parameter in :class:`Client`.
 
-    This is not raised during global ratelimits.
+    It is raised for global and per-route rate limits alike, and for a
+    deferred (HTTP 202) request whose wait is over the maximum. A request
+    that is still rate limited after all its retries raises
+    :exc:`HTTPException` with a ``status`` of 429 instead.
 
     Since sometimes requests are halted pre-emptively before they're
     even made, this **does not** subclass :exc:`HTTPException`.

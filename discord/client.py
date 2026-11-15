@@ -527,10 +527,11 @@ class Client:
 
         .. versionadded:: 1.4
     heartbeat_timeout: :class:`float`
-        The maximum numbers of seconds before timing out and restarting the
-        WebSocket in the case of not receiving a HEARTBEAT_ACK. Useful if
-        processing the initial packets take too long to the point of disconnecting
-        you. The default timeout is 60 seconds.
+        The maximum number of seconds without receiving anything from the
+        gateway (any message, not only a HEARTBEAT_ACK) before the WebSocket is
+        closed and the session resumed. Useful if processing the initial
+        packets takes long enough to disconnect you. The default timeout is 60
+        seconds.
     assume_unsync_clock: :class:`bool`
         Whether to assume the system clock is unsynced. This applies to the ratelimit handling
         code. If this is set to ``True``, the default, then the library uses the time to reset

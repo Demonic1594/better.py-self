@@ -324,7 +324,8 @@ How do I use a local image file for an embed image?
 Discord special-cases uploading an image attachment and using it within an embed so that it will not
 display separately, but instead in the embed's thumbnail, image, footer or author icon.
 
-To do so, upload the image normally with :meth:`abc.Messageable.send`,
+User accounts can't send embeds: :meth:`abc.Messageable.send` has no ``embed`` parameter.
+Webhooks can, so this applies to :meth:`Webhook.send`. Upload the image with the message,
 and set the embed's image URL to ``attachment://image.png``,
 where ``image.png`` is the filename of the image you will send.
 
@@ -333,10 +334,11 @@ Quick example:
 
 .. code-block:: python3
 
+    webhook = discord.Webhook.from_url(url, client=client)
     file = discord.File("path/to/my/image.png", filename="image.png")
     embed = discord.Embed()
     embed.set_image(url="attachment://image.png")
-    await channel.send(file=file, embed=embed)
+    await webhook.send(file=file, embed=embed)
 
 Is there an event for audit log entries being created?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
