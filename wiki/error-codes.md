@@ -13,7 +13,35 @@ them:
   code `0`, not a real body.
 
 `RateLimited` is separate: it isn't an `HTTPException` and has none of these
-attributes (see [Troubleshooting](troubleshooting.md#other-discord-error-codes)).
+attributes (see [Rate limits and pacing](rate-limits-and-pacing.md#max_ratelimit_timeout)).
+
+### Exceptions the library raises
+
+| Exception | Parent | Raised when |
+|---|---|---|
+| `HTTPException` | `DiscordException` | A request failed; `status`, `code`, `text`, `json`, `response`. |
+| `Forbidden` | `HTTPException` | HTTP 403. |
+| `NotFound` | `HTTPException` | HTTP 404. |
+| `DiscordServerError` | `HTTPException` | HTTP 5xx that wasn't retried, or still failing after 5 attempts. |
+| `CaptchaRequired` | `HTTPException` | The response asks for a captcha (`service`, `sitekey`, `rqdata`, `rqtoken`, `session_id`). |
+| `RateLimited` | `DiscordException` | A rate limit wait over `max_ratelimit_timeout` (`retry_after`, `cloudflare`). |
+| `LoginFailure` | `ClientException` | The token was rejected or empty. |
+| `ConnectionClosed` | `ClientException` | The gateway closed with a code the client doesn't reconnect after (`code`, `reason`). |
+| `InvalidData` | `ClientException` | Discord's answer was unusable, or a member request got no reply. |
+| `ClientException` | `DiscordException` | The library refused an operation (not connected, already playing...). |
+| `GatewayNotFound` | `DiscordException` | The gateway URL couldn't be found. |
+| `FFmpegProcessError` | `ClientException` | FFmpeg exited with an error during playback. |
+| `discord.opus.OpusNotLoaded` | `DiscordException` | libopus isn't available. |
+| curl_cffi's `SessionClosed` | not a discord exception | A request after `client.close()`. |
+
+```python
+try:
+    await do_something()
+except discord.RateLimited as exc:          # not an HTTPException: catch it first or separately
+    ...
+except discord.HTTPException as exc:
+    print(exc.status, exc.code, exc.text)
+```
 
 ```py
 try:

@@ -184,7 +184,9 @@ What you can see on a user account:
 - Presences are cached per guild (`max_guild_presence_cache`, 5,000) and
   outside guilds (`max_presence_cache`, 20,000). An evicted presence comes back
   with the member's next update.
-- `on_presence_update` needs the member cached; `on_raw_presence_update`
+- In guilds, `on_presence_update(before, after)` gets `Member`s and needs the
+  member cached; for friends and other relationships it gets `Relationship`
+  objects (with `status`, `activities` and `user`). `on_raw_presence_update`
   (opt in with `enable_raw_presences=True`) fires for everyone Discord sends.
 
 ## Your sessions

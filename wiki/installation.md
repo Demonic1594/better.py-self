@@ -252,6 +252,13 @@ sudo dnf install libffi-devel python3-devel  # Fedora
 
 See [Soundboard and voice](soundboard-and-voice.md) for using voice.
 
+### Optional packages outside the extras
+
+| Package | Needed for |
+|---|---|
+| `requests` | `SyncWebhook` (the blocking webhook client). Without it, `SyncWebhook.from_url` raises `ModuleNotFoundError`. |
+| `PyQt6` | Only [`examples/captcha.py`](../examples/captcha.py), which shows captchas in a webview. |
+
 ### Other extras
 
 | Extra | For |

@@ -277,7 +277,7 @@ object(s) in the cache; the raw forms are listed in the table above.
 | `on_member_update` | `before, after` | Cache. Nickname, roles, timeout, avatar, flags. |
 | `on_user_update` | `before, after` | A user's name, avatar or other profile fields changed. A member update that leaves out a user field keeps the cached value and logs a warning once (2.3.3). |
 | `on_member_ban`, `on_member_unban` | `guild, user` | Needs Ban Members to receive. |
-| `on_presence_update` | `before, after` | Cache. Status and activities. |
+| `on_presence_update` | `before, after` | Status and activities. In guilds `before`/`after` are `Member`s (cached members only); for friends and other relationships they're `Relationship` objects. |
 | `on_raw_member_list_update` | `data` | The member sidebar; see [Member lists](member-lists.md). |
 
 ### Relationships and social
