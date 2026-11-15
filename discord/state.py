@@ -1534,6 +1534,8 @@ class ConnectionState:
         # on_raw_presence_update is opt-in: presence updates are the busiest
         # event, and even checking for a listener costs ~13% of their parse time
         self.raw_presence_flag: bool = bool(options.get('enable_raw_presences', False))
+        # on_raw_typing is opt-in for the same reason: TYPING_START is frequent too
+        self.raw_typing_flag: bool = bool(options.get('enable_raw_typing', False))
 
         allowed_mentions = options.get('allowed_mentions')
         if allowed_mentions is not None and not isinstance(allowed_mentions, AllowedMentions):
@@ -3856,6 +3858,12 @@ class ConnectionState:
             return
 
         existing = guild.get_thread(int(data['id']))
+        # Dispatched for every update, cached thread or not (Rapptz/discord.py's
+        # on_raw_thread_update); with the bounded thread cache, updates to evicted
+        # threads otherwise went unseen
+        raw = RawThreadUpdateEvent(data)
+        raw.thread = existing
+        self.dispatch('raw_thread_update', raw)
         if existing is not None:
             guild._touch_thread(existing.id)
             old = existing._update(data)
@@ -5141,8 +5149,8 @@ class ConnectionState:
 
     def parse_typing_start(self, data: gw.TypingStartEvent) -> None:
         channel, guild = self._get_guild_channel(data)
+        member = None
         if channel is not None:
-            member = None
             user_id = int(data['user_id'])
             if isinstance(channel, DMChannel):
                 member = channel.recipient
@@ -5161,6 +5169,21 @@ class ConnectionState:
             if member is not None:
                 timestamp = datetime.datetime.fromtimestamp(data['timestamp'], tz=datetime.timezone.utc)
                 self.dispatch('typing', channel, member, timestamp)
+
+        if self.raw_typing_flag:
+            # Every TYPING_START, including the ones on_typing drops: an uncached
+            # channel, or a user who can't be resolved (Rapptz/discord.py's on_raw_typing)
+            raw = RawTypingEvent(data, datetime.datetime.fromtimestamp(data['timestamp'], tz=datetime.timezone.utc))
+            user = member
+            if user is None and guild is not None:
+                # An uncached channel in a known guild: on_typing skipped the member lookup
+                user = guild.get_member(raw.user_id)
+                if user is None:
+                    member_data = data.get('member')
+                    if member_data:
+                        user = Member(data=member_data, state=self, guild=guild)
+            raw.user = user if user is not None else self.get_user(raw.user_id)
+            self.dispatch('raw_typing', raw)
 
     def parse_relationship_add(self, data: gw.RelationshipAddEvent) -> None:
         key = int(data['id'])

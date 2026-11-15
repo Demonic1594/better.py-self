@@ -336,6 +336,34 @@ Audit round 3 (2026-11-14)
     the old source, ``Loop.stop`` not interrupting the sleep, and one
     ``raw_thread_member_remove`` per removed member.
 
+Ported from Rapptz/discord.py, round 4 (2026-11-15, v2.3.3)
+    The items the roadmap had planned for v2.3.4, adapted from Rapptz
+    ``master`` (``65232c3``):
+
+    - ``on_raw_typing`` / ``RawTypingEvent``: opt-in through
+      ``enable_raw_typing`` (Rapptz dispatches it always), like
+      ``enable_raw_presences``, because typing events are frequent. The
+      payload's ``user`` is the member or user ``on_typing`` resolved, a member
+      built from the event's member data when the channel isn't cached, or the
+      cached user. Rapptz's constructor parses the timestamp; ours takes it
+      from the parser.
+    - ``on_raw_thread_update`` / ``RawThreadUpdateEvent``: dispatched before the
+      cached thread is updated, as in Rapptz. ``parent_id`` is read with
+      ``_get_as_snowflake`` rather than ``int(...)``.
+    - ``ActivityType.unknown`` (``-1``): the member only. A missing activity
+      type still defaults to ``playing`` (Rapptz defaults to ``unknown``), and
+      ``Activity.to_dict`` sends ``unknown`` as ``playing`` with a warning,
+      since Discord doesn't accept ``-1``.
+
+    Also in v2.3.3, not from upstream: ``utils._warn_once``, and values the
+    library can't use (``Spotify.track_url`` for local files, user fields
+    missing from a member update, non-hex custom theme colors) are skipped
+    with a one-time warning. ``Client.close`` warns when event handlers are
+    still running. In ``types/audit_log.py`` every change's ``old_value`` and
+    ``new_value`` is ``NotRequired`` (upstream marks them required, but
+    Discord omits them), and the readers in ``audit_logs.py`` read a missing
+    one as ``None``.
+
 Audit round 3, follow-ups (2026-11-15)
     The open items of ``docs/audit_2026-11.md``. More code that still matched
     upstream (and mostly Rapptz) changed:

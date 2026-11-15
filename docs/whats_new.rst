@@ -11,13 +11,34 @@ Changelog
 This page keeps a detailed human friendly rendering of what's new and changed
 in specific versions.
 
-.. _vp2p3p3_unreleased:
+.. _vp2p3p3:
 
-Unreleased
-----------
+v2.3.3
+-------
+
+This release is mostly the November 2026 audit: a review of the whole library
+against dolfies/discord.py-self and Rapptz/discord.py, with every fix covered by
+a regression test. The report is ``docs/audit_2026-11.md`` in the repository.
+
+New Features
+~~~~~~~~~~~~
+
+Ported from Rapptz/discord.py:
+
+- :func:`on_raw_typing` and :class:`RawTypingEvent`: typing events including the ones :func:`on_typing` drops because the channel or the user isn't cached. Opt in with the new ``enable_raw_typing`` option of :class:`Client` (default ``False``), since typing events are frequent.
+- :func:`on_raw_thread_update` and :class:`RawThreadUpdateEvent`: thread updates whether or not the thread is cached, which matters with the bounded thread cache.
+- :attr:`ActivityType.unknown` (``-1``). It was already documented here but did not exist. A missing activity type still means :attr:`ActivityType.playing`.
+
+Also new: ``hash()`` of a :class:`Widget`, and :attr:`FriendSuggestion.id`.
 
 Behaviour Changes
 ~~~~~~~~~~~~~~~~~
+
+- :attr:`Spotify.track_url` is an empty string for a local file, which has no track ID, and a warning is logged the first time. It used to return a URL ending in ``/None``.
+- A member update whose user leaves out a field (``public_flags``, ``collectibles`` and so on) keeps the cached value instead of clearing it, and logs a warning the first time each field is missing.
+- A custom theme color that is not a hex color is skipped (reported as ``0`` by :attr:`UserSettings.client_theme`) with a warning, the first time.
+- :meth:`Client.close` logs a warning when other event handlers are still running. They are not cancelled; their HTTP requests fail from then on.
+- An :class:`Activity` with type :attr:`ActivityType.unknown` is sent to Discord as "Playing", with a warning the first time, since Discord doesn't accept ``-1``.
 
 - A gateway frame that cannot be decoded no longer raises out of the receive loop. It is logged as a warning, and the session resumes on a new connection; Discord replays the events after the last sequence. Repeated failures back off like any other reconnect.
 - :meth:`Guild.audit_logs` with ``oldest_first=True`` now walks down from ``before`` (or the newest entry) to ``after`` (or the oldest entry) and buffers that range before yielding, because Discord returns entries newest first. Passing ``after`` limits the requests to the entries newer than it.
@@ -113,6 +134,7 @@ Fixes
 - :class:`SyncWebhook` ignored ``thread`` when building the message it returns, so :attr:`SyncWebhookMessage.channel` was the parent channel; it now matches :class:`Webhook`.
 - A ``CHANNEL_UPDATE`` for a group without ``recipients`` emptied :attr:`GroupChannel.recipients`. A repeated ``CHANNEL_RECIPIENT_ADD`` listed the user twice, and a removed recipient's nickname stayed in :attr:`GroupChannel.nicks`.
 - :class:`Widget` could not be hashed (it defined ``==`` only).
+- :attr:`ActivityType.unknown` was documented but did not exist, so using it raised :exc:`AttributeError`.
 - Read states keyed by a guild (scheduled events, guild home, onboarding) stayed in the cache after leaving the guild.
 - ``Application.entitlements`` with ``after`` and ``oldest_first=False`` requested every page back to the first entitlement, filtering them all out; it now stops at the first page that reaches past ``after``.
 - An activity whose party has a ``null`` ID raised :exc:`AttributeError` while it was built.

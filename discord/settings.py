@@ -52,7 +52,7 @@ from .enums import (
 )
 from .flags import FriendDiscoveryFlags, FriendSourceFlags, HubProgressFlags, OnboardingProgressFlags
 from .object import Object
-from .utils import MISSING, _get_as_snowflake, _ocast, find, parse_time, parse_timestamp, utcnow
+from .utils import MISSING, _get_as_snowflake, _ocast, _warn_once, find, parse_time, parse_timestamp, utcnow
 
 if TYPE_CHECKING:
     from google.protobuf.message import Message
@@ -103,8 +103,13 @@ def _hex_colour(value: str) -> int:
     # Custom theme colors are hex strings ("#5865f2")
     try:
         return int(value.lstrip('#'), 16)
-    except (TypeError, ValueError):
-        _log.debug('Ignoring a custom theme color that is not hex: %r.', value)
+    except (TypeError, ValueError, AttributeError):
+        _warn_once(
+            _log,
+            'custom-theme-colour',
+            'A custom theme color is not a hex color (%r); client_theme reports 0 for it. This warning is shown once.',
+            value,
+        )
         return 0
 
 

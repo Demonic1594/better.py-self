@@ -35,6 +35,7 @@ See [Caching and memory](caching-and-memory.md) for how to tune these.
 | `heartbeat_timeout` | `60.0` | Seconds without any message from the gateway before the WebSocket is restarted. |
 | `enable_debug_events` | `False` | Dispatches `on_socket_raw_receive` and `on_socket_raw_send`. These handlers get the raw, unredacted data. |
 | `enable_raw_presences` | `False` | Dispatches `on_raw_presence_update`, which also fires for members not in the cache. Off by default because presence updates are the most frequent event. *New in 2.3.2.* |
+| `enable_raw_typing` | `False` | Dispatches `on_raw_typing`, which fires for every typing event, even when `on_typing` can't resolve the channel or user. *New in 2.3.3.* |
 | `eager_dispatch` | `False` | Starts event handlers eagerly (Python 3.12+), so a handler runs inside the dispatch up to its first `await`. This lowers per-event overhead, but changes the order in which handlers and the dispatching code run. It is ignored, with a warning, before 3.12. |
 | `dispatch_backlog_warning` | `1000` | Number of pending handler tasks at which `on_dispatch_backlog` fires, at most once every 30 s. `0` disables it. |
 

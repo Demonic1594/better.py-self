@@ -301,6 +301,20 @@ Channels
     :param when: When the typing started as an aware datetime in UTC.
     :type when: :class:`datetime.datetime`
 
+.. function:: on_raw_typing(payload)
+
+    Called when someone begins typing a message. Unlike :func:`on_typing`, this
+    is called regardless of whether the channel and the user are in the
+    internal cache, so it also covers typing that :func:`on_typing` drops.
+
+    This event is opt-in: pass ``enable_raw_typing=True`` to :class:`Client`.
+    Typing events are frequent, so the payload is not built otherwise.
+
+    .. versionadded:: 2.3.3
+
+    :param payload: The raw event payload data.
+    :type payload: :class:`RawTypingEvent`
+
 Connection
 ~~~~~~~~~~~
 
@@ -1812,6 +1826,17 @@ Threads
     :param after: The updated thread's new info.
     :type after: :class:`Thread`
 
+.. function:: on_raw_thread_update(payload)
+
+    Called whenever a thread is updated. Unlike :func:`on_thread_update`, this
+    is called regardless of whether the thread is in the internal thread
+    cache, which matters with the bounded thread cache.
+
+    .. versionadded:: 2.3.3
+
+    :param payload: The raw event payload data.
+    :type payload: :class:`RawThreadUpdateEvent`
+
 .. function:: on_thread_remove(thread)
 
     Called whenever a thread is removed. This is different from a thread being deleted.
@@ -2523,6 +2548,8 @@ of :class:`enum.Enum`.
     .. attribute:: unknown
 
         An unknown activity type. This should generally not happen.
+
+        .. versionadded:: 2.3.3
 
     .. attribute:: playing
 
@@ -10072,9 +10099,19 @@ RawEvent
 .. autoclass:: RawThreadMembersUpdate()
     :members:
 
+.. attributetable:: RawThreadUpdateEvent
+
+.. autoclass:: RawThreadUpdateEvent()
+    :members:
+
 .. attributetable:: RawThreadDeleteEvent
 
 .. autoclass:: RawThreadDeleteEvent()
+    :members:
+
+.. attributetable:: RawTypingEvent
+
+.. autoclass:: RawTypingEvent()
     :members:
 
 .. attributetable:: RawMemberRemoveEvent

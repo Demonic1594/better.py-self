@@ -10,7 +10,7 @@ better.py-self tracks two upstream projects:
 - **[Rapptz/discord.py](https://github.com/Rapptz/discord.py)** is the bot library both
   descend from. dolfies' fork last shared history with it in March 2022 and
   ports commits by hand. This fork ported three more rounds of Rapptz commits
-  in v2.3.2.
+  in v2.3.2, and a fourth in v2.3.3.
 
 Every divergence is recorded in [`docs/upstream_syncing.rst`](../docs/upstream_syncing.rst).
 This page summarises them.
@@ -32,8 +32,8 @@ public is removed or renamed, and every new parameter is optional.
 - **Credential-safe DEBUG logs.** See [Logging](logging-and-credentials.md).
 - **Faster hot paths:** O(1) message lookups, suppression of updates that change
   nothing, lazy parsing, `gc_freeze`, and `aiohttp` imported only when needed.
-- **Opt-in options:** `eager_dispatch`, `enable_raw_presences` and
-  `dispatch_backlog_warning`. An unknown `Client` option logs a warning.
+- **Opt-in options:** `eager_dispatch`, `enable_raw_presences`,
+  `enable_raw_typing` and `dispatch_backlog_warning`. An unknown `Client` option logs a warning.
 - **Hardening.** The fork survived thousands of mutated gateway payloads, zlib
   bombs, ReDoS floods and hostile persistence snapshots. Each defect found has a
   regression test.
@@ -90,6 +90,13 @@ has are fixed here: unhashable sounds, `!=` raising on Python 3.14, emoji edits
 that don't clear the previous emoji, audit-log entries that crash on a missing
 target or lose a custom emoji's ID, and voice effects in private calls.
 
+### Ported from Rapptz in v2.3.3
+
+`on_raw_typing` with `RawTypingEvent` (behind `enable_raw_typing`),
+`on_raw_thread_update` with `RawThreadUpdateEvent`, and
+`ActivityType.unknown` (`-1`), which the docs listed but the enum lacked.
+Sending an `unknown` activity sends `playing`, with a warning.
+
 ### Not ported, and why
 
 - **`DummyCookieJar` (`643a7f4`):** webhooks bound to a client share its aiohttp
@@ -102,9 +109,7 @@ target or lose a custom emoji's ID, and voice effects in private calls.
 - **A cache-based `User.mutual_guilds`:** it would clash with
   `UserProfile.mutual_guilds`.
 
-## Planned
+## Same feature, different name
 
-`on_raw_typing`, `on_raw_thread_update` and possibly `ActivityType.unknown`
-are planned for v2.3.4. Two other Rapptz names already exist here under different
-names: `CallMessage.is_ended()` is `CallMessage.call_ended`, and
+Two Rapptz names exist here under different names: `CallMessage.is_ended()` is `CallMessage.call_ended`, and
 `MemberFlags.automod_quarantined_username` is `automod_quarantined_name`. See the [roadmap](../docs/roadmap.rst).

@@ -25,6 +25,7 @@ DEALINGS IN THE SOFTWARE.
 from __future__ import annotations
 
 import datetime
+import logging
 import re
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Sequence, Tuple, Union, overload
 
@@ -44,7 +45,7 @@ from .enums import (
 from .flags import ActivityFlags
 from .metadata import Metadata, MetadataObject
 from .partial_emoji import PartialEmoji
-from .utils import MISSING, _get_as_snowflake, as_chunks, deprecated, parse_time, parse_timestamp, utcnow
+from .utils import MISSING, _get_as_snowflake, _warn_once, as_chunks, deprecated, parse_time, parse_timestamp, utcnow
 
 __all__ = (
     'BaseActivity',
@@ -62,6 +63,8 @@ __all__ = (
     'HangActivity',
     'Session',
 )
+
+_log = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
@@ -1171,8 +1174,19 @@ class Activity(BaseActivity):
         return hash((self.type, self.name))
 
     def to_dict(self) -> ActivityPayload:
+        type = self.type.value
+        if type == ActivityType.unknown.value:
+            # A local placeholder (Rapptz's default for a missing type): Discord
+            # doesn't accept it, so it is sent as a "Playing" activity
+            _warn_once(
+                _log,
+                'activity-unknown-type',
+                'An Activity with type ActivityType.unknown cannot be sent to Discord; it is sent as '
+                '"playing" instead. Set a real activity type. This warning is shown once.',
+            )
+            type = ActivityType.playing.value
         ret: ActivityPayload = {
-            'type': self.type.value,
+            'type': type,
             'name': self.name,
         }
         if self.id:
@@ -1676,8 +1690,23 @@ class Spotify(Activity):
         """:class:`str`: The track URL to listen on Spotify.
 
         .. versionadded:: 2.0
+
+        .. versionchanged:: 2.3.3
+
+            Empty for a local file, which has no track ID (check :attr:`track_id`
+            first); a warning is logged the first time. It used to return a URL
+            ending in ``/None``.
         """
-        return f'https://open.spotify.com/track/{self.track_id}'
+        track_id = self.track_id
+        if track_id is None:
+            _warn_once(
+                _log,
+                'spotify-local-track-url',
+                'Spotify.track_url is empty for a local file, which has no Spotify track ID. '
+                'Check Spotify.track_id before using the URL.',
+            )
+            return ''
+        return f'https://open.spotify.com/track/{track_id}'
 
     @property
     def start(self) -> datetime.datetime:

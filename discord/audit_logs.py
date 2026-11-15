@@ -452,23 +452,21 @@ class AuditLogChanges:
 
             transformer: Optional[Transformer]
 
-            try:
-                before = elem['old_value']
-            except KeyError:
+            # Either value can be missing from a change (old_value and new_value are
+            # NotRequired in the typings); a missing one reads as None
+            before = elem.get('old_value', utils.MISSING)
+            if before is utils.MISSING:
                 before = None
-            else:
-                if transformer:
-                    before = transformer(entry, before)
+            elif transformer:
+                before = transformer(entry, before)
 
             setattr(self.before, attr, before)
 
-            try:
-                after = elem['new_value']
-            except KeyError:
+            after = elem.get('new_value', utils.MISSING)
+            if after is utils.MISSING:
                 after = None
-            else:
-                if transformer:
-                    after = transformer(entry, after)
+            elif transformer:
+                after = transformer(entry, after)
 
             setattr(self.after, attr, after)
 
