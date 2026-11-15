@@ -160,7 +160,7 @@ Usually a network or proxy problem at startup; fix it and restart.
   that it's `async def`, and that a `commands.Bot` subclass overriding
   `on_message` calls `process_commands`.
 - **Handlers seem to lag.** Watch `on_dispatch_backlog` and
-  `cache_stats().dispatch_backlog`. A slow handler is holding up the queue.
+  `(await client.cache_stats()).dispatch_backlog`. A slow handler is holding up the queue.
 
 ## The member list is empty or incomplete
 

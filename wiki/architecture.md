@@ -71,7 +71,7 @@ Consequences:
   libraries and heavy CPU work belong in `asyncio.to_thread`.
 - **Parsing happens before your handler runs,** so by the time `on_message`
   runs, the cache already contains the message.
-- **Pending handlers are tracked.** `cache_stats().dispatch_backlog` is how
+- **Pending handlers are tracked.** `(await client.cache_stats()).dispatch_backlog` is how
   many are running; `on_dispatch_backlog` warns when it grows (see
   [Events](events.md)).
 

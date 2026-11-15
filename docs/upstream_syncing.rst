@@ -336,6 +336,26 @@ Audit round 3 (2026-11-14)
     the old source, ``Loop.stop`` not interrupting the sleep, and one
     ``raw_thread_member_remove`` per removed member.
 
+Documentation round (2026-11-15, after v2.3.3)
+    Docstrings that still matched upstream were corrected to describe what
+    the code does:
+
+    - ``Client.edit_legacy_settings``: the ``@utils.deprecated`` argument
+      (upstream's ``'Client.edit_settings'``, which doesn't exist) is now
+      ``'UserSettings.edit'``, so the warning names a real method.
+    - The ``heartbeat_timeout`` option in the ``Client`` docstring: any gateway
+      message counts, not only a HEARTBEAT_ACK.
+    - ``RateLimited``: raised for global and per-route rate limits alike, and
+      for deferred (202) requests; a request still limited after its retries
+      raises ``HTTPException``.
+    - ``ClientUser.edit``: the password is required only for ``username``,
+      ``discriminator``, ``email`` and ``new_password``.
+    - ``VoiceClient.move_to``: a timeout is logged and the call returns; it
+      doesn't raise.
+
+    **Conflict points:** upstream edits to these docstrings, or to the
+    ``deprecated`` argument, conflict textually; keep ours.
+
 Ported from Rapptz/discord.py, round 4 (2026-11-15, v2.3.3)
     The items the roadmap had planned for v2.3.4, adapted from Rapptz
     ``master`` (``65232c3``):

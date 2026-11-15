@@ -259,7 +259,7 @@ Frames are decompressed and decoded (orjson when installed) in
 `received_message`, then handed to `ConnectionState.parse_*`. The stress
 benchmark's baseline ([`docs/cache_tuning.rst`](../docs/cache_tuning.rst))
 puts this path at about 37,000 events per second on 4 vCPUs without handlers.
-`client.cache_stats().event_loop_lag` tells you whether your handlers keep up.
+`(await client.cache_stats()).event_loop_lag` tells you whether your handlers keep up.
 
 ## Debugging the gateway
 

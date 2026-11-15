@@ -161,8 +161,9 @@ entry point imports aiohttp eagerly, unlike `import discord`.
 
 ### Required
 
-These are installed automatically. `import discord` fails if any of the first
-four is missing.
+These are installed automatically. `import discord` fails without curl_cffi,
+yarl or discord_protos (and, on Python 3.13+, audioop-lts). tzlocal and
+aiohttp are imported only when they're needed.
 
 | Package | Constraint | What it's for |
 |---|---|---|
