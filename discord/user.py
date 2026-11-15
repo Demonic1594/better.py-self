@@ -868,7 +868,8 @@ class ClientUser(BaseUser):
         -----------
         password: :class:`str`
             The current password for the client's account.
-            Required for everything except avatar, banner, accent_colour, date_of_birth, global_name, and bio.
+            Required only when changing ``username``, ``discriminator``, ``email``
+            or the password itself (``new_password``).
         new_password: :class:`str`
             The new password you wish to change to.
         email: :class:`str`

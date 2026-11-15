@@ -5290,7 +5290,7 @@ class Client:
         data = await state.http.get_tracking()
         return TrackingSettings(state=state, data=data)
 
-    @utils.deprecated('Client.edit_settings')
+    @utils.deprecated('UserSettings.edit')
     @utils.copy_doc(LegacyUserSettings.edit)
     async def edit_legacy_settings(self, **kwargs) -> LegacyUserSettings:
         payload = {}

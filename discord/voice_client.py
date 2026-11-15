@@ -587,16 +587,14 @@ class VoiceClient(VoiceProtocol):
         Parameters
         -----------
         channel: Optional[:class:`~abc.Snowflake`]
-            The channel to move to. Must be a voice channel.
+            The channel to move to. Must be a voice channel. ``None``
+            disconnects.
         timeout: Optional[:class:`float`]
-            How long to wait for the move to complete.
+            How long to wait for the move to complete. If it doesn't complete
+            in time, a warning is logged and this returns without raising; the
+            move may still complete afterwards.
 
             .. versionadded:: 2.1
-
-        Raises
-        -------
-        asyncio.TimeoutError
-            The move did not complete in time, but may still be ongoing.
         """
         await self._connection.move_to(channel, timeout)
 
