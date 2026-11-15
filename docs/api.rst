@@ -2549,6 +2549,8 @@ of :class:`enum.Enum`.
 
         An unknown activity type. This should generally not happen.
 
+        .. versionadded:: 2.3.3
+
     .. attribute:: playing
 
         A "Playing" activity type.

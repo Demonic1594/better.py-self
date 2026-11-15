@@ -5174,7 +5174,15 @@ class ConnectionState:
             # Every TYPING_START, including the ones on_typing drops: an uncached
             # channel, or a user who can't be resolved (Rapptz/discord.py's on_raw_typing)
             raw = RawTypingEvent(data, datetime.datetime.fromtimestamp(data['timestamp'], tz=datetime.timezone.utc))
-            raw.user = member if member is not None else self.get_user(raw.user_id)
+            user = member
+            if user is None and guild is not None:
+                # An uncached channel in a known guild: on_typing skipped the member lookup
+                user = guild.get_member(raw.user_id)
+                if user is None:
+                    member_data = data.get('member')
+                    if member_data:
+                        user = Member(data=member_data, state=self, guild=guild)
+            raw.user = user if user is not None else self.get_user(raw.user_id)
             self.dispatch('raw_typing', raw)
 
     def parse_relationship_add(self, data: gw.RelationshipAddEvent) -> None:

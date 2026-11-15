@@ -1822,6 +1822,9 @@ class Client:
             for, and a warning says how many there were. An HTTP request one
             of them makes after this returns fails straight away (curl_cffi
             raises ``SessionClosed``); it is not retried.
+
+        .. versionchanged:: 2.3.3
+            Logs a warning when event handlers are still running.
         """
         if self._closing_task:
             # Shielded: a caller that gives up waiting (wait_for(client.close(), 5)) must not

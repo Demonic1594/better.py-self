@@ -695,7 +695,7 @@ class RawTypingEvent(_RawReprMixin):
         The ID of the user that started typing.
     user: Optional[Union[:class:`discord.User`, :class:`discord.Member`]]
         The user that started typing, if they could be found in the internal cache
-        (or, in a guild, built from the member data the event carries).
+        (or, in a known guild, built from the member data the event carries).
     timestamp: :class:`datetime.datetime`
         When the typing started as an aware datetime in UTC.
     guild_id: Optional[:class:`int`]

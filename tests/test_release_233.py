@@ -180,14 +180,22 @@ async def test_raw_typing_covers_what_on_typing_drops():
 
     state.parse_typing_start(_typing())  # type: ignore # a cached channel and member
     state.parse_typing_start(_typing(channel_id=9999, user_id=424242))  # type: ignore # neither is cached
+    member_data = {
+        'user': {'id': '424243', 'username': 'typist', 'discriminator': '0', 'avatar': None},
+        'roles': [],
+        'joined_at': '2023-01-01T00:00:00+00:00',
+    }
+    state.parse_typing_start(_typing(channel_id=9998, user_id=424243, member=member_data))  # type: ignore
     await asyncio.sleep(0)
 
     assert len(typing) == 1, 'on_typing only fires when it can resolve both'
-    assert len(raw) == 2
-    first, second = raw
+    assert len(raw) == 3
+    first, second, third = raw
     assert first.user is not None and first.user.id == 100 and first.guild_id == GUILD_ID
     assert first.timestamp == discord.utils.parse_timestamp(1_700_000_000, ms=False)
     assert (second.channel_id, second.user_id, second.user) == (9999, 424242, None)
+    # An uncached channel in a known guild: the member is built from the event's member data
+    assert isinstance(third.user, discord.Member) and third.user.id == 424243 and third.user.name == 'typist'
     await client.close()
 
 

@@ -343,7 +343,8 @@ Ported from Rapptz/discord.py, round 4 (2026-11-15, v2.3.3)
     - ``on_raw_typing`` / ``RawTypingEvent``: opt-in through
       ``enable_raw_typing`` (Rapptz dispatches it always), like
       ``enable_raw_presences``, because typing events are frequent. The
-      payload's ``user`` is the member or user ``on_typing`` resolved, or the
+      payload's ``user`` is the member or user ``on_typing`` resolved, a member
+      built from the event's member data when the channel isn't cached, or the
       cached user. Rapptz's constructor parses the timestamp; ours takes it
       from the parser.
     - ``on_raw_thread_update`` / ``RawThreadUpdateEvent``: dispatched before the
@@ -357,7 +358,11 @@ Ported from Rapptz/discord.py, round 4 (2026-11-15, v2.3.3)
     Also in v2.3.3, not from upstream: ``utils._warn_once``, and values the
     library can't use (``Spotify.track_url`` for local files, user fields
     missing from a member update, non-hex custom theme colors) are skipped
-    with a one-time warning.
+    with a one-time warning. ``Client.close`` warns when event handlers are
+    still running. In ``types/audit_log.py`` every change's ``old_value`` and
+    ``new_value`` is ``NotRequired`` (upstream marks them required, but
+    Discord omits them), and the readers in ``audit_logs.py`` read a missing
+    one as ``None``.
 
 Audit round 3, follow-ups (2026-11-15)
     The open items of ``docs/audit_2026-11.md``. More code that still matched
