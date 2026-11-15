@@ -61,15 +61,35 @@ because Discord only offers them to bots:
 
 - **Commands and interactions:** `app_commands` / `CommandTree`, hybrid commands,
   `GroupCog`, and replying to interactions (`InteractionResponse`)
-- **Sending components:** `discord.ui.View` / `Modal`. Receiving and clicking
-  components works.
+- **Sending components and embeds from `send()`:** `discord.ui.View` /
+  `Modal`, and `embed=`. Receiving and clicking components works, and
+  webhooks can send both (see [Interactions and components](interactions-and-components.md)).
 - **Bot-account features:** intents (user accounts receive what their
   subscriptions allow; see [Member lists](member-lists.md)), sharding and
   `AutoShardedClient`
-- **App and store features:** entitlements, SKUs, application emojis and
-  `Guild.self_role`
+- **Bot-side app features:** application emojis, `Guild.self_role`, and
+  answering with premium (SKU) buttons. The **user-side** store, SKUs,
+  entitlements and gifts do exist; see
+  [Applications and billing](applications-and-billing.md).
 - **Voice-state REST endpoints** (`Member.fetch_voice` falls back to the cache)
   and `Guild.active_threads`
+
+### Porting bot code to a user account
+
+| In discord.py (a bot) | Here (a user account) |
+|---|---|
+| `Client(intents=discord.Intents.default())` | Remove `intents`; it only logs an unknown-option warning. Subscriptions decide what you receive. |
+| `commands.Bot(command_prefix='!', intents=...)` | `commands.Bot(command_prefix='!', self_bot=True)` to answer only yourself. |
+| `app_commands`, `CommandTree`, hybrid commands | Prefix commands only. |
+| `await channel.send(embed=e, view=v)` | Text, files, stickers and polls; embeds and components via a webhook. |
+| `await interaction.response.send_message(...)` | You don't receive interactions to answer; you *trigger* them (`button.click()`, `await command(channel, ...)`). |
+| `guild.members` complete thanks to the members intent | Only cached members; load lists with `guild.chunk()` / `fetch_members()` ([Member lists](member-lists.md)). |
+| `on_presence_update` for everyone (presences intent) | Only presences Discord sends a user client ([Member lists](member-lists.md#presences)). |
+| Bot rate limits from headers | Pace yourself ([Rate limits and pacing](rate-limits-and-pacing.md)). |
+| `bot.run(token)` with a bot token | A user token ([Tokens and login](tokens-and-login.md)). |
+
+[`docs/migrating_from_dpy.rst`](../docs/migrating_from_dpy.rst) has upstream's
+migration notes.
 
 ### Ported from Rapptz in v2.3.2
 

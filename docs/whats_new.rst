@@ -11,6 +11,23 @@ Changelog
 This page keeps a detailed human friendly rendering of what's new and changed
 in specific versions.
 
+.. _vp2p3p4_unreleased:
+
+Unreleased
+-----------
+
+Behaviour Changes
+~~~~~~~~~~~~~~~~~~
+
+- The :exc:`DeprecationWarning` of :meth:`Client.edit_legacy_settings` now says to use :meth:`UserSettings.edit`; it named a ``Client.edit_settings`` that doesn't exist.
+
+Documentation
+~~~~~~~~~~~~~~
+
+- The wiki was rewritten in depth: new pages on installation, tokens and login, the architecture, channels and threads, guilds and members, users and relationships, presence, settings, interactions, applications and billing, and recipes.
+- Corrected docstrings that described behaviour the code doesn't have: ``heartbeat_timeout`` (any gateway message counts, not only a heartbeat ACK), :exc:`RateLimited` (it is raised for global rate limits too), the password rule of :meth:`ClientUser.edit`, and :meth:`VoiceClient.move_to` (a timeout is logged, not raised).
+- The FAQ's local-image embed example used ``embed=`` on :meth:`abc.Messageable.send`, which user accounts don't have; it now uses a webhook. The cache tuning guide now says that ``max_messages=None`` disables the message cache and that ``0`` means the default.
+
 .. _vp2p3p3:
 
 v2.3.3

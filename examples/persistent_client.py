@@ -21,8 +21,9 @@ class MyClient(discord.Client):
 # threads and DMs are all available right after login without waiting for
 # member list scraping.
 #
-# Snapshots are written automatically when the client becomes ready and
-# again on a clean shutdown. Snapshots older than 14 days or belonging to
-# a different account are ignored automatically.
+# A snapshot is written automatically when the client becomes ready (and on
+# close() if that write hasn't happened yet). Changes after READY are not
+# saved. Snapshots older than 14 days or belonging to a different account
+# are ignored automatically.
 client = MyClient(persistence_path='my_account_cache.bin')
 client.run('token')

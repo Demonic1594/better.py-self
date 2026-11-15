@@ -12,7 +12,9 @@ the knobs, the defaults, and how to tune them for your workload.
 
 All options are :class:`Client` constructor parameters. Passing ``None``
 disables a cap entirely (the cache then grows without bound, like older
-versions of the library).
+versions of the library), except for ``max_messages``, where ``None``
+disables the message cache itself. Passing ``0`` or a negative number is
+treated as the default.
 
 Quick recommendations
 ----------------------
