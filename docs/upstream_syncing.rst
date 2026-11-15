@@ -344,7 +344,8 @@ Audit round 3, follow-ups (2026-11-15)
       well (``wake()``); ``_create_socket`` closes the old socket and wakes the
       reader; ``_wait_for_state`` waits on futures in ``_state_waiters`` (set by
       the ``state`` setter) instead of pulsing ``_state_event``;
-      ``disconnect()`` cancels a running connector; ``connect()`` awaits
+      ``disconnect(abort_connect=True)``, which only ``VoiceClient.disconnect()``
+      and ``move_to(None)`` pass, cancels a running connector; ``connect()`` awaits
       ``_await_connector``, which follows a replaced connector and raises
       ``ClientException`` for an aborted one.
     - ``http.py``: ``Ratelimit.__aexit__`` runs ``_refresh`` as a background
