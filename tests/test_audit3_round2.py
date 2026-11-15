@@ -400,6 +400,9 @@ async def test_voice_disconnect_survives_the_confirmation_timeout(monkeypatch):
     state.timeout = 1.0
     state._state = ConnectionFlowState.connected
     state._state_event = asyncio.Event()
+    state._state_waiters = []
+    state._connector = None
+    state._aborted_connector = None
     state._connected = asyncio.Event()
     state._disconnected = asyncio.Event()
     state.voice_client = types.SimpleNamespace(stop=lambda: None, cleanup=lambda: cleaned.append(True))

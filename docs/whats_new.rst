@@ -33,13 +33,21 @@ Behaviour Changes
 - :meth:`Member.edit` on another member logs a warning when it is given fields that only apply to your own member (``avatar``, ``banner``, ``bio``, ``pronouns`` and the like). They were ignored without a word before, and still are not sent.
 - ``Application.entitlements`` and :meth:`Client.fetch_entitlements` now send their ``exclude_consumed`` and ``sku_ids`` filters, so consumed entitlements are left out by default as documented.
 - :class:`PermissionOverwrite` stores ``1`` and ``0`` as ``True`` and ``False``. They were accepted before but then left out of the overwrite.
-- A member chunk request that has had no reply for a minute (longer for very large guilds) is failed with :exc:`ClientException` and replaced by the next :meth:`Guild.chunk` or :meth:`Guild.fetch_members` call, instead of being joined.
+- A member chunk request that has had no reply for 60 seconds (one second per 10,000 members above 600,000) is given up: its waiters get :exc:`InvalidData` (a :exc:`ClientException`), which :meth:`Guild.chunk` documents for a missing reply, and the next :meth:`Guild.chunk` or :meth:`Guild.fetch_members` call sends a new request. This also covers a single call, which used to wait forever. Every chunk received restarts the clock, so a slow but progressing request is not cut off.
 - A ``HELLO`` or ``READY`` from the gateway that lacks its required fields is logged as a warning and the client reconnects. It used to raise out of :meth:`Client.connect`.
 - An unavailable call (``CALL_DELETE`` with ``unavailable``) stays in the cache and on its channel, flagged :attr:`PrivateCall.unavailable`.
 - |commands| Checks added with decorators run in the same order (top decorator first) on every copy of a command. Before, each copy, including the one made for every cog instance, reversed the order again.
 - |commands| A :class:`~ext.commands.FlagConverter` value that touches the next flag (``-name:foo-age:3`` with ``prefix='-'``) keeps its last character.
 - An answer from the client-properties info API without a user agent is not used; the client falls back to its own lookup, as it does for other unusable answers.
 - ``opus.Encoder.encode`` pads a PCM buffer shorter than one frame with silence.
+- |tasks| :meth:`ext.tasks.Loop.stop` called while the loop waits for its next iteration ends the loop at once, with no further iteration. It used to run one more iteration after the wait.
+- The request that uses the last token of a rate limit bucket returns as soon as its response arrives. Waiting for the bucket to reset now happens in the background; requests made in the meantime still wait for the reset, as before.
+- ``Guild.subscribe(typing=False)``, which unsubscribes from the guild, now also stops :meth:`Guild.is_subscribed` reporting it as subscribed, and a reconnect no longer subscribes to it again.
+- :func:`on_raw_thread_member_remove` also fires for threads that are not cached (with the bounded thread cache, often threads that were evicted), as its documentation says it does regardless of the cache.
+- A presence update carries a partial user: the fields it leaves out (``public_flags``, ``collectibles`` and others) are kept instead of being cleared, and no :func:`on_user_update` is dispatched for them. A member update, which carries the full user, is unchanged.
+- :meth:`abc.Connectable.connect` waits for the new handshake when Discord moves the account while it is connecting, instead of raising :exc:`asyncio.CancelledError`. :meth:`VoiceClient.disconnect` during a handshake stops it, and the pending :meth:`~abc.Connectable.connect` raises :exc:`ClientException`.
+- :func:`utils.escape_markdown` escapes a list marker that follows a blank line on its own line (the backslash used to go on the blank line, leaving the list active), and :func:`utils.remove_markdown` removes that ``-`` instead of the newline before it. Text such as ``<a<b:/x>`` is no longer treated as one angle-bracket link. A masked link whose URL part is longer than 4,096 characters, which no message or embed can hold, is no longer recognised as a link.
+- :attr:`UserSettings.client_theme` reads the color and gradient angle from the custom theme settings when the installed ``discord_protos`` no longer has the old fields, and :meth:`UserSettings.edit` logs a warning for a ``client_theme`` value the schema can no longer store instead of failing.
 
 Fixes
 ~~~~~
@@ -95,6 +103,19 @@ Fixes
 - A webhook response with unparsable rate limit headers no longer raises after the request succeeded.
 - |commands| ``max_concurrency`` with a bucket whose key changes while the command runs (``BucketType.role`` when the author's top role changes, ``BucketType.category`` when the channel moves) never released its slot.
 - |tasks| Exception types added to a loop on the class (``MyCog.my_loop.add_exception_type``) were not applied to the loop of each instance.
+- :meth:`UserSettings.edit` ignored ``client_theme=MISSING`` (documented to reset it) and ``client_theme=None``.
+- With the ``discord_protos`` versions the requirements allow today, reading :attr:`UserSettings.client_theme` raised :exc:`AttributeError` for an account with a theme set, and setting one raised a protobuf ``ParseError``: the schema no longer has ``primary_color`` or ``background_gradient_angle``.
+- A presence update whose user leaves out ``username`` raised :exc:`KeyError` in the parser.
+- :meth:`Client.login` that failed outside ``async with`` or :meth:`Client.run` left its HTTP session open; it is now closed, and a later login opens a new one.
+- Voice: a new UDP socket (after a voice server change) left the old one open, and the reader kept waiting on the old one for up to 30 seconds, which could make IP discovery time out. A state change right after the handshake checked for it could be missed, so a finished handshake timed out. Stopping the reader no longer waits for its 30 second poll either.
+- |tasks| :meth:`ext.tasks.Loop.restart` called twice before the task ended raised :exc:`RuntimeError` from the second restart.
+- :func:`utils.escape_markdown` and :func:`utils.remove_markdown` took quadratic time on some long inputs (17 seconds for ``'<a:/' * 20000``, a quarter of a second for a 4,000 character message). They are now linear.
+- :class:`SyncWebhook` ignored ``thread`` when building the message it returns, so :attr:`SyncWebhookMessage.channel` was the parent channel; it now matches :class:`Webhook`.
+- A ``CHANNEL_UPDATE`` for a group without ``recipients`` emptied :attr:`GroupChannel.recipients`. A repeated ``CHANNEL_RECIPIENT_ADD`` listed the user twice, and a removed recipient's nickname stayed in :attr:`GroupChannel.nicks`.
+- :class:`Widget` could not be hashed (it defined ``==`` only).
+- Read states keyed by a guild (scheduled events, guild home, onboarding) stayed in the cache after leaving the guild.
+- ``Application.entitlements`` with ``after`` and ``oldest_first=False`` requested every page back to the first entitlement, filtering them all out; it now stops at the first page that reaches past ``after``.
+- An activity whose party has a ``null`` ID raised :exc:`AttributeError` while it was built.
 
 .. _vp2p3p2:
 

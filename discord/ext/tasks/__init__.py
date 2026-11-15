@@ -231,6 +231,9 @@ class Loop(Generic[LF]):
                 # sleep before the body of the task for explicit time intervals
                 if self._is_explicit_time():
                     await self._try_sleep_until(self._next_iteration)
+                    if self._stop_next_iteration:
+                        # stop() during the wait: the next iteration hasn't started
+                        return
                 if not self._last_iteration_failed:
                     self._last_iteration = self._next_iteration
                     self._next_iteration = self._get_next_sleep_time()
@@ -251,6 +254,8 @@ class Loop(Generic[LF]):
                             self._next_iteration,
                         )
                         await self._try_sleep_until(self._next_iteration)
+                        if self._stop_next_iteration:
+                            return
                         self._next_iteration = self._get_next_sleep_time()
 
                 try:
@@ -275,6 +280,9 @@ class Loop(Generic[LF]):
                     # sleep after the body of the task for relative time intervals
                     if self._is_relative_time():
                         await self._try_sleep_until(self._next_iteration)
+                        if self._stop_next_iteration:
+                            # stop() during the wait used to let one more iteration run
+                            return
 
                     self._current_loop += 1
                     if self._current_loop == self.count:
@@ -458,6 +466,12 @@ class Loop(Generic[LF]):
         """
         if self._task and not self._task.done():
             self._stop_next_iteration = True
+            handle = self._handle
+            if handle is not None and not handle.done():
+                # Waiting for the next iteration: end the wait now instead of after the
+                # interval. No iteration is running, so there is nothing left to finish
+                handle.handle.cancel()
+                SleepHandle._wrapped_set_result(handle.future)
 
     def _can_be_cancelled(self) -> bool:
         return bool(not self._is_being_cancelled and self._task and not self._task.done())
@@ -486,6 +500,10 @@ class Loop(Generic[LF]):
         def restart_when_over(fut: Any, *, args: Any = args, kwargs: Any = kwargs) -> None:
             if self._task:
                 self._task.remove_done_callback(restart_when_over)
+            if self.is_running():
+                # restart() was called more than once before the task ended: an earlier
+                # callback already started it, and start() would raise RuntimeError
+                return
             self.start(*args, **kwargs)
 
         if self._can_be_cancelled() and self._task:

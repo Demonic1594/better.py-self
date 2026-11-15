@@ -24,6 +24,8 @@ Most events come in two forms:
   unfurled link, say) of a message that isn't cached; its `message` is `None`
   then, and the IDs and `data` are set. Before this was fixed (after v2.3.2)
   that update raised in the parser and the event was lost.
+  `on_raw_thread_member_remove` also fires for threads that aren't cached
+  (often threads the bounded cache evicted), once per member who left.
 
 Use the raw form when you must not miss an event because of the cache.
 

@@ -111,7 +111,7 @@ async def test_retry_delay_grows_with_failures_and_idle_ticks_do_not_rearm(monke
 @pytest.mark.asyncio
 async def test_chunk_guild_failed_send_does_not_leave_a_stale_request():
     client, state = await _state()
-    guild = SimpleNamespace(id=7)
+    guild = SimpleNamespace(id=7, _member_count=None)
     sent = []
 
     async def broken_chunker(*args, **kwargs):
@@ -137,7 +137,7 @@ async def test_chunk_guild_failed_send_does_not_leave_a_stale_request():
 @pytest.mark.asyncio
 async def test_joined_waiters_fail_with_the_request():
     client, state = await _state()
-    guild = SimpleNamespace(id=9)
+    guild = SimpleNamespace(id=9, _member_count=None)
     gate = asyncio.Event()
 
     async def chunker(*args, **kwargs):

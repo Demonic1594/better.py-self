@@ -364,7 +364,7 @@ class ChunkRequest:
         if not self.oneshot:
             self.last_buffer = members
 
-    async def wait(self) -> List[Member]:
+    async def wait(self, *, stall_after: Optional[float] = None) -> List[Member]:
         unclaimed = self.unclaimed
         if unclaimed is not None:
             self.unclaimed = None
@@ -372,7 +372,27 @@ class ChunkRequest:
         future = self.loop.create_future()
         self.waiters.append(future)
         try:
-            return await future
+            if stall_after is None:
+                return await future
+            # Gives up once nothing has arrived for `stall_after` seconds. A reply that
+            # is lost (on a connection that died and was resumed, say) used to leave a
+            # lone chunk() waiting forever. Every chunk received restarts the clock, so
+            # a slow but progressing request is never cut off.
+            while True:
+                remaining = self.last_activity + stall_after - self.loop.time()
+                if remaining <= 0:
+                    # InvalidData (a ClientException) is what Guild.chunk documents for this
+                    exc = InvalidData(
+                        f'The member chunk request for guild ID {self.guild_id} got no reply for '
+                        f'{stall_after:.0f} seconds ({len(self.buffer)} members received).'
+                    )
+                    self.fail(exc)
+                    raise exc
+                try:
+                    return await asyncio.wait_for(asyncio.shield(future), timeout=remaining)
+                except asyncio.TimeoutError:
+                    if future.done():
+                        return future.result()
         finally:
             self.waiters.remove(future)
 
@@ -1024,8 +1044,14 @@ class GuildSubscriptions:
 
         for key, subscriptions in payload.items():
             guild_id = int(key)
-            if subscriptions.get('typing'):
+            typing = subscriptions.get('typing')
+            if typing:
                 self._subscribed.add(guild_id)
+            elif typing is False:
+                # typing=False unsubscribes from the guild (Guild.subscribe). Leaving it
+                # marked as subscribed kept is_subscribed() true and made the next
+                # reconnect subscribe to it, with typing, all over again
+                self._subscribed.discard(guild_id)
             for attr, value in subscriptions.items():
                 if isinstance(value, bool):
                     record = getattr(self, f'_{attr}')
@@ -1770,6 +1796,19 @@ class ConnectionState:
             cap,
         )
 
+    def _chunk_stall_after(self, guild: Guild) -> float:
+        # How long a member chunk request may hear nothing before it counts as lost
+        return max(60.0, self._chunk_timeout(guild))
+
+    async def _wait_chunk_request(self, request: ChunkRequest, guild: Guild) -> List[Member]:
+        try:
+            return await request.wait(stall_after=self._chunk_stall_after(guild))
+        except ClientException:
+            # A request that gave up (or failed) must not be joined by the next call
+            if self._chunk_requests.get(guild.id) is request:
+                del self._chunk_requests[guild.id]
+            raise
+
     def _live_chunk_request(self, guild: Guild) -> Optional[ChunkRequest]:
         """Returns the guild's pending chunk request, unless it has stalled.
 
@@ -1782,12 +1821,11 @@ class ConnectionState:
         request = self._chunk_requests.get(guild.id)
         if request is None:
             return None
-        idle = self.loop.time() - request.last_activity
-        if idle <= 60.0 or idle <= self._chunk_timeout(guild):
+        if self.loop.time() - request.last_activity <= self._chunk_stall_after(guild):
             return request
         _log.warning('Member chunk request for guild ID %s got no reply; sending a new one.', guild.id)
         del self._chunk_requests[guild.id]
-        request.fail(ClientException('The member chunk request got no reply.'))
+        request.fail(InvalidData('The member chunk request got no reply.'))
         return None
 
     def _fail_pending_chunk_requests(self, reason: str) -> None:
@@ -2150,6 +2188,11 @@ class ConnectionState:
             if channel_states:
                 for cid in channel_ids:
                     channel_states.pop(cid, None)
+        # And the read states keyed by the guild itself, which stayed behind
+        for type in (ReadStateType.scheduled_events, ReadStateType.guild_home, ReadStateType.onboarding):
+            states = self._read_states.get(type.value)
+            if states:
+                states.pop(guild.id, None)
 
         # Nuke guild expressions
         for emoji in guild.emojis:
@@ -3335,7 +3378,7 @@ class ConnectionState:
                 _log.debug('PRESENCE_UPDATE referencing an unknown relationship ID: %s. Discarding.', user_id)
                 return
 
-            user_update = relationship.user._update_self(user)  # type: ignore
+            user_update = relationship.user._update_self(user, partial=True)  # type: ignore
             if listening and old_presence != presence:
                 old_relationship = Relationship._copy(relationship, old_presence)
                 self.dispatch('presence_update', old_relationship, relationship)
@@ -3344,7 +3387,7 @@ class ConnectionState:
             # recently used to protect them from cache eviction
             guild._touch_member(user_id)
 
-            user_update = member._user._update_self(user)  # type: ignore
+            user_update = member._user._update_self(user, partial=True)  # type: ignore
             if listening and old_presence != presence:
                 old_member = Member._copy(member)  # type: ignore # Member existence was validated above
                 old_member._presence = old_presence
@@ -3754,7 +3797,8 @@ class ConnectionState:
             return
 
         user = self.store_user(data['user'])
-        channel.recipients.append(user)  # type: ignore
+        if user not in channel.recipients:  # type: ignore # a repeated event must not list them twice
+            channel.recipients.append(user)  # type: ignore
         if 'nick' in data:
             channel.nicks[user] = data['nick']  # type: ignore
         self.dispatch('group_join', channel, user)
@@ -3766,6 +3810,7 @@ class ConnectionState:
             return
 
         user = self.store_user(data['user'])
+        channel.nicks.pop(user, None)  # type: ignore # a stale nickname would come back if they rejoin
         try:
             channel.recipients.remove(user)  # type: ignore
         except ValueError:
@@ -3927,7 +3972,13 @@ class ConnectionState:
         thread: Optional[Thread] = guild.get_thread(thread_id)
         raw = RawThreadMembersUpdate(data)
         if thread is None:
-            _log.debug('THREAD_MEMBERS_UPDATE referencing an unknown thread ID: %s. Discarding.', thread_id)
+            # The raw event is documented to fire regardless of the cache. With the bounded
+            # thread cache, a thread is often just evicted, and its removals were lost
+            self_id = self.self_id
+            for member_id in data.get('removed_member_ids', []):
+                if int(member_id) != self_id:
+                    self.dispatch('raw_thread_member_remove', raw)
+            _log.debug('THREAD_MEMBERS_UPDATE referencing an unknown thread ID: %s. Discarding the rest.', thread_id)
             return
 
         # Member activity keeps the thread warm in the cache
@@ -4432,6 +4483,8 @@ class ConnectionState:
                 request.start()
 
         if wait:
+            if isinstance(request, ChunkRequest):
+                return await self._wait_chunk_request(request, guild)
             return await request.wait()
         return request.get_future()
 
@@ -4466,7 +4519,7 @@ class ConnectionState:
                     raise
 
         if wait:
-            return await request.wait()
+            return await self._wait_chunk_request(request, guild)
         return request.get_future()
 
     async def _chunk_and_dispatch(self, guild: Guild, chunk: bool, unavailable: Optional[bool]) -> None:

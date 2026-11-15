@@ -145,7 +145,6 @@ class Entitlement(Hashable):
         'subscription_id',
         'subscription_plan',
         'sku',
-        'payment',
         '_state',
     )
 

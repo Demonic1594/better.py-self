@@ -93,6 +93,21 @@ __all__ = (
 _log = logging.getLogger(__name__)
 
 
+def _client_theme_fields() -> Any:
+    appearance: Any = PreloadedUserSettings.DESCRIPTOR.fields_by_name['appearance'].message_type
+    theme: Any = appearance.fields_by_name['client_theme_settings'].message_type
+    return theme.fields_by_name
+
+
+def _hex_colour(value: str) -> int:
+    # Custom theme colors are hex strings ("#5865f2")
+    try:
+        return int(value.lstrip('#'), 16)
+    except (TypeError, ValueError):
+        _log.debug('Ignoring a custom theme color that is not hex: %r.', value)
+        return 0
+
+
 def _b64(data: bytes) -> str:
     return base64.b64encode(data).decode('ascii')
 
@@ -687,16 +702,28 @@ class UserSettings(_ProtoSettings):
 
     @property
     def client_theme(self) -> Optional[Tuple[int, int, float]]:
-        """Optional[Tuple[:class:`int`, :class:`int`, :class:`float`]]: The client theme settings, in order of primary color, gradient preset, and gradient angle."""
-        return (
-            (
-                self.settings.appearance.client_theme_settings.primary_color.value,
-                self.settings.appearance.client_theme_settings.background_gradient_preset_id.value,
-                self.settings.appearance.client_theme_settings.background_gradient_angle.value,
-            )
-            if self.settings.appearance.HasField('client_theme_settings')
-            else None
-        )
+        """Optional[Tuple[:class:`int`, :class:`int`, :class:`float`]]: The client theme settings, in order of primary color, gradient preset, and gradient angle.
+
+        Newer settings schemas store the color and the angle in the custom theme
+        settings instead; they are read from there.
+        """
+        appearance = self.settings.appearance
+        if not appearance.HasField('client_theme_settings'):
+            return None
+        theme = appearance.client_theme_settings
+        fields = theme.DESCRIPTOR.fields_by_name
+        # discord_protos dropped primary_color and background_gradient_angle; reading
+        # them raised AttributeError for every account with a theme set
+        custom = theme.custom_user_theme_settings if 'custom_user_theme_settings' in fields else None
+        if 'primary_color' in fields:
+            primary = theme.primary_color.value
+        else:
+            primary = _hex_colour(custom.colors[0]) if custom is not None and custom.colors else 0
+        if 'background_gradient_angle' in fields:
+            angle = theme.background_gradient_angle.value
+        else:
+            angle = custom.gradient_angle if custom is not None else 0
+        return (primary, theme.background_gradient_preset_id.value, float(angle))
 
     @property
     def developer_mode(self) -> bool:
@@ -1079,13 +1106,30 @@ class UserSettings(_ProtoSettings):
         if 'client_theme' in kwargs:
             provided: tuple = kwargs.pop('client_theme')
             client_theme_settings = {} if provided is not MISSING else MISSING
-            if provided:
-                if provided[0] is not MISSING:
-                    client_theme_settings['primary_color'] = provided[0]
-                if len(provided) > 1 and provided[1] is not MISSING:
-                    client_theme_settings['background_gradient_preset_id'] = provided[1]
-                if len(provided) > 2 and provided[2] is not MISSING:
-                    client_theme_settings['background_gradient_angle'] = float(provided[2])
+            if provided is MISSING or provided is None:
+                # Resets the theme, as MISSING does for every other setting. Both
+                # used to be dropped by the truthiness check below
+                appearance['client_theme_settings'] = MISSING
+            elif provided:
+                # Only fields the installed settings schema has: a field it dropped made
+                # the whole edit fail with a protobuf ParseError
+                supported = _client_theme_fields()
+                dropped = []
+                for index, (field, convert) in enumerate(
+                    (('primary_color', int), ('background_gradient_preset_id', int), ('background_gradient_angle', float))
+                ):
+                    if len(provided) <= index or provided[index] is MISSING:
+                        continue
+                    if field in supported:
+                        client_theme_settings[field] = convert(provided[index])
+                    else:
+                        dropped.append(field)
+                if dropped:
+                    _log.warning(
+                        'client_theme: the settings schema (discord_protos) has no %s field any more; '
+                        'that value was not sent.',
+                        ' or '.join(dropped),
+                    )
                 appearance['client_theme_settings'] = client_theme_settings
         if 'disable_mobile_redesign' in kwargs:
             appearance['mobile_redesign_disabled'] = kwargs.pop('disable_mobile_redesign')

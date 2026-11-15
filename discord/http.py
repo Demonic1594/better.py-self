@@ -648,6 +648,7 @@ class Ratelimit:
         '_loop',
         '_pending_requests',
         '_sleeping',
+        '_refresh_task',
     )
 
     def __init__(self, max_ratelimit_timeout: Optional[float], default_ratelimit_limit: int) -> None:
@@ -666,6 +667,8 @@ class Ratelimit:
         # for the requests currently pending.
         self._sleeping: asyncio.Lock = asyncio.Lock()
         self._last_request: float = self._loop.time()
+        # The background wait for the bucket to reset (see __aexit__)
+        self._refresh_task: Optional[asyncio.Task[None]] = None
 
     def __repr__(self) -> str:
         return (
@@ -793,7 +796,13 @@ class Ratelimit:
         # Note that this is a Lock to prevent multiple rate limit objects from sleeping at once
         if not self._sleeping.locked():
             if tokens <= 0:
-                await self._refresh()
+                # The request that used the last token returns now; waiting out the reset
+                # (and then waking whoever queued meanwhile) happens in the background.
+                # It used to hold this request until the window reset, so the last send
+                # of a burst took up to `reset_after` seconds longer than it needed to.
+                refresh = self._refresh_task
+                if refresh is None or refresh.done():
+                    self._refresh_task = utils._spawn_background(self._refresh(), loop=self._loop)
             elif self._pending_requests:
                 exception = (
                     RateLimited(self.reset_after)

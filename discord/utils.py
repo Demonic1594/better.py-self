@@ -1282,13 +1282,22 @@ def resolve_gift(code: Union[Gift, str]) -> str:
 _MARKDOWN_ESCAPE_CHARS = '*`_~|'
 _MARKDOWN_ESCAPE_SUBREGEX = r'[*`_~|]'
 
-_MARKDOWN_ESCAPE_COMMON = r'^>(?:>>)?\s|\[[^\[\]]+\]\([^)]*\)|^#{1,3}|^\s*-'
+# Kept from turning quadratic on long input:
+# - A list marker is matched on its own line. '\s*' used to run over blank lines,
+#   so a list after a blank line had its backslash put on the blank line (and
+#   remove_markdown deleted the newline instead of the '-').
+# - A masked link's URL part is bounded at 4096 characters, more than a message
+#   (4000) or an embed description (4096) can hold, so no real link changes. An
+#   unclosed '[a](' used to scan to the end of the text from every '['.
+_MARKDOWN_ESCAPE_COMMON = r'^>(?:>>)?\s|\[[^\[\]]+\]\([^)]{0,4096}\)|^#{1,3}|^[^\S\n]*-'
 
 _MARKDOWN_ESCAPE_REGEX = re.compile(rf'(?P<markdown>{_MARKDOWN_ESCAPE_SUBREGEX}|{_MARKDOWN_ESCAPE_COMMON})', re.MULTILINE)
 
 # The angle-bracket alternative requires a letter-initial scheme: without it,
 # '<'*n input backtracks quadratically hunting for ':' (ReDoS-class slowdown).
-_URL_REGEX = r'(?P<url><[a-zA-Z][^: >]*:\/[^ >]+>|(?:https?|steam):\/\/[^\s<]+[^<.,:;\"\'\]\s])'
+# Neither part may contain another '<', for the same reason ('<a'*n and
+# '<a:/'*n scanned to the end of the text from every '<').
+_URL_REGEX = r'(?P<url><[a-zA-Z][^:< >]*:\/[^ <>]+>|(?:https?|steam):\/\/[^\s<]+[^<.,:;\"\'\]\s])'
 
 _MARKDOWN_STOCK_REGEX = re.compile(rf'(?P<markdown>[_\\~|\*`]|{_MARKDOWN_ESCAPE_COMMON})', re.MULTILINE)
 

@@ -811,6 +811,30 @@ class BaseWebhook(Hashable):
         '_state',
     )
 
+    def _message_channel(self, data: MessagePayload, thread: Snowflake) -> Any:
+        """The channel a message this webhook sent or fetched belongs to.
+
+        Shared by :class:`Webhook` and :class:`SyncWebhook`. A message sent to a
+        thread (``thread=``, or a new forum post through ``thread_name=``) is in
+        that thread, not in the webhook's own channel.
+        """
+        if thread is MISSING:
+            channel_id = int(data['channel_id'])
+            channel = self.channel
+            # If this thread is created via thread_name then the channel_id would not be the same as the webhook's channel_id
+            # which would be the forum channel.
+            if self.channel_id != channel_id:
+                type = ChannelType.public_thread if isinstance(channel, ForumChannel) else (channel and channel.type)
+                return PartialMessageable(state=self._state, guild_id=self.guild_id, id=channel_id, type=type)  # type: ignore
+            return self.channel or PartialMessageable(state=self._state, guild_id=self.guild_id, id=channel_id)  # type: ignore
+
+        channel = self.channel
+        if isinstance(channel, (ForumChannel, TextChannel)):
+            channel = channel.get_thread(thread.id)
+        if channel is None:
+            channel = PartialMessageable(state=self._state, guild_id=self.guild_id, id=int(data['channel_id']))  # type: ignore
+        return channel
+
     def __init__(
         self,
         data: WebhookPayload,
@@ -1407,27 +1431,8 @@ class Webhook(BaseWebhook):
 
     def _create_message(self, data, *, thread: Snowflake):
         state = _WebhookState(self, parent=self._state, thread=thread)
-        # state may be artificial (unlikely at this point...)
-        if thread is MISSING:
-            channel_id = int(data['channel_id'])
-            channel = self.channel
-            # If this thread is created via thread_name then the channel_id would not be the same as the webhook's channel_id
-            # which would be the forum channel.
-            if self.channel_id != channel_id:
-                type = ChannelType.public_thread if isinstance(channel, ForumChannel) else (channel and channel.type)
-                channel = PartialMessageable(state=self._state, guild_id=self.guild_id, id=channel_id, type=type)  # type: ignore
-            else:
-                channel = self.channel or PartialMessageable(state=self._state, guild_id=self.guild_id, id=channel_id)  # type: ignore
-        else:
-            channel = self.channel
-            if isinstance(channel, (ForumChannel, TextChannel)):
-                channel = channel.get_thread(thread.id)
-
-            if channel is None:
-                channel = PartialMessageable(state=self._state, guild_id=self.guild_id, id=int(data['channel_id']))  # type: ignore
-
         # state is artificial
-        return WebhookMessage(data=data, state=state, channel=channel)  # type: ignore
+        return WebhookMessage(data=data, state=state, channel=self._message_channel(data, thread))  # type: ignore
 
     @overload
     async def send(

@@ -4308,7 +4308,10 @@ class GroupChannel(discord.abc.Messageable, discord.abc.Connectable, discord.abc
         self.owner_id: int = int(data['owner_id'])
         self._icon: Optional[str] = data.get('icon')
         self.name: Optional[str] = data.get('name')
-        self.recipients: List[User] = [self._state.store_user(u) for u in data.get('recipients', [])]
+        if 'recipients' in data or not hasattr(self, 'recipients'):
+            self.recipients: List[User] = [self._state.store_user(u) for u in data.get('recipients', [])]
+        # else: an update that leaves the recipients out keeps them. Emptying them
+        # broke permissions_for(), str() and owner until the next full update
         self.last_message_id: Optional[int] = utils._get_as_snowflake(data, 'last_message_id')
         self.last_pin_timestamp: Optional[datetime.datetime] = utils.parse_time(data.get('last_pin_timestamp'))
         self.managed: bool = data.get('managed', False)
