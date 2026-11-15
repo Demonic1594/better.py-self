@@ -62,10 +62,10 @@ exception is raised, and it must **fail on the old code**.
   offline. It has six phases: throughput, soak, backlog, multi (10 or 40
   accounts), persist and bomb (hostile frames). It exits non-zero when a gate
   fails. The baseline is in [`docs/cache_tuning.rst`](../docs/cache_tuning.rst).
-  - Known: the **soak** phase's RSS-plateau gate fails by about +10.8 MiB. It fails
-    the same way on code from before the audits, and the count of live objects stays
-    flat, so this is allocator behaviour, not a leak. The
-    [roadmap](../docs/roadmap.rst) lists it.
+  - The **soak** phase's plateau gate counts live allocated blocks
+    (`sys.getallocatedblocks()`), which must grow by at most 2% over the second half.
+    RSS growth is printed for information only: it grows by about 10 MiB as the
+    allocator keeps freed arenas, even though the live objects stay flat.
 - **`tools/profile_live.py`** profiles a live account's real traffic.
 
 ## Rules for changes

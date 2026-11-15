@@ -743,6 +743,22 @@ def _write_bytes(fp: Union[str, bytes, os.PathLike[Any]], data: bytes) -> int:
 _background_tasks: Set[asyncio.Task[Any]] = set()
 
 
+_warned_once: Set[str] = set()
+
+
+def _warn_once(logger: logging.Logger, key: str, message: str, *args: Any) -> None:
+    """Logs ``message`` as a warning the first time ``key`` is seen in this process.
+
+    For usage problems and unexpected payload shapes that would otherwise repeat
+    on every call or event. ``key`` must come from a fixed set (a literal, or a
+    literal plus a payload key name), so this set stays small.
+    """
+    if key in _warned_once:
+        return
+    _warned_once.add(key)
+    logger.warning(message, *args)
+
+
 def _spawn_background(
     coro: Coroutine[Any, Any, Any],
     /,

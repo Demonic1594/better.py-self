@@ -25,6 +25,7 @@ DEALINGS IN THE SOFTWARE.
 from __future__ import annotations
 
 import datetime
+import logging
 import warnings
 from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
 
@@ -50,6 +51,7 @@ from .relationship import Relationship
 from .utils import (
     _bytes_to_base64_data,
     _get_as_snowflake,
+    _warn_once,
     copy_doc,
     parse_timestamp,
     snowflake_time,
@@ -87,6 +89,21 @@ __all__ = (
     'ClientUser',
     'RecentAvatar',
     'DisplayNameStyle',
+)
+
+_log = logging.getLogger(__name__)
+
+# Payload key -> User attribute, for the fields a user update can change
+_USER_UPDATE_FIELDS = (
+    ('username', 'name'),
+    ('avatar', '_avatar'),
+    ('discriminator', 'discriminator'),
+    ('public_flags', '_public_flags'),
+    ('avatar_decoration_data', '_avatar_decoration_data'),
+    ('global_name', 'global_name'),
+    ('primary_guild', '_primary_guild'),
+    ('display_name_styles', '_display_name_style'),
+    ('collectibles', '_collectibles'),
 )
 
 
@@ -1257,63 +1274,29 @@ class User(BaseUser, discord.abc.Connectable, discord.abc.Messageable):
         if len(user) <= 1:  # Done because of typing
             return
 
-        if partial:
-            # A presence carries a partial user: Discord only guarantees its ID. A key
-            # it leaves out is unchanged, not cleared (and a missing username used to
-            # raise KeyError in the parser)
-            return self._update_self_partial(user)
-
-        original = (
-            self.name,
-            self._avatar,
-            self.discriminator,
-            self._public_flags,
-            self._avatar_decoration_data,
-            self.global_name,
-            self._primary_guild,
-            self._display_name_style,
-            self._collectibles,
-        )
-        modified = (
-            user['username'],
-            user.get('avatar'),
-            user['discriminator'],
-            user.get('public_flags', 0),
-            user.get('avatar_decoration_data'),
-            user.get('global_name'),
-            user.get('primary_guild'),
-            user.get('display_name_styles'),
-            user.get('collectibles'),
-        )
-        if original != modified:
-            to_return = User._copy(self)
-            (
-                self.name,
-                self._avatar,
-                self.discriminator,
-                self._public_flags,
-                self._avatar_decoration_data,
-                self.global_name,
-                self._primary_guild,
-                self._display_name_style,
-                self._collectibles,
-            ) = modified
-            # Signal to dispatch user_update
-            return to_return, self
+        if not partial:
+            # A full user (GUILD_MEMBER_UPDATE) should carry every field. Whether
+            # Discord ever leaves one out while it is still set is not known, so a
+            # missing field keeps the cached value (as for a presence) instead of
+            # being cleared, and the first time each field is missing it is logged
+            for key, _ in _USER_UPDATE_FIELDS:
+                if key not in user:
+                    _warn_once(
+                        _log,
+                        f'full-user-missing-{key}',
+                        'A member update carried a user without %r; the cached value was kept. '
+                        'This warning is shown once per field.',
+                        key,
+                    )
+        # A presence carries a partial user: Discord only guarantees its ID. A key it
+        # leaves out is unchanged, not cleared (and a missing username used to raise
+        # KeyError in the parser)
+        return self._update_self_partial(user)
 
     def _update_self_partial(self, user: PartialUserPayload) -> Optional[Tuple[User, User]]:
-        fields = (
-            ('username', 'name'),
-            ('avatar', '_avatar'),
-            ('discriminator', 'discriminator'),
-            ('public_flags', '_public_flags'),
-            ('avatar_decoration_data', '_avatar_decoration_data'),
-            ('global_name', 'global_name'),
-            ('primary_guild', '_primary_guild'),
-            ('display_name_styles', '_display_name_style'),
-            ('collectibles', '_collectibles'),
-        )
-        changed = [(attr, user[key]) for key, attr in fields if key in user and user[key] != getattr(self, attr)]
+        changed = [
+            (attr, user[key]) for key, attr in _USER_UPDATE_FIELDS if key in user and user[key] != getattr(self, attr)
+        ]
         if not changed:
             return None
         to_return = User._copy(self)

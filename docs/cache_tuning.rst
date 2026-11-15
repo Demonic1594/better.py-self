@@ -137,6 +137,13 @@ numbers as relative to that machine; compare runs on the same host.
        (cap 50k plus batch slack), messages at 1,000, presences under 20. RSS
        reached 172 MiB by 1.2M events and 185 MiB at 5M; the last million
        events added 0.7 MiB. No library warnings.
+
+       Since v2.3.3 the plateau gate measures live allocations
+       (``sys.getallocatedblocks()`` after a collection) rather than RSS. In
+       the default 1M-event soak they stay flat (+0.34% over the second half)
+       while RSS still rises about 11 MiB, memory the allocator keeps after
+       objects are freed. The old RSS gate failed on that, on code from before
+       and after every audit round.
    * - Slow-handler burst, 300k events
      - Handlers sleeping 20 ms each. The backlog drained completely, every
        handler task completed, ``on_dispatch_backlog`` fired, memory after the

@@ -222,6 +222,7 @@ if TYPE_CHECKING:
         assume_unsync_clock: bool
         enable_debug_events: bool
         enable_raw_presences: bool
+        enable_raw_typing: bool
         eager_dispatch: bool
         sync_presence: bool
         captcha_handler: Optional[Callable[[CaptchaRequired, Client], Awaitable[str]]]
@@ -301,7 +302,7 @@ _KNOWN_CLIENT_OPTIONS: frozenset = frozenset(
         'activities', 'activity', 'afk', 'allowed_mentions', 'apm_tracing', 'assume_unsync_clock',
         'canary', 'captcha_handler', 'case_insensitive', 'chunk_guilds_at_startup', 'debug_options',
         'default_ratelimit_limit', 'dispatch_backlog_warning', 'eager_dispatch', 'enable_debug_events',
-        'enable_raw_presences',
+        'enable_raw_presences', 'enable_raw_typing',
         'gc_freeze', 'guild_subscriptions', 'heartbeat_timeout', 'idle_since', 'installation_id',
         'max_guild_presence_cache', 'max_member_cache', 'max_messages', 'max_presence_cache',
         'max_ratelimit_timeout', 'max_thread_cache', 'max_total_member_cache', 'max_total_thread_cache',
@@ -553,6 +554,13 @@ class Client:
         so the payload is not built unless asked for.
 
         .. versionadded:: 2.3.2
+    enable_raw_typing: :class:`bool`
+        Whether to dispatch :func:`on_raw_typing`, which covers every typing
+        event, including the ones :func:`on_typing` drops because the channel
+        or the user isn't cached. Defaults to ``False``: typing events are
+        frequent, so the payload is not built unless asked for.
+
+        .. versionadded:: 2.3.3
     sync_presence: :class:`bool`
         Whether to keep presences up-to-date across clients.
         The default behavior is ``True`` (what the client does).
@@ -1811,14 +1819,24 @@ class Client:
         .. note::
 
             Event handlers that are still running are not cancelled or waited
-            for. An HTTP request one of them makes after this returns fails
-            straight away (curl_cffi raises ``SessionClosed``); it is not
-            retried.
+            for, and a warning says how many there were. An HTTP request one
+            of them makes after this returns fails straight away (curl_cffi
+            raises ``SessionClosed``); it is not retried.
         """
         if self._closing_task:
             # Shielded: a caller that gives up waiting (wait_for(client.close(), 5)) must not
             # cancel the shutdown itself, or a retried close() would just re-raise CancelledError
             return await asyncio.shield(self._closing_task)
+
+        caller = asyncio.current_task()
+        # The handler that called close() is still "running" itself, so it doesn't count
+        running = [task for task in self._dispatch_pending if not task.done() and task is not caller]
+        if running:
+            _log.warning(
+                '%d event handler(s) were still running when the client closed. They are not '
+                'cancelled; HTTP requests they make from now on fail (curl_cffi SessionClosed).',
+                len(running),
+            )
 
         async def _close():
             for voice in self.voice_clients:

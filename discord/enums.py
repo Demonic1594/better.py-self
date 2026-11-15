@@ -813,6 +813,7 @@ class NameEffect(Enum):
 
 
 class ActivityType(Enum):
+    unknown = -1
     playing = 0
     streaming = 1
     listening = 2

@@ -9,7 +9,7 @@ caches, faster hot paths, credential-safe logging and features ported from
 The wiki explains how things work and why. The Sphinx docs in [`docs/`](../docs)
 are the API reference: [`api.rst`](../docs/api.rst) and the
 [changelog](../docs/whats_new.rst). Every statement here was checked against
-this repository's code at **v2.3.2**. Where a fact comes from somewhere else,
+this repository's code at **v2.3.3**. Where a fact comes from somewhere else,
 such as Discord's behaviour, an upstream project or a live test, the page says
 so.
 
@@ -45,5 +45,5 @@ the file in a pull request: edits made on the Wiki tab are overwritten.
 
 ## Version
 
-This wiki describes **v2.3.2**. See the [changelog](../docs/whats_new.rst) for what changed,
+This wiki describes **v2.3.3**. See the [changelog](../docs/whats_new.rst) for what changed,
 and the [roadmap](../docs/roadmap.rst) for what is planned.

@@ -15,7 +15,7 @@
 python3 -m pip install -U git+https://github.com/Demonic1594/better.py-self.git
 
 # From a release wheel
-python3 -m pip install -U https://github.com/Demonic1594/better.py-self/releases/download/v2.3.2/discord_py_self-2.3.2-py3-none-any.whl
+python3 -m pip install -U https://github.com/Demonic1594/better.py-self/releases/download/v2.3.3/discord_py_self-2.3.3-py3-none-any.whl
 ```
 
 ### Extras

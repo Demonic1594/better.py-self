@@ -341,12 +341,20 @@ async def test_a_presence_keeps_user_fields_it_leaves_out():
 
 
 @pytest.mark.asyncio
-async def test_a_member_update_still_applies_the_full_user():
-    """GUILD_MEMBER_UPDATE carries a full user, so a missing optional key still clears it."""
+async def test_a_member_update_missing_a_user_field_keeps_it_and_warns(caplog, monkeypatch):
+    """A full user (GUILD_MEMBER_UPDATE) that leaves out a field keeps the cached
+    value and logs a warning once per field, instead of clearing it."""
+    monkeypatch.setattr(utils, '_warned_once', set())
     client, state = await _client()
     user = state._get_guild(GUILD_ID).get_member(100)._user
     user._public_flags = 64
-    state.parse_guild_member_update({'guild_id': str(GUILD_ID), 'user': up(100), 'roles': []})
+    with caplog.at_level(logging.WARNING, logger='discord.user'):
+        state.parse_guild_member_update({'guild_id': str(GUILD_ID), 'user': up(100), 'roles': []})
+        state.parse_guild_member_update({'guild_id': str(GUILD_ID), 'user': up(100), 'roles': []})
+    assert user._public_flags == 64
+    assert caplog.text.count("without 'public_flags'") == 1, 'once per field'
+    # A field the payload carries is still applied
+    state.parse_guild_member_update({'guild_id': str(GUILD_ID), 'user': up(100) | {'public_flags': 0}, 'roles': []})
     assert user._public_flags == 0
     await client.close()
 

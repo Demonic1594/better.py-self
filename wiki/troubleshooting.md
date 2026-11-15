@@ -103,7 +103,8 @@ account. The most common ones, from Discord's user-API docs:
 - **No `on_raw_presence_update`.** It's opt-in: pass `enable_raw_presences=True`.
 - **A typing event was dropped.** That happens when its channel isn't cached,
   or when its user can't be resolved (for example a DM without a recipient).
-  `on_raw_typing` is planned for v2.3.4.
+  Use `on_raw_typing` with `enable_raw_typing=True`; it fires for every typing
+  event.
 - **Handlers seem to lag.** Watch `on_dispatch_backlog` and
   `cache_stats().dispatch_backlog`. A slow handler is holding up the queue.
 
@@ -156,6 +157,28 @@ for 60 seconds") after that much silence. See [Member lists](member-lists.md).
 
 You passed a keyword `Client` doesn't know, usually a typo. See
 [Client options](client-options.md).
+
+## Warnings added in v2.3.3
+
+Each of these is logged once per process. The library keeps working: it skips
+the bad value and carries on.
+
+- **"A member update carried a user without 'X'; the cached value was kept."**
+  Discord sent a member update whose user object lacked a field. Earlier
+  versions reset the cached field (a name to `None`, say). Please report it with
+  the field name, since Discord's documentation says the field is always sent.
+- **"Spotify.track_url is empty for a local file"**. A Spotify activity for a
+  local file has no track ID. `track_url` is `''` (it used to be
+  `https://open.spotify.com/track/None`). Check `track_id` before using the URL.
+- **"A custom theme color is not a hex color"**. A custom client theme holds a color that is
+  not hex. That color reads as `0`. Set the theme again in the Discord client.
+- **"An Activity with type ActivityType.unknown cannot be sent to Discord"**. You passed an activity
+  of type `unknown` to `change_presence`. It is sent as `playing`. Pick a real
+  type.
+- **"N event handler(s) were still running when the client closed"**. `close()`
+  doesn't cancel handlers, and HTTP requests they make after it fail with
+  curl_cffi's `SessionClosed`. Wait for your handlers, or stop them, before
+  closing.
 
 ## Reporting a bug
 

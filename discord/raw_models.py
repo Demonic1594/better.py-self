@@ -31,6 +31,8 @@ from .enums import ChannelType, ReactionType, ReadStateType, Status, try_enum
 from .utils import _get_as_snowflake
 
 if TYPE_CHECKING:
+    import datetime
+
     from typing_extensions import Self
 
     from .guild import Guild
@@ -57,6 +59,8 @@ if TYPE_CHECKING:
         PollVoteActionEvent,
         ThreadDeleteEvent,
         ThreadMembersUpdate,
+        ThreadUpdateEvent,
+        TypingStartEvent,
     )
     from .user import User
 
@@ -72,6 +76,7 @@ __all__ = (
     'RawReactionClearEvent',
     'RawReactionClearEmojiEvent',
     'RawIntegrationDeleteEvent',
+    'RawThreadUpdateEvent',
     'RawThreadDeleteEvent',
     'RawThreadMembersUpdate',
     'RawMemberRemoveEvent',
@@ -81,6 +86,7 @@ __all__ = (
     'RawPollVoteActionEvent',
     'RawJoinRequestDeleteEvent',
     'RawPresenceUpdateEvent',
+    'RawTypingEvent',
 )
 
 
@@ -366,6 +372,40 @@ class RawIntegrationDeleteEvent(_RawReprMixin):
             self.application_id: Optional[int] = None
 
 
+class RawThreadUpdateEvent(_RawReprMixin):
+    """Represents the payload for a :func:`on_raw_thread_update` event.
+
+    .. versionadded:: 2.3.3
+
+    Attributes
+    ----------
+    thread_id: :class:`int`
+        The ID of the thread that was updated.
+    thread_type: :class:`discord.ChannelType`
+        The channel type of the updated thread.
+    guild_id: :class:`int`
+        The ID of the guild the thread is in.
+    parent_id: Optional[:class:`int`]
+        The ID of the channel the thread belongs to.
+    data: :class:`dict`
+        The raw data given by the :ddocs:`gateway <topics/gateway-events#thread-update>`
+    thread: Optional[:class:`discord.Thread`]
+        The thread, if it could be found in the internal cache. It is updated
+        right after this event is dispatched; :func:`on_thread_update` then
+        gives the state before and after.
+    """
+
+    __slots__ = ('thread_id', 'thread_type', 'parent_id', 'guild_id', 'data', 'thread')
+
+    def __init__(self, data: ThreadUpdateEvent) -> None:
+        self.thread_id: int = int(data['id'])
+        self.thread_type: ChannelType = try_enum(ChannelType, data['type'])
+        self.guild_id: int = int(data['guild_id'])
+        self.parent_id: Optional[int] = _get_as_snowflake(data, 'parent_id')
+        self.data: ThreadUpdateEvent = data
+        self.thread: Optional[Thread] = None
+
+
 class RawThreadDeleteEvent(_RawReprMixin):
     """Represents the payload for a :func:`on_raw_thread_delete` event.
 
@@ -638,3 +678,35 @@ class RawPresenceUpdateEvent(_RawReprMixin):
         self.mobile_status: Status = try_enum(Status, client_status.mobile or 'offline')
         self.web_status: Status = try_enum(Status, client_status.web or 'offline')
         self.activities: Tuple[ActivityTypes, ...] = presence.activities
+
+
+class RawTypingEvent(_RawReprMixin):
+    """Represents the payload for a :func:`on_raw_typing` event.
+
+    It is opt-in: pass ``enable_raw_typing=True`` to :class:`Client`.
+
+    .. versionadded:: 2.3.3
+
+    Attributes
+    ----------
+    channel_id: :class:`int`
+        The ID of the channel the user started typing in.
+    user_id: :class:`int`
+        The ID of the user that started typing.
+    user: Optional[Union[:class:`discord.User`, :class:`discord.Member`]]
+        The user that started typing, if they could be found in the internal cache
+        (or, in a guild, built from the member data the event carries).
+    timestamp: :class:`datetime.datetime`
+        When the typing started as an aware datetime in UTC.
+    guild_id: Optional[:class:`int`]
+        The ID of the guild the user started typing in, if applicable.
+    """
+
+    __slots__ = ('channel_id', 'user_id', 'user', 'timestamp', 'guild_id')
+
+    def __init__(self, data: TypingStartEvent, timestamp: datetime.datetime, /) -> None:
+        self.channel_id: int = int(data['channel_id'])
+        self.user_id: int = int(data['user_id'])
+        self.user: Optional[Union[User, Member]] = None
+        self.timestamp: datetime.datetime = timestamp
+        self.guild_id: Optional[int] = _get_as_snowflake(data, 'guild_id')

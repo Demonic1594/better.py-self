@@ -26,6 +26,10 @@ Most events come in two forms:
   that update raised in the parser and the event was lost.
   `on_raw_thread_member_remove` also fires for threads that aren't cached
   (often threads the bounded cache evicted), once per member who left.
+  `on_raw_thread_update` (new in 2.3.3) fires for every thread update, cached or
+  not, before `on_thread_update`. Its payload's `thread` is the cached thread
+  (already updated by the time a handler runs) or `None`; for the state before
+  the update, use `on_thread_update`.
 
 Use the raw form when you must not miss an event because of the cache.
 
@@ -36,13 +40,15 @@ Some events are off by default because they are frequent, or only useful for deb
 | Event | Turn on with | Why it's off |
 |---|---|---|
 | `on_raw_presence_update(payload)` | `enable_raw_presences=True` | Presence updates are the most frequent gateway event, and building the payload for each one costs time. When it's off, only `on_presence_update` fires, for cached members. |
+| `on_raw_typing(payload)` | `enable_raw_typing=True` | Typing events are frequent, and most clients only need `on_typing`. *New in 2.3.3.* |
 | `on_socket_raw_receive(msg)`, `on_socket_raw_send(payload)` | `enable_debug_events=True` | These handlers get raw frames, **without redaction**. Don't log them anywhere public. |
 
-`on_raw_typing` and `on_raw_thread_update` are planned for v2.3.4 (see the
-[roadmap](../docs/roadmap.rst)). Until then, a typing event is dropped when its
-channel isn't cached, or when no member or user can be resolved. In guild text
-channels and threads, a member who isn't cached is built from the event's
-payload, so those still fire.
+`on_typing` is dropped when the typing event's channel isn't cached, or when no
+member or user can be resolved (in guild text channels and threads, a member
+who isn't cached is built from the event's payload, so those still fire).
+`on_raw_typing` fires for every typing event: its payload holds the channel,
+user and guild IDs, the timestamp, and `user`, the resolved member or user or
+`None`.
 
 ## Event groups
 

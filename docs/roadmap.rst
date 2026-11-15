@@ -8,72 +8,33 @@ Roadmap
 This page lists the work planned for upcoming releases. Plans can change;
 :doc:`whats_new` is the record of what actually shipped.
 
-v2.3.3
-------
+v2.3.3 (released)
+-----------------
 
-Reserved for fixes found after v2.3.2. No new API is planned for it.
+The November 2026 audit and its follow-ups, the Rapptz/discord.py round-4 port
+planned for v2.3.4 (:func:`on_raw_typing`, :func:`on_raw_thread_update`,
+:attr:`ActivityType.unknown`), the stress benchmark's soak gate on live objects,
+and the audit log typings. See :doc:`whats_new`.
 
-v2.3.4
-------
+Next
+----
 
-**Rapptz/discord.py port, round 4.** This release takes the last API from
-Rapptz/discord.py that is useful to user accounts. The candidates come from
-comparing Rapptz ``master`` (``65232c3``) with this fork's public API, leaving out
-bot-only areas: application commands, interaction responses, sending
-components, intents, sharding, entitlements and SKUs.
-dolfies/discord.py-self has no unported commits; its ``master`` is still the
-commit recorded in ``.github/LATEST_UPSTREAM_COMMIT.txt``.
-
-Planned:
-
-- ``on_raw_typing`` and ``RawTypingEvent``
-
-  Typing events that :func:`on_typing` drops. Today ``TYPING_START`` is dropped
-  when its channel isn't cached, or when no member or user can be resolved:
-  a DM without a recipient, a group without that recipient, or a guild member
-  who isn't cached and isn't in the payload. ``TYPING_START`` is one of the most
-  frequent gateway events, so the raw event will be opt-in, the way
-  ``enable_raw_presences`` is for presences, and costs nothing when it is off.
-
-- ``on_raw_thread_update`` and ``RawThreadUpdateEvent``
-
-  Thread updates for threads that are not cached, carrying the raw payload
-  and the cached thread when there is one.
-
-- ``ActivityType.unknown``
-
-  The enum value ``-1`` that Rapptz uses for activity types it does not know.
-  The port first checks how this fork already handles unknown activity types,
-  and only adds the value if nothing covers it.
-
-Every item follows the usual rules:
-
-- It carries ``versionadded`` and an entry in :doc:`whats_new`.
-- It has regression tests, plus a live check where an account can trigger it.
-- It is recorded in :doc:`upstream_syncing`.
-- The memory benchmark and the stress benchmark run whenever a hot path is touched.
+No release is planned yet. Candidates are the open items below, and anything
+new in dolfies/discord.py-self or Rapptz/discord.py that applies to user
+accounts.
 
 Open items
 ----------
 
 These have no release assigned yet.
 
-- **Stress benchmark soak gate.** The soak phase of ``tools/stress_bench.py``
-  fails its RSS-plateau gate by about +10.8 MiB (measured in stress-benchmark
-  runs during the v2.3.2 work). It fails the same way on code
-  from before the audit rounds, and the count of live objects stays flat, so
-  this is allocator behaviour, not a leak. Either the soak runs longer, or the
-  gate measures live objects instead of RSS.
-- **Audit log typings.** ``old_value`` and ``new_value`` in
-  ``discord/types/audit_log.py`` could be ``NotRequired`` in every change
-  shape. The change is file-wide and changes typings only.
 - **Live check of** :attr:`Message.interaction_metadata`. Unit tests cover the
   parsing, but a live run has not yet found a message that carries it.
-- **Follow-ups from the November 2026 audit.** Done in the follow-up round
-  (see ``docs/audit_2026-11.md``). Still open: ``Spotify.track_url`` for local
-  files (needs a return type change), and two questions a live capture would
-  settle: whether ``GUILD_MEMBER_UPDATE`` omits optional user keys that are
-  still set, and the color format of custom themes.
+- **Questions the v2.3.3 warnings will answer.** Two payload shapes can only be
+  confirmed on a live account: whether a member update ever leaves out a user
+  field that is still set, and the color format of custom themes. Both now keep
+  the data and log a warning (once) when they meet the unexpected shape, so a
+  report of that warning settles each question.
 
 Not planned
 -----------

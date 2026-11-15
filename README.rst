@@ -107,6 +107,18 @@ for the full tuning guide):
   about 50 MB of DEBUG logs. Redaction works on a fixed list of key names, so
   still treat DEBUG logs as sensitive.
 
+**New in v2.3.3**
+
+- A full audit of the library against discord.py-self and discord.py, with
+  every fix covered by a regression test (see the changelog and
+  ``docs/audit_2026-11.md``).
+- ``on_raw_typing`` (opt in with ``enable_raw_typing=True``) and
+  ``on_raw_thread_update``, ported from Rapptz/discord.py: typing and thread
+  updates even when the channel, user or thread isn't cached.
+- Values the library can't use (a local Spotify file's URL, an unknown activity
+  type, an unreadable theme color, a member update missing a field) are
+  skipped with a clear warning instead of failing.
+
 **New in v2.3.2** (ported from Rapptz/discord.py and adapted to user accounts)
 
 - **Soundboard:**
@@ -165,8 +177,8 @@ Installing
 **Python 3.10 or higher is required.**
 
 This fork is not published to PyPI. Install it from the
-repository, or from the `v2.3.2 release
-<https://github.com/Demonic1594/better.py-self/releases/tag/v2.3.2>`_
+repository, or from the `v2.3.3 release
+<https://github.com/Demonic1594/better.py-self/releases/tag/v2.3.3>`_
 wheel:
 
 .. code:: sh
@@ -175,7 +187,7 @@ wheel:
     python3 -m pip install -U git+https://github.com/Demonic1594/better.py-self.git
 
     # From the release wheel
-    python3 -m pip install -U https://github.com/Demonic1594/better.py-self/releases/download/v2.3.2/discord_py_self-2.3.2-py3-none-any.whl
+    python3 -m pip install -U https://github.com/Demonic1594/better.py-self/releases/download/v2.3.3/discord_py_self-2.3.3-py3-none-any.whl
 
 For voice support, add the ``[voice]`` extra:
 
@@ -214,7 +226,7 @@ Differences From Upstream
 --------------------------
 
 - The package still installs as ``discord`` (import ``discord`` as usual);
-  the distribution name on the v2.3.2 wheel is ``discord_py_self``.
+  the distribution name on the v2.3.3 wheel is ``discord_py_self``.
 - Upstream's ``selfcord.py`` renamed build (the ``renamed`` branch) is not
   carried by this fork; it was removed together with the destructive
   rename/publish workflows.
@@ -223,8 +235,9 @@ Differences From Upstream
 - ``Client(eager_dispatch=True)`` is an opt-in addition (Python 3.12+) that
   starts event handlers eagerly. It is off by default, and the changelog
   lists the behaviour changes this round made.
-- ``Client(enable_raw_presences=True)`` turns on ``on_raw_presence_update``. It
-  is off by default because presence updates are the most frequent event.
+- ``Client(enable_raw_presences=True)`` turns on ``on_raw_presence_update``, and
+  ``Client(enable_raw_typing=True)`` turns on ``on_raw_typing``. Both are off by
+  default because those are frequent events.
 - Features are ported from Rapptz/discord.py as well as from
   dolfies/discord.py-self. The `upstream syncing guide
   <https://github.com/Demonic1594/better.py-self/blob/master/docs/upstream_syncing.rst>`_
