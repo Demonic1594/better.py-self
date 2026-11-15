@@ -69,13 +69,11 @@ These have no release assigned yet.
   shape. The change is file-wide and changes typings only.
 - **Live check of** :attr:`Message.interaction_metadata`. Unit tests cover the
   parsing, but a live run has not yet found a message that carries it.
-- **Follow-ups from the November 2026 audit** (``docs/audit_2026-11.md``,
-  "Remaining issues"). The larger ones: the voice handshake races (a
-  replaced UDP socket, the state-event lost wakeup, ``disconnect()`` during a
-  handshake), ``UserSettings.edit(client_theme=MISSING)`` not resetting the
-  theme, partial presence users clearing fields they omit, closing the
-  HTTP session when :meth:`Client.login` fails outside ``async with``, and a
-  timeout for a single :meth:`Guild.chunk` whose reply is lost.
+- **Follow-ups from the November 2026 audit.** Done in the follow-up round
+  (see ``docs/audit_2026-11.md``). Still open: ``Spotify.track_url`` for local
+  files (needs a return type change), and two questions a live capture would
+  settle: whether ``GUILD_MEMBER_UPDATE`` omits optional user keys that are
+  still set, and the color format of custom themes.
 
 Not planned
 -----------

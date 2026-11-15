@@ -19,6 +19,11 @@ The code is `HTTPClient.request` in [`discord/http.py`](../discord/http.py).
 - **Per-route buckets.** Each route keeps a bucket. Until Discord reports a
   limit, the bucket assumes `default_ratelimit_limit` (1), so requests on the
   same route are serialized.
+- **The last request of a window returns at once.** When a response empties
+  its bucket, that request returns straight away and the wait for the reset
+  happens in the background; the next request on the bucket waits for it.
+  Before the November 2026 audit follow-ups, the request that emptied the bucket
+  itself waited out the reset before returning.
 - **429 handling.** The client sleeps for `retry_after` from the body, or the
   `Retry-After` header, then retries.
   - A 429 with no usable value waits **1 second** instead of retrying straight away.

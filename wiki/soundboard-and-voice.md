@@ -165,8 +165,21 @@ For audio, install the `[voice]` extra (`PyNaCl`, `davey`) and connect with
     retrying by itself and logs `Could not connect to voice... Retrying...`
     each time. Don't call `connect()` then; it would raise "Already connected
     to a voice channel".
+- **Moved while connecting.** If Discord moves the account to another channel
+  during the handshake, the library starts a new handshake and `connect()`
+  waits for it. It used to raise `asyncio.CancelledError`.
+- **Disconnecting while connecting.** `voice_client.disconnect()` from another
+  task during the handshake stops it, and the pending `connect()` raises
+  `ClientException`. The handshake used to go on into a connection nothing
+  tracked.
+- **Voice server changes.** When Discord moves the connection to another voice
+  server, the old UDP socket is closed and the reader switches to the new one
+  at once (it used to wait up to 30 seconds, which could time out IP discovery).
 - **FFmpeg errors reach `after`** also when the source is wrapped in
   `PCMVolumeTransformer`.
+- **Changing the source.** Setting `voice_client.source` doesn't clean up the
+  source it replaces, so you can play it again. If you won't, call its
+  `cleanup()`: an FFmpeg source with `pipe=True` keeps its process until then.
 
 **Encryption.** Discord's voice servers now require **DAVE**, Discord's
 end-to-end encryption. `davey` implements it, and the voice gateway handles the

@@ -801,6 +801,13 @@ class VoiceClient(VoiceProtocol):
         """Optional[:class:`AudioSource`]: The audio source being played, if playing.
 
         This property can also be used to change the audio source currently being played.
+
+        .. note::
+
+            The source it replaces is not cleaned up, so that it can be played
+            again later. If you won't reuse it, call its
+            :meth:`~AudioSource.cleanup` yourself: an FFmpeg source with
+            ``pipe=True`` keeps its process and reader thread until then.
         """
         return self._player.source if self._player else None
 

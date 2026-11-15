@@ -81,12 +81,12 @@ A second `chunk()` while one is running joins the running request. When a
 reply at all for 60 seconds (one second per 10,000 members above 600,000), for example because
 it was lost on a connection that died and was then resumed, the library logs
 `Member chunk request for guild ID ... got no reply; sending a new one.`,
-fails the old waiters with `ClientException` and sends a new request. Before
-this was fixed (after v2.3.2) every later call joined the dead request and
-waited forever.
-
-This check only runs when another call comes in. A single `chunk()` whose
-reply is lost still waits; wrap it in `asyncio.wait_for` if that matters to you.
+fails the old waiters with `InvalidData` (a `ClientException`) and sends a new
+request. A single `chunk()` gives up the same way: after that much silence it
+raises `InvalidData`, which `Guild.chunk` documents for a missing reply. Every
+chunk received restarts the clock, so a slow but progressing request on a huge
+guild is not cut off. Before these fixes (after v2.3.2) a lost reply made
+`chunk()` wait forever, and every later call joined the dead request.
 
 ### Live numbers (v2.3.2)
 

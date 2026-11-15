@@ -35,8 +35,8 @@ from typing import TYPE_CHECKING, Optional, Dict, List, Callable, Coroutine, Any
 from curl_cffi import CurlError
 
 from .enums import Enum
-from .utils import MISSING, sane_wait_for
-from .errors import ConnectionClosed
+from .utils import MISSING
+from .errors import ClientException, ConnectionClosed
 from .backoff import ExponentialBackoff
 from .gateway import DiscordVoiceWebSocket
 from .voice_media import VoiceStream
@@ -82,6 +82,18 @@ class SocketReader(threading.Thread):
         self._end = threading.Event()
         # If we have paused reading due to having no callbacks
         self._idle_paused: bool = True
+        # Written to (see wake()) to end a select() early: when the socket is replaced,
+        # the reader would otherwise keep waiting on the old one for up to 30 seconds
+        self._wakeup_r, self._wakeup_w = socket.socketpair()
+        self._wakeup_r.setblocking(False)
+        self._wakeup_w.setblocking(False)
+
+    def wake(self) -> None:
+        try:
+            self._wakeup_w.send(b'\0')
+        except OSError:
+            # The buffer is full (a wakeup is already pending) or the reader has ended
+            pass
 
     def register(self, callback: SocketReaderCallback) -> None:
         self._callbacks.append(callback)
@@ -119,6 +131,7 @@ class SocketReader(threading.Thread):
     def stop(self) -> None:
         self._end.set()
         self._running.set()
+        self.wake()
 
     def run(self) -> None:
         self._end.clear()
@@ -133,6 +146,11 @@ class SocketReader(threading.Thread):
             self.stop()
             self._running.clear()
             self._callbacks.clear()
+            for sock in (self._wakeup_r, self._wakeup_w):
+                try:
+                    sock.close()
+                except OSError:
+                    pass
 
     def _do_run(self) -> None:
         while not self._end.is_set():
@@ -141,8 +159,9 @@ class SocketReader(threading.Thread):
                 continue
 
             # Since this socket is a non blocking socket, select has to be used to wait on it for reading.
+            sock = self.state.socket
             try:
-                readable, _, _ = select.select([self.state.socket], [], [], 30)
+                readable, _, _ = select.select([sock, self._wakeup_r], [], [], 30)
             except (ValueError, TypeError, OSError) as e:
                 _log.debug(
                     'Select error handling socket in reader, this should be safe to ignore: %s: %s.', e.__class__.__name__, e
@@ -150,12 +169,22 @@ class SocketReader(threading.Thread):
                 # The socket is either closed or doesn't exist at the moment
                 continue
 
+            if self._wakeup_r in readable:
+                try:
+                    while self._wakeup_r.recv(4096):
+                        pass
+                except OSError:
+                    pass
+                if sock not in readable:
+                    # Woken up to look at a new socket (or to stop)
+                    continue
+
             if not readable:
                 continue
 
             while not self._end.is_set():
                 try:
-                    data = self.state.socket.recv(2048)
+                    data = sock.recv(2048)
                 except BlockingIOError:
                     break
                 except OSError:
@@ -232,9 +261,13 @@ class VoiceConnectionState:
         self._expecting_disconnect: bool = False
         self._connected = threading.Event()
         self._state_event = asyncio.Event()
+        # Futures woken on every state change (see _wait_for_state)
+        self._state_waiters: List[asyncio.Future[None]] = []
         self._disconnected = asyncio.Event()
         self._runner: Optional[asyncio.Task] = None
         self._connector: Optional[asyncio.Task] = None
+        # A connector that disconnect() stopped mid-handshake (see connect())
+        self._aborted_connector: Optional[asyncio.Task] = None
         self._socket_reader: SocketReader = self._create_socket_reader()
 
     def update_video_streams(self, data: Sequence[VoiceStreamPayload]) -> None:
@@ -320,6 +353,12 @@ class VoiceConnectionState:
         self._state = state
         self._state_event.set()
         self._state_event.clear()
+        waiters = self._state_waiters
+        if waiters:
+            self._state_waiters = []
+            for future in waiters:
+                if not future.done():
+                    future.set_result(None)
 
         if state is ConnectionFlowState.connected:
             self._connected.set()
@@ -542,7 +581,28 @@ class VoiceConnectionState:
             self._wrap_connect(reconnect, timeout, self_deaf, self_mute, self_video, resume), name='Voice connector'
         )
         if wait:
-            await self._connector
+            await self._await_connector()
+
+    async def _await_connector(self) -> None:
+        while True:
+            connector = self._connector
+            if connector is None:
+                return
+            try:
+                await asyncio.shield(connector)
+                return
+            except asyncio.CancelledError:
+                if not connector.cancelled():
+                    # This task was cancelled: stop the handshake too, as awaiting it directly did
+                    connector.cancel()
+                    raise
+                if connector is self._aborted_connector:
+                    raise ClientException('Disconnected from voice while connecting.') from None
+                if self._connector is not None and self._connector is not connector:
+                    # A newer attempt replaced this one (we were moved while connecting):
+                    # follow it instead of reporting a cancellation nobody asked for
+                    continue
+                raise
 
     async def _wrap_connect(self, *args: Any) -> None:
         try:
@@ -614,6 +674,15 @@ class VoiceConnectionState:
             self._runner = self.voice_client.loop.create_task(self._poll_voice_ws(reconnect), name='Voice websocket poller')
 
     async def disconnect(self, *, force: bool = True, cleanup: bool = True, wait: bool = False) -> None:
+        connector = self._connector
+        if connector is not None and not connector.done() and asyncio.current_task() is not connector:
+            # A connect() is still running. Returning early here (not connected yet) left
+            # it running while VoiceClient.cleanup() unregistered the client, so the
+            # handshake could finish into a connection nothing tracked. Stop it first
+            self._aborted_connector = connector
+            connector.cancel()
+            await asyncio.wait([connector])
+            force = True
         if not force and not self.is_connected():
             return
 
@@ -761,10 +830,22 @@ class VoiceConnectionState:
         self, state: ConnectionFlowState, *other_states: ConnectionFlowState, timeout: Optional[float] = None
     ) -> None:
         states = (state, *other_states)
-        while True:
-            if self.state in states:
-                return
-            await sane_wait_for([self._state_event.wait()], timeout=timeout)
+        loop = asyncio.get_running_loop()
+        while self.state not in states:
+            # Registered before yielding, so a change right after the check above can't
+            # be missed. The old Event.wait() only started waiting a loop turn later, and
+            # the setter's set()/clear() pulse could come and go in between
+            future = loop.create_future()
+            self._state_waiters.append(future)
+            try:
+                await asyncio.wait_for(future, timeout=timeout)
+            finally:
+                if not future.done():
+                    future.cancel()
+                try:
+                    self._state_waiters.remove(future)
+                except ValueError:
+                    pass
 
     async def _voice_connect(self, *, self_deaf: bool = False, self_mute: bool = False, self_video: bool = False) -> None:
         channel = self.voice_client.channel
@@ -808,6 +889,7 @@ class VoiceConnectionState:
         self.state = ConnectionFlowState.connected
 
     def _create_socket(self) -> None:
+        previous = self.socket
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         for option in (socket.SO_RCVBUF, socket.SO_SNDBUF):
             try:
@@ -815,7 +897,15 @@ class VoiceConnectionState:
             except OSError:
                 pass
         self.socket.setblocking(False)
+        if previous:
+            # The old socket was left open, and the reader went on waiting on it, so
+            # IP discovery on the new one could take up to 30 seconds
+            try:
+                previous.close()
+            except OSError:
+                pass
         if self._socket_reader is not MISSING:
+            self._socket_reader.wake()
             self._socket_reader.resume()
 
     async def _poll_voice_ws(self, reconnect: bool) -> None:

@@ -1622,12 +1622,27 @@ class Client:
         if not token:
             raise LoginFailure('Improper token has been passed (the token is empty).')
         state = self._connection
-        data = await state.http.static_login(token)
+        try:
+            data = await state.http.static_login(token)
+        except BaseException:
+            if state.user is None and self.ws is None:
+                # The first login failed (a bad token, say): close the HTTP session it
+                # opened, and reset it so a later login() starts a new one. Without
+                # `async with` or run(), nothing else would close it
+                await self._close_http_after_failed_login()
+            raise
         state.analytics_token = data.get('analytics_token', '')
         state.user = ClientUser(state=state, data=data)
         state._users[state.user.id] = state.user  # type: ignore
         await self._replay_persistence_safe()
         await self.setup_hook()
+
+    async def _close_http_after_failed_login(self) -> None:
+        try:
+            await self.http.close()
+        except Exception:
+            _log.debug('Ignoring an error closing the HTTP session after a failed login.', exc_info=True)
+        self.http.clear()
 
     async def _replay_persistence_safe(self) -> bool:
         """Replays the cache persistence snapshot, if any.
@@ -1792,6 +1807,13 @@ class Client:
         """|coro|
 
         Closes the connection to Discord.
+
+        .. note::
+
+            Event handlers that are still running are not cancelled or waited
+            for. An HTTP request one of them makes after this returns fails
+            straight away (curl_cffi raises ``SessionClosed``); it is not
+            retried.
         """
         if self._closing_task:
             # Shielded: a caller that gives up waiting (wait_for(client.close(), 5)) must not

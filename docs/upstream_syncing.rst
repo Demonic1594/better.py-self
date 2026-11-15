@@ -336,6 +336,38 @@ Audit round 3 (2026-11-14)
     the old source, ``Loop.stop`` not interrupting the sleep, and one
     ``raw_thread_member_remove`` per removed member.
 
+Audit round 3, follow-ups (2026-11-15)
+    The open items of ``docs/audit_2026-11.md``. More code that still matched
+    upstream (and mostly Rapptz) changed:
+
+    - ``voice_state.py``: ``SocketReader`` selects on a wake-up socket pair as
+      well (``wake()``); ``_create_socket`` closes the old socket and wakes the
+      reader; ``_wait_for_state`` waits on futures in ``_state_waiters`` (set by
+      the ``state`` setter) instead of pulsing ``_state_event``;
+      ``disconnect()`` cancels a running connector; ``connect()`` awaits
+      ``_await_connector``, which follows a replaced connector and raises
+      ``ClientException`` for an aborted one.
+    - ``http.py``: ``Ratelimit.__aexit__`` runs ``_refresh`` as a background
+      task (``_refresh_task``) instead of awaiting it.
+    - ``state.py``: ``GuildSubscriptions._flush`` drops the guild from
+      ``_subscribed`` on ``typing=False``; ``parse_thread_members_update``
+      dispatches the raw removal for uncached threads; ``ChunkRequest.wait``
+      takes ``stall_after`` (``_wait_chunk_request``, ``_chunk_stall_after``);
+      presence parsers call ``User._update_self(..., partial=True)``.
+    - ``utils.py``: the markdown list alternative is ``^[^\S\n]*-``, the masked
+      link URL part is bounded at 4096, and the angle-bracket URL excludes
+      ``<``.
+    - ``settings.py``: ``client_theme`` (property and ``edit``) checks which
+      fields the installed ``discord_protos`` schema has.
+    - ``ext/tasks``: ``Loop.stop`` wakes the pending ``SleepHandle``; the loop
+      re-checks the stop flag after each wait; ``restart`` ignores a second
+      pending restart.
+    - ``webhook``: ``BaseWebhook._message_channel`` is shared by ``Webhook``
+      and ``SyncWebhook``.
+    - Smaller: ``GroupChannel._update``, the recipient add/remove parsers,
+      ``Widget.__hash__``, the ``Entitlement`` slots, ``_remove_guild``,
+      ``Client.login``, ``create_activity`` and ``Application.entitlements``.
+
 Ported from Rapptz/discord.py, round 3: soundboard (2026-11-04)
     a70217a + 5734996 + 442ad40 + 9a1b91d, with the user-account flow of the
     closed dolfies/discord.py-self#929 (gateway op 31 REQUEST_SOUNDBOARD_SOUNDS

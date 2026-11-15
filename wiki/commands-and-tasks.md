@@ -115,6 +115,10 @@ heartbeat.start()
   loop, as long as they are added before the instance first uses the loop
   (each instance copies the list then).
 - **Stopping.** `stop()` lets the current iteration finish; `cancel()` stops now.
+  If the loop is waiting for its next iteration when you call `stop()`, it
+  ends at once and no further iteration runs (before the November 2026 audit
+  follow-ups, one more iteration ran after the wait). Calling `restart()` twice
+  in a row no longer raises.
 - **Timezones.** Since v2.3.1, loops whose `time=` values mix timezones run correctly.
 
 **Live test (v2.3.2):** `tasks.loop(seconds=0.5, count=3)` ran exactly 3 times

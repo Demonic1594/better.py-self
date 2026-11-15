@@ -216,6 +216,12 @@ class Widget:
 
             Checks if two widgets are not the same.
 
+        .. describe:: hash(x)
+
+            Returns the widget's hash.
+
+            .. versionadded:: 2.3.3
+
         .. describe:: str(x)
 
             Returns the widget's JSON URL.
@@ -280,6 +286,10 @@ class Widget:
         if isinstance(other, Widget):
             return self.id == other.id
         return False
+
+    def __hash__(self) -> int:
+        # Defining __eq__ alone made widgets unhashable; equal widgets share an ID
+        return hash(self.id)
 
     def __repr__(self) -> str:
         return f'<Widget id={self.id} name={self.name!r} invite_url={self.invite_url!r}>'

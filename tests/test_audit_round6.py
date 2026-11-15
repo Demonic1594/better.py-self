@@ -117,6 +117,9 @@ async def test_cancelled_voice_disconnect_still_raises_after_cleanup():
     state._connected = asyncio.Event()
     state._disconnected = asyncio.Event()
     state._state_event = asyncio.Event()
+    state._state_waiters = []
+    state._connector = None
+    state._aborted_connector = None
     state._state = ConnectionFlowState.connected
     state.is_connected = lambda: True  # type: ignore[method-assign]
 

@@ -2180,7 +2180,7 @@ def create_activity(data: Optional[ActivityPayload], state: ConnectionState, use
     elif (
         game_type is ActivityType.listening
         and data['name'] == 'Spotify'
-        and ((party := data.get('party')) is not None and party.get('id', '').startswith('spotify:'))
+        and ((party := data.get('party')) is not None and (party.get('id') or '').startswith('spotify:'))
     ):
         return Spotify.from_dict(data=data, state=state, user_id=user_id)
     else:

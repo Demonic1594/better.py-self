@@ -44,7 +44,7 @@ from .. import utils
 from ..errors import HTTPException, Forbidden, NotFound, DiscordServerError
 from ..message import Message, MessageFlags
 from ..http import Route, handle_message_parameters, _retry_delay, _webhook_retry_after
-from ..channel import PartialMessageable, ForumTag
+from ..channel import ForumTag
 
 from .async_ import BaseWebhook, _WebhookState
 
@@ -858,10 +858,10 @@ class SyncWebhook(BaseWebhook):
 
     def _create_message(self, data: MessagePayload, *, thread: Snowflake = MISSING) -> SyncWebhookMessage:
         state = _WebhookState(self, parent=self._state, thread=thread)
-        # state may be artificial (unlikely at this point...)
-        channel = self.channel or PartialMessageable(state=self._state, guild_id=self.guild_id, id=int(data['channel_id']))  # type: ignore
+        # The same resolution as Webhook: this used to ignore `thread`, so a message sent
+        # to a thread (or a new forum post) reported the parent channel as its channel
         # state is artificial
-        return SyncWebhookMessage(data=data, state=state, channel=channel)  # type: ignore
+        return SyncWebhookMessage(data=data, state=state, channel=self._message_channel(data, thread))  # type: ignore
 
     @overload
     def send(

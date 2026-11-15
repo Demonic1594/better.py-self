@@ -759,8 +759,9 @@ class ClientUser(BaseUser):
         except KeyError:
             pass
 
-    def _update_self(self, *args: Any) -> None:
-        # ClientUser is kept up to date by USER_UPDATEs only
+    def _update_self(self, *args: Any, **kwargs: Any) -> None:
+        # ClientUser is kept up to date by USER_UPDATEs only. Takes whatever User's
+        # version takes (presences pass partial=True), since a member's user can be us
         return
 
     @property
@@ -1250,9 +1251,17 @@ class User(BaseUser, discord.abc.Connectable, discord.abc.Messageable):
     def _get_voice_state_pair(self) -> Tuple[int, int]:
         return self._state.self_id, self.dm_channel.id  # type: ignore # self_id is always set at this point
 
-    def _update_self(self, user: Union[PartialUserPayload, Tuple[()]]) -> Optional[Tuple[User, User]]:
+    def _update_self(
+        self, user: Union[PartialUserPayload, Tuple[()]], *, partial: bool = False
+    ) -> Optional[Tuple[User, User]]:
         if len(user) <= 1:  # Done because of typing
             return
+
+        if partial:
+            # A presence carries a partial user: Discord only guarantees its ID. A key
+            # it leaves out is unchanged, not cleared (and a missing username used to
+            # raise KeyError in the parser)
+            return self._update_self_partial(user)
 
         original = (
             self.name,
@@ -1291,6 +1300,27 @@ class User(BaseUser, discord.abc.Connectable, discord.abc.Messageable):
             ) = modified
             # Signal to dispatch user_update
             return to_return, self
+
+    def _update_self_partial(self, user: PartialUserPayload) -> Optional[Tuple[User, User]]:
+        fields = (
+            ('username', 'name'),
+            ('avatar', '_avatar'),
+            ('discriminator', 'discriminator'),
+            ('public_flags', '_public_flags'),
+            ('avatar_decoration_data', '_avatar_decoration_data'),
+            ('global_name', 'global_name'),
+            ('primary_guild', '_primary_guild'),
+            ('display_name_styles', '_display_name_style'),
+            ('collectibles', '_collectibles'),
+        )
+        changed = [(attr, user[key]) for key, attr in fields if key in user and user[key] != getattr(self, attr)]
+        if not changed:
+            return None
+        to_return = User._copy(self)
+        for attr, value in changed:
+            setattr(self, attr, value)
+        # Signal to dispatch user_update
+        return to_return, self
 
     async def _get_channel(self) -> DMChannel:
         ch = await self.create_dm()

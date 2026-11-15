@@ -3622,6 +3622,11 @@ class Application(PartialApplication):
             # Terminate loop on next iteration; there's no data left after this
             if len(data) < 100:
                 limit = 0
+            elif not reverse and predicate and int(data[-1]['id']) <= after.id:
+                # Newest first, and this page already reaches past `after`: every later
+                # page is older still and would all be filtered out. It used to walk to
+                # the end of the list anyway, one request per 100 entitlements
+                limit = 0
 
             if reverse:
                 data = reversed(data)
