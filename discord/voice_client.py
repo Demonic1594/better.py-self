@@ -576,7 +576,7 @@ class VoiceClient(VoiceProtocol):
         Disconnects this voice client from voice.
         """
         self.stop()
-        await self._connection.disconnect(force=force, wait=True)
+        await self._connection.disconnect(force=force, wait=True, abort_connect=True)
         self.cleanup()
 
     async def move_to(self, channel: Optional[abc.Snowflake], *, timeout: Optional[float] = 30.0) -> None:

@@ -673,15 +673,20 @@ class VoiceConnectionState:
         if not self._runner:
             self._runner = self.voice_client.loop.create_task(self._poll_voice_ws(reconnect), name='Voice websocket poller')
 
-    async def disconnect(self, *, force: bool = True, cleanup: bool = True, wait: bool = False) -> None:
+    async def disconnect(
+        self, *, force: bool = True, cleanup: bool = True, wait: bool = False, abort_connect: bool = False
+    ) -> None:
         connector = self._connector
-        if connector is not None and not connector.done() and asyncio.current_task() is not connector:
-            # A connect() is still running. Returning early here (not connected yet) left
-            # it running while VoiceClient.cleanup() unregistered the client, so the
-            # handshake could finish into a connection nothing tracked. Stop it first
+        if abort_connect and connector is not None and not connector.done() and asyncio.current_task() is not connector:
+            # A disconnect the user asked for while connect() is still running. Returning
+            # early here (not connected yet) left the handshake running while
+            # VoiceClient.cleanup() unregistered the client, so it could finish into a
+            # connection nothing tracked. Stop it first. Only user requests do this: the
+            # handshake's own teardown also calls disconnect(), from a child task on 3.10
+            # and 3.11 (wait_for), and must not cancel the handshake it belongs to
             self._aborted_connector = connector
             connector.cancel()
-            await asyncio.wait([connector])
+            await asyncio.wait([connector], timeout=10.0)
             force = True
         if not force and not self.is_connected():
             return
@@ -756,7 +761,7 @@ class VoiceConnectionState:
     async def move_to(self, channel: Optional[abc.Snowflake], timeout: Optional[float]) -> None:
         if channel is None:
             # This function should only be called externally so its ok to wait for the disconnect.
-            await self.disconnect(wait=True)
+            await self.disconnect(wait=True, abort_connect=True)
             return
 
         if self.voice_client.channel and channel.id == self.channel_id:

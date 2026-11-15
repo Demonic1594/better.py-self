@@ -159,10 +159,47 @@ async def test_disconnect_during_the_handshake_stops_it():
     await asyncio.wait_for(started.wait(), 1)
     connector = conn._connector
 
-    await asyncio.wait_for(conn.disconnect(force=False), 1)
+    await asyncio.wait_for(conn.disconnect(force=False, abort_connect=True), 1)  # what VoiceClient.disconnect() sends
     assert connector.cancelled(), 'the handshake was left running'
     with pytest.raises(discord.ClientException, match='while connecting'):
         await asyncio.wait_for(connecting, 1)
+
+
+@pytest.mark.asyncio
+async def test_the_handshakes_own_teardown_does_not_cancel_it():
+    """The handshake's retry path calls disconnect() itself, and on Python 3.10 and
+    3.11 it does so from a child task (asyncio.wait_for). That must not cancel the
+    handshake it belongs to."""
+    conn = _voice_state()
+    _patch_disconnect_steps(conn)
+    retried = asyncio.Event()
+
+    async def connect_with_a_retry(*args):
+        async def attempt():
+            await conn.disconnect(cleanup=False)  # the retry's teardown
+            retried.set()
+
+        await asyncio.ensure_future(attempt())  # a child task, as wait_for makes on 3.10/3.11
+
+    conn._connect = connect_with_a_retry
+    await asyncio.wait_for(conn.connect(**_connect_kwargs()), 1)
+    assert retried.is_set()
+    assert not conn._connector.cancelled()
+
+
+@pytest.mark.asyncio
+async def test_voice_client_disconnect_asks_to_stop_a_handshake():
+    sent = {}
+
+    async def disconnect(**kwargs):
+        sent.update(kwargs)
+
+    voice = discord.VoiceClient.__new__(discord.VoiceClient)
+    voice._connection = SimpleNamespace(disconnect=disconnect)  # type: ignore
+    voice.stop = lambda: None  # type: ignore
+    voice.cleanup = lambda: None  # type: ignore
+    await voice.disconnect()
+    assert sent.get('abort_connect') is True
 
 
 @pytest.mark.asyncio
@@ -658,18 +695,19 @@ def test_command_annotations_resolve_the_same_on_every_python():
 
 @pytest.mark.parametrize(
     'text',
-    ['\n' * 80000, '[a](' * 20000, '<a' * 40000, '<a:/' * 20000, '[a](<a:/\n\n' * 8000],
+    ['\n' * 80000, '[a](' * 40000, '<a' * 40000, '<a:/' * 20000, '[a](<a:/\n\n' * 8000],
     ids=['blank lines', 'open links', 'angle brackets', 'angle URLs', 'mixed'],
 )
 def test_markdown_helpers_are_linear(text):
     """These took seconds (17 s for '<a:/' * 20000) because each attempt rescanned
-    the rest of the text."""
+    the rest of the text. Each input took 8 to 29 seconds on the old code and takes
+    under one second now, so the bound leaves room for slow CI machines."""
     started = time.perf_counter()
     utils.escape_markdown(text)
     utils.escape_markdown(text, as_needed=True)
     utils.escape_markdown(text, ignore_links=False)
     utils.remove_markdown(text)
-    assert time.perf_counter() - started < 2.0
+    assert time.perf_counter() - started < 6.0
 
 
 def test_a_list_after_a_blank_line_is_escaped_on_its_own_line():
