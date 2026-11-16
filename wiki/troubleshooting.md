@@ -213,7 +213,7 @@ large guilds:
 | `NotFound` 10003 / 10008 / 10013 | Unknown channel / message / user. A 403 with 10008 is anti-abuse, not a missing message. |
 | `HTTPException` 20002 "Only bots can use this endpoint" | A bot-only endpoint. Use the user-account alternative (for voice states, `member.voice`). |
 | `ValueError: File buffer ... must be seekable and readable` | Pass a seekable file object, or `io.BytesIO(data)`. |
-| `FileNotFoundError` when passing bytes to `discord.File` | Bytes are treated as a path; wrap them in `io.BytesIO`. |
+| `FileNotFoundError` when passing bytes to `discord.File` | Bytes are treated as a path (the message says so since v2.3.4); wrap data in `io.BytesIO`. |
 | `ModuleNotFoundError: No module named 'requests'` from `SyncWebhook` | `pip install requests`. |
 | `curl_cffi ... SessionClosed` | A request after `client.close()`. Stop background tasks before closing. |
 

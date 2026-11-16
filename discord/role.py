@@ -649,6 +649,15 @@ class Role(Hashable):
         position: :class:`int`
             The new role's position. This must be below your top role's
             position or it will fail.
+
+            Discord changes positions through a separate request, sent after
+            the other arguments are validated and before the other fields are
+            edited. If editing the other fields then fails, the new position
+            stays.
+
+            .. versionchanged:: 2.3.4
+                The position is changed after the other arguments are
+                validated, so invalid arguments no longer leave the role moved.
         reason: Optional[:class:`str`]
             The reason for editing this role. Shows up on the audit log.
 
@@ -670,9 +679,6 @@ class Role(Hashable):
         """
         if display_icon and (icon or unicode_emoji):
             raise ValueError('Cannot set both icon/unicode_emoji and display_icon')
-
-        if position is not MISSING:
-            await self._move(position, reason=reason)
 
         payload: Dict[str, Any] = {}
 
@@ -741,6 +747,12 @@ class Role(Hashable):
 
         if colours:
             payload['colors'] = colours
+
+        # Positions have their own endpoint. Moving only once the rest of the
+        # payload is built means invalid arguments (an unsupported image, say)
+        # raise before anything has changed.
+        if position is not MISSING:
+            await self._move(position, reason=reason)
         data = await self._state.http.edit_role(self.guild.id, self.id, reason=reason, **payload)
         return Role(guild=self.guild, data=data, state=self._state)
 

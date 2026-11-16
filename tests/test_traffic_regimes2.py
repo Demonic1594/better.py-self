@@ -156,7 +156,9 @@ async def test_mega_mixed_storm_all_routes_concurrent():
     assert mock.stats['read_200'] == 10
     landed_sends = sum(mock.stats[f'send_200:{400 + i}'] for i in range(8))
     assert landed_sends + mock.stats['reaction_204'] + surfaced == 20 + 12  # each send/react landed or honestly surfaced
-    assert http._global_over.is_set()
+    # A request that gives up on a shared 429 leaves that cooldown running for
+    # the other requests; the gate must then reopen by itself (never leak)
+    await asyncio.wait_for(http._global_over.wait(), timeout=5)
     if mock.stats['reaction_429_shared']:
         assert len(http._throttle_events[REACTION_ROUTE.key]) == mock.stats['reaction_429_shared']
     print(f'mega storm: {landed_sends} landed, {surfaced} honestly surfaced, clicks 8/8, wire==telemetry')

@@ -96,9 +96,11 @@ Rules:
   closed; a `File` made from a path can't be sent again.
 - **A file object stays yours.** The library doesn't close it. It must be
   readable and seekable, or `ValueError: File buffer ... must be seekable and readable`.
-- **Raw `bytes` don't work** even though the annotation mentions them:
-  anything that isn't a file object is treated as a path. Use
-  `io.BytesIO(data)`.
+- **`bytes` are a file path,** as in upstream (a bytes path is valid on
+  POSIX); they aren't file contents. For data in memory, use
+  `io.BytesIO(data)`. Passing data by mistake raises the usual
+  `FileNotFoundError` (or `ValueError` for data with a null byte), and since
+  v2.3.4 the message says to use `io.BytesIO`.
 - **A `File` is single use.** To send the same file object twice, call
   `file.reset()` (rewinds it) or make a new `File`.
 - **Files opened from a path are closed** even when `send()` rejects its

@@ -867,6 +867,7 @@ class HTTPClient:
         # holder remains (the counter) — even if every sleeper is cancelled.
         self._global_until: float = 0.0
         self._global_holders: int = 0
+        self._global_generation: int = 0
         self.user_id: Optional[int] = None
         self.token: Optional[str] = None
         self.ack_token: Optional[str] = None
@@ -922,6 +923,27 @@ class HTTPClient:
                 if events and now - events[0][0] > window:
                     while events and now - events[0][0] > window:
                         events.popleft()
+
+    def _engage_global_cooldown(self, retry_after: float) -> None:
+        """Closes the global gate for ``retry_after`` seconds without sleeping.
+
+        Used when the request that got a global 429 gives up instead of waiting:
+        the other requests must still wait out the cooldown.
+        """
+        self._global_over.clear()
+        self._global_holders += 1
+        self._global_until = max(self._global_until, self.loop.time() + retry_after)
+        generation = self._global_generation
+
+        def release() -> None:
+            if self._global_generation != generation:
+                return  # the client restarted: this cooldown's gate no longer exists
+            self._global_holders -= 1
+            if self._global_holders <= 0 or self.loop.time() >= self._global_until:
+                self._global_over.set()
+                _log.debug('Global rate limit is now over.')
+
+        self.loop.call_later(retry_after, release)
 
     def _record_retry(self, route_key: str, reason: str, tries: int) -> float:
         """Records and logs a transport-level retry; returns the delay to sleep."""
@@ -993,6 +1015,8 @@ class HTTPClient:
         self._global_over.set()
         self._global_until = 0.0
         self._global_holders = 0
+        # Invalidates cooldown releases scheduled before a restart
+        self._global_generation = self._global_generation + 1
 
         if self.client is not None:
             self.headers = await self.client.headers_context()
@@ -1203,6 +1227,10 @@ class HTTPClient:
                 if not self._global_over.is_set():
                     await self._global_over.wait()
 
+                # On the last attempt, a retryable answer (429, 202, transient 5xx)
+                # raises at once: sleeping first would only delay the error
+                last_try = tries == 4
+
                 if files:
                     for f in files:
                         f.reset(seek=tries)
@@ -1321,6 +1349,8 @@ class HTTPClient:
                                 self.max_ratelimit_timeout,
                             )
                             raise RateLimited(retry_after)
+                        if last_try:
+                            break
                         _log.debug(
                             '%s %s received a 202. Retrying in %s seconds...', method, utils._RedactedLog(url), retry_after
                         )
@@ -1406,8 +1436,9 @@ class HTTPClient:
                             )
                             raise RateLimited(retry_after, cloudflare=is_cloudflare)
 
-                        fmt = 'We are being rate limited. %s %s responded with 429. Retrying in %.2f seconds.'
-                        _log.warning(fmt, method, utils._RedactedLog(url), retry_after)
+                        if not last_try:
+                            fmt = 'We are being rate limited. %s %s responded with 429. Retrying in %.2f seconds.'
+                            _log.warning(fmt, method, utils._RedactedLog(url), retry_after)
 
                         # Wire-level throttle telemetry: the sleep + retry
                         # below is invisible to callers, so record the event
@@ -1428,6 +1459,17 @@ class HTTPClient:
                                 )
                             except Exception:
                                 _log.exception('http_throttle dispatch failed; continuing request retry.')
+
+                        if last_try:
+                            _log.warning(
+                                'We are being rate limited. %s %s responded with 429 on the last of 5 attempts; giving up.',
+                                method,
+                                utils._RedactedLog(url),
+                            )
+                            if is_global:
+                                # Other requests must still wait out the cooldown
+                                self._engage_global_cooldown(retry_after)
+                            break
 
                         _log.debug(
                             'Rate limit is being handled by bucket hash %s with %r major parameters.',
@@ -1468,6 +1510,8 @@ class HTTPClient:
 
                     # Unconditional retry
                     if response.status_code in {502, 504, 507, 522, 523, 524}:
+                        if last_try:
+                            break
                         failed += 1
                         await asyncio.sleep(self._record_retry(route_key, f'HTTP {response.status_code}', tries))
                         continue

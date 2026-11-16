@@ -247,9 +247,12 @@ new_tag = await forum.create_tag(name='Solved', emoji='\N{WHITE HEAVY CHECK MARK
 - `create_thread` returns a `ThreadWithMessage` (`thread`, `message`).
 - Forum posts are always public threads.
 - `applied_tags` takes `ForumTag` objects; Discord allows up to 5.
-- `create_tag` reads the new tag's ID from the forum's tag list in Discord's
-  answer, assuming it's the last one; if it can't, `new_tag.id` stays `0`.
-  Re-read `forum.available_tags` if you need the ID.
+- `create_tag` takes the new tag's ID from Discord's answer: the tag the
+  forum didn't have before, preferring the one with your name (so a tag
+  someone else created at the same moment isn't taken for yours). If it
+  can't find it, `new_tag.id` stays `0` and a warning is logged; re-read
+  `forum.available_tags`. (Before v2.3.4 it assumed the last tag in the
+  answer, and stayed at 0 silently.)
 
 ## Webhooks
 
