@@ -164,9 +164,11 @@ counts = await guild.role_member_counts()      # {role_id: count}
   `unicode_emoji` separately. Setting `display_icon` together with `icon` or
   `unicode_emoji` raises `ValueError`. A custom emoji as `emoji` raises
   `ValueError('emoji only supports unicode emojis')`.
-- **Positions:** `edit(position=...)` is sent as its own request **before** the
-  other fields. If the second request fails, the position has already
-  changed. `move(beginning=..., end=..., above=..., below=..., offset=...)`
+- **Positions:** Discord changes positions through its own endpoint, so
+  `edit(position=...)` sends two requests: the move, then the other fields.
+  The other arguments are checked first, so invalid ones raise before the
+  role moves (before v2.3.4 the role was moved first). If the second request
+  itself fails, the position has already changed. `move(beginning=..., end=..., above=..., below=..., offset=...)`
   takes exactly one anchor. The default role can't be moved, and nothing can
   go to position 0.
 - `role.add_members(*members)` and `role.remove_members(*members)` change many
@@ -295,7 +297,7 @@ async for user in event.users():
   `guild.threads`, `member.voice` reflect what the gateway told the client;
   `fetch_*` calls hit the API and count against rate limits.
 - **`fetch_guild` has no channels or members.**
-- **`Role.edit(position=...)` isn't atomic** with the other fields.
+- **`Role.edit(position=...)` is two requests;** a failure in the second leaves the role moved.
 - **Self-only member fields are dropped for others** (with a warning).
 - **Moderation actions are visible.** Everything you do appears in the audit
   log with your account's name.

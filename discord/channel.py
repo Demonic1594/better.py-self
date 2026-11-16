@@ -44,6 +44,7 @@ from typing import (
     overload,
 )
 import datetime
+import logging
 from operator import attrgetter
 
 import discord.abc
@@ -81,6 +82,8 @@ from .http import handle_message_parameters
 from .invite import Invite
 from .voice_client import VoiceClient
 from .directory import DirectoryEntry
+
+_log = logging.getLogger(__name__)
 
 __all__ = (
     'TextChannel',
@@ -3075,11 +3078,30 @@ class ForumChannel(discord.abc.GuildChannel, Hashable):
         result = ForumTag(name=name, emoji=emoji, moderated=moderated)
         result._state = self._state
         result._channel_id = self.id
+        known = set(self._available_tags)
         payload = await self._state.http.create_forum_tag(self.id, **result.to_dict(), reason=reason)
-        try:
-            result.id = int(payload['available_tags'][-1]['id'])
-        except (KeyError, IndexError, ValueError):
-            pass
+
+        # The answer is the updated channel; the new tag is the one this forum
+        # didn't have before. Preferring the one with our name guards against a
+        # tag someone else created at the same time.
+        candidates = []
+        tags = payload.get('available_tags') if isinstance(payload, dict) else None
+        for tag in tags or []:
+            try:
+                tag_id = int(tag['id'])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if tag_id not in known:
+                candidates.append((tag.get('name') == name, tag_id))
+        if candidates:
+            result.id = max(candidates)[1] if any(match for match, _ in candidates) else candidates[-1][1]
+        else:
+            _log.warning(
+                "Created forum tag %r in channel ID %s, but could not find it in Discord's answer; "
+                'its id is 0 until the channel is fetched again.',
+                name,
+                self.id,
+            )
 
         return result
 

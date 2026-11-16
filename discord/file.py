@@ -174,7 +174,16 @@ class File(_FileBase):
             self._original_pos = fp.tell()
             self._owner = False
         else:
-            self.fp = open(fp, 'rb')
+            try:
+                self.fp = open(fp, 'rb')
+            except (OSError, ValueError) as exc:
+                if isinstance(fp, bytes):
+                    # bytes are a file path here, as in upstream, but are far more
+                    # often file contents passed by mistake: say what happened
+                    raise type(exc)(
+                        f'{exc} (File() treats bytes as a file path; to send data in memory, pass io.BytesIO(data))'
+                    ) from exc
+                raise
             self._original_pos = 0
             self._owner = True
 

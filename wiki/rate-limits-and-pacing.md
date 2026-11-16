@@ -58,9 +58,12 @@ The parts below handle what can be handled, and make the rest visible.
 > `HTTPException` whose `status` is 429. Catch both if you handle rate limits
 > yourself.
 
-> **Gotcha: the last attempt still sleeps.** After the fifth failure the client
-> sleeps the computed delay before raising, so a request that fails five times
-> on 5xx takes about 25 seconds in total.
+The fifth attempt raises as soon as its answer arrives: it doesn't sleep
+first. (Before v2.3.4 it slept the computed delay, about 9 seconds after a
+5xx, before raising, and logged "attempt 6 of 5".) A global 429 on the last
+attempt still closes the global gate for its `retry_after`, so the other
+requests wait it out. The log says
+`... responded with 429 on the last of 5 attempts; giving up.`
 
 ### The window's last request returns at once
 

@@ -356,6 +356,27 @@ Documentation round (2026-11-15, after v2.3.3)
     **Conflict points:** upstream edits to these docstrings, or to the
     ``deprecated`` argument, conflict textually; keep ours.
 
+Follow-ups to the documentation round (2026-11-16)
+    Behaviour fixes in code that matched upstream:
+
+    - ``HTTPClient.request``: a ``last_try`` flag makes the 429, 202 and
+      retried-5xx branches ``break`` on the fifth attempt instead of sleeping
+      first (the curl and connection-error branches already stopped retrying
+      there). A global 429 on the last attempt closes the gate through the new
+      ``_engage_global_cooldown`` (released with ``loop.call_later``).
+    - ``File.__init__``: an ``OSError``/``ValueError`` from opening ``bytes``
+      is re-raised as the same type with a hint to use ``io.BytesIO``; bytes
+      are still a path, as upstream.
+    - ``ForumChannel.create_tag``: the new tag is the one not in
+      ``_available_tags`` before the request (preferring a matching name),
+      not ``available_tags[-1]``; a miss logs a warning. ``channel.py`` gained
+      a module logger.
+    - ``Role.edit``: ``_move`` runs after the payload is built.
+
+    **Conflict points:** upstream changes to the retry loop in
+    ``HTTPClient.request``, ``File.__init__``, ``create_tag`` and
+    ``Role.edit``.
+
 Ported from Rapptz/discord.py, round 4 (2026-11-15, v2.3.3)
     The items the roadmap had planned for v2.3.4, adapted from Rapptz
     ``master`` (``65232c3``):
