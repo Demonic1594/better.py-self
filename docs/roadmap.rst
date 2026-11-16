@@ -8,6 +8,13 @@ Roadmap
 This page lists the work planned for upcoming releases. Plans can change;
 :doc:`whats_new` is the record of what actually shipped.
 
+v2.3.4 (released)
+-----------------
+
+The four bugs the wiki rewrite documented (the retry loop's final sleep,
+``File(bytes)``, ``ForumChannel.create_tag`` and ``Role.edit(position=...)``),
+the in-depth wiki, and corrected docs. See :doc:`whats_new`.
+
 v2.3.3 (released)
 -----------------
 

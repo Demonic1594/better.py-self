@@ -11,10 +11,14 @@ Changelog
 This page keeps a detailed human friendly rendering of what's new and changed
 in specific versions.
 
-.. _vp2p3p4_unreleased:
+.. _vp2p3p4:
 
-Unreleased
------------
+v2.3.4
+-------
+
+A follow-up to the v2.3.3 audit: the four bugs its wiki rewrite documented are
+fixed, the wiki was rewritten in depth, and several docs and docstrings that
+described behaviour the code doesn't have were corrected.
 
 Behaviour Changes
 ~~~~~~~~~~~~~~~~~~

@@ -107,6 +107,17 @@ for the full tuning guide):
   about 50 MB of DEBUG logs. Redaction works on a fixed list of key names, so
   still treat DEBUG logs as sensitive.
 
+**New in v2.3.4**
+
+- The last attempt of a request now fails at once on a 429, a deferral or a
+  transient 5xx, instead of sleeping first (about 9 seconds after a 5xx).
+- ``ForumChannel.create_tag`` finds the new tag instead of assuming it is last,
+  ``Role.edit(position=...)`` validates before moving the role, and passing
+  file contents to ``discord.File`` as bytes gives an error that says to use
+  ``io.BytesIO``.
+- The wiki was rewritten in depth (29 pages, with recipes, version quirks and
+  troubleshooting by symptom), and several docs and docstrings were corrected.
+
 **New in v2.3.3**
 
 - A full audit of the library against discord.py-self and discord.py, with
@@ -177,8 +188,8 @@ Installing
 **Python 3.10 or higher is required.**
 
 This fork is not published to PyPI. Install it from the
-repository, or from the `v2.3.3 release
-<https://github.com/Demonic1594/better.py-self/releases/tag/v2.3.3>`_
+repository, or from the `v2.3.4 release
+<https://github.com/Demonic1594/better.py-self/releases/tag/v2.3.4>`_
 wheel:
 
 .. code:: sh
@@ -187,7 +198,7 @@ wheel:
     python3 -m pip install -U git+https://github.com/Demonic1594/better.py-self.git
 
     # From the release wheel
-    python3 -m pip install -U https://github.com/Demonic1594/better.py-self/releases/download/v2.3.3/discord_py_self-2.3.3-py3-none-any.whl
+    python3 -m pip install -U https://github.com/Demonic1594/better.py-self/releases/download/v2.3.4/discord_py_self-2.3.4-py3-none-any.whl
 
 For voice support, add the ``[voice]`` extra:
 
@@ -226,7 +237,7 @@ Differences From Upstream
 --------------------------
 
 - The package still installs as ``discord`` (import ``discord`` as usual);
-  the distribution name on the v2.3.3 wheel is ``discord_py_self``.
+  the distribution name on the v2.3.4 wheel is ``discord_py_self``.
 - Upstream's ``selfcord.py`` renamed build (the ``renamed`` branch) is not
   carried by this fork; it was removed together with the destructive
   rename/publish workflows.
