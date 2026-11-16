@@ -8,11 +8,18 @@ Roadmap
 This page lists the work planned for upcoming releases. Plans can change;
 :doc:`whats_new` is the record of what actually shipped.
 
+v2.3.4 (released)
+-----------------
+
+The four bugs the wiki rewrite documented (the retry loop's final sleep,
+``File(bytes)``, ``ForumChannel.create_tag`` and ``Role.edit(position=...)``),
+the in-depth wiki, and corrected docs. See :doc:`whats_new`.
+
 v2.3.3 (released)
 -----------------
 
 The November 2026 audit and its follow-ups, the Rapptz/discord.py round-4 port
-planned for v2.3.4 (:func:`on_raw_typing`, :func:`on_raw_thread_update`,
+(:func:`on_raw_typing`, :func:`on_raw_thread_update`,
 :attr:`ActivityType.unknown`), the stress benchmark's soak gate on live objects,
 and the audit log typings. See :doc:`whats_new`.
 

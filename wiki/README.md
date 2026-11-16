@@ -10,7 +10,7 @@ The wiki explains how things work, why, and what to watch out for, with
 examples you can run. The Sphinx docs in [`docs/`](../docs) are the API
 reference: [`api.rst`](../docs/api.rst) for every class and method, and the
 [changelog](../docs/whats_new.rst). Every statement here was checked against
-this repository's code at **v2.3.3**. Where a fact comes from somewhere else,
+this repository's code at **v2.3.4**. Where a fact comes from somewhere else,
 such as Discord's behaviour, an upstream project or a live test, the page says
 so.
 
@@ -72,5 +72,5 @@ the file in a pull request: edits made on the Wiki tab are overwritten.
 
 ## Version
 
-This wiki describes **v2.3.3**. See the [changelog](../docs/whats_new.rst) for
+This wiki describes **v2.3.4**. See the [changelog](../docs/whats_new.rst) for
 what changed, and the [roadmap](../docs/roadmap.rst) for what is planned.
