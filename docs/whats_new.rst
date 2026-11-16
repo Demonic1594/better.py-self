@@ -35,7 +35,7 @@ Behaviour Changes
 Fixes
 ~~~~~
 
-- A request's fifth and last attempt slept before raising on a 429, a deferral (202) or a transient 5xx (about 9 seconds after a 5xx), and logged "attempt 6 of 5". It now raises as soon as a 429, a deferral (202) or a transient 5xx comes back. A 429 on the last attempt is still reported (:func:`on_http_throttle`, :meth:`Client.http_throttle_events`), and a global one still holds the other requests for its ``retry_after``.
+- A request's fifth and last attempt slept before raising on a 429, a deferral (202) or a transient 5xx (about 9 seconds after a 5xx), and after a 5xx logged "attempt 6 of 5". It now raises as soon as a 429, a deferral (202) or a transient 5xx comes back. A 429 on the last attempt is still reported (:func:`on_http_throttle`, :meth:`Client.http_throttle_events`), and a global one still holds the other requests for its ``retry_after``.
 - :class:`File` given ``bytes`` that weren't a file path (file contents passed by mistake) gave an error that didn't say what was wrong. It still raises the same exception type, with the same ``errno`` and ``filename``, and a message that says to use :class:`io.BytesIO`.
 - :meth:`Role.edit` with ``position`` moved the role before validating the other arguments, so an invalid argument left the role moved. It now validates first.
 - :meth:`ForumChannel.create_tag` assumed the new tag was the last one in Discord's answer and left :attr:`ForumTag.id` at ``0`` without a word when it couldn't read it. It now picks the tag the forum didn't have before (preferring one with the given name), and logs a warning if there's none.
