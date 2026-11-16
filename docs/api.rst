@@ -1168,9 +1168,11 @@ Members
 
 .. function:: on_http_throttle(route, retry_after, scope)
 
-    Called the moment the library absorbs a wire-level 429 — before it
+    Called the moment the library receives a wire-level 429 — before it
     sleeps out the cooldown and retries, which is why throttles are
-    otherwise invisible to the application.
+    otherwise invisible to the application. It also fires for a 429 on a
+    request's last attempt, after which the request raises instead of
+    retrying, so it fires once per 429 on the wire.
 
     User accounts receive no rate-limit headers on success responses, so
     this event (together with :meth:`Client.http_throttle_events`) is the

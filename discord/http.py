@@ -867,6 +867,7 @@ class HTTPClient:
         # holder remains (the counter) — even if every sleeper is cancelled.
         self._global_until: float = 0.0
         self._global_holders: int = 0
+        self._global_generation: int = 0
         self.user_id: Optional[int] = None
         self.token: Optional[str] = None
         self.ack_token: Optional[str] = None
@@ -932,8 +933,11 @@ class HTTPClient:
         self._global_over.clear()
         self._global_holders += 1
         self._global_until = max(self._global_until, self.loop.time() + retry_after)
+        generation = self._global_generation
 
         def release() -> None:
+            if self._global_generation != generation:
+                return  # the client restarted: this cooldown's gate no longer exists
             self._global_holders -= 1
             if self._global_holders <= 0 or self.loop.time() >= self._global_until:
                 self._global_over.set()
@@ -1011,6 +1015,8 @@ class HTTPClient:
         self._global_over.set()
         self._global_until = 0.0
         self._global_holders = 0
+        # Invalidates cooldown releases scheduled before a restart
+        self._global_generation = self._global_generation + 1
 
         if self.client is not None:
             self.headers = await self.client.headers_context()
@@ -1343,11 +1349,11 @@ class HTTPClient:
                                 self.max_ratelimit_timeout,
                             )
                             raise RateLimited(retry_after)
+                        if last_try:
+                            break
                         _log.debug(
                             '%s %s received a 202. Retrying in %s seconds...', method, utils._RedactedLog(url), retry_after
                         )
-                        if last_try:
-                            break
                         await asyncio.sleep(retry_after)
                         continue
 
@@ -1442,17 +1448,6 @@ class HTTPClient:
                         events.append((time.monotonic(), retry_after))
                         self._prune_throttle_events()
 
-                        if last_try:
-                            _log.warning(
-                                'We are being rate limited. %s %s responded with 429 on the last of 5 attempts; giving up.',
-                                method,
-                                utils._RedactedLog(url),
-                            )
-                            if is_global:
-                                # Other requests must still wait out the cooldown
-                                self._engage_global_cooldown(retry_after)
-                            break
-
                         # Push signal: hosts pacing an account need throttle
                         # pressure the moment it happens, not on the next
                         # http_throttle_events() poll. Guarded so a listener
@@ -1464,6 +1459,17 @@ class HTTPClient:
                                 )
                             except Exception:
                                 _log.exception('http_throttle dispatch failed; continuing request retry.')
+
+                        if last_try:
+                            _log.warning(
+                                'We are being rate limited. %s %s responded with 429 on the last of 5 attempts; giving up.',
+                                method,
+                                utils._RedactedLog(url),
+                            )
+                            if is_global:
+                                # Other requests must still wait out the cooldown
+                                self._engage_global_cooldown(retry_after)
+                            break
 
                         _log.debug(
                             'Rate limit is being handled by bucket hash %s with %r major parameters.',

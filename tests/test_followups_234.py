@@ -92,8 +92,9 @@ async def test_a_retry_that_succeeds_is_unchanged(monkeypatch):
 
 
 def test_file_given_bytes_data_says_to_use_bytesio():
-    with pytest.raises(FileNotFoundError, match=r'io\.BytesIO'):
+    with pytest.raises(FileNotFoundError, match=r'io\.BytesIO') as info:
         discord.File(b'not a path at all')
+    assert info.value.errno == 2 and info.value.filename == b'not a path at all', 'errno and filename are kept'
     with pytest.raises(ValueError, match=r'io\.BytesIO'):
         discord.File(b'binary\x00data')
 
@@ -163,6 +164,51 @@ async def test_create_tag_warns_when_the_tag_is_missing(caplog):
         tag = await forum.create_tag(name='Solved', emoji=None)
     assert tag.id == 0
     assert 'could not find it in Discord' in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_create_tag_without_a_name_match_takes_the_last_new_tag():
+    """Discord normalised the name, say: the last tag the forum didn't have is taken."""
+    forum = _forum([1])
+
+    async def create_forum_tag(channel_id, **kwargs):
+        return {'available_tags': [{'id': '1', 'name': 'a'}, {'id': '90', 'name': 'solved'}]}
+
+    forum._state = SimpleNamespace(http=SimpleNamespace(create_forum_tag=create_forum_tag))
+    tag = await forum.create_tag(name='Solved', emoji=None)
+    assert tag.id == 90
+
+
+# --- The last-attempt 429 is still reported ----------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_every_429_dispatches_http_throttle_including_the_last(monkeypatch):
+    body = b'{"retry_after": 1.0, "global": false}'
+    http = make_http([(FakeResponse(429, body), 0)] * 5)
+    seen = []
+    http.client = SimpleNamespace(
+        dispatch=lambda name, *args: seen.append(name),
+        _connection=SimpleNamespace(installation_id=None, locale='en-US'),
+    )
+    _record_sleeps(monkeypatch)
+    with pytest.raises(discord.HTTPException):
+        await http.request(Route('GET', '/users/@me'))
+    assert seen.count('http_throttle') == 5
+    assert sum(len(v) for v in http._throttle_events.values()) == 5
+
+
+@pytest.mark.asyncio
+async def test_a_cooldown_release_from_before_a_restart_is_ignored():
+    """A release scheduled before the client restarted must not reopen the new gate."""
+    http = make_http([])
+    http._engage_global_cooldown(0.05)
+    # Simulate a restart: the state a fresh _startup() creates
+    http._global_generation += 1
+    http._global_over = asyncio.Event()
+    http._global_holders = 1  # a new cooldown is running
+    await asyncio.sleep(0.1)  # the old release fires now
+    assert http._global_holders == 1 and not http._global_over.is_set()
 
 
 # --- Role.edit validates before moving ---------------------------------------------------------
