@@ -1,80 +1,110 @@
-:orphan:
+.. currentmodule:: discord
 
 .. _quickstart:
-
-.. currentmodule:: discord
 
 Quickstart
 ============
 
-This page gives a brief introduction to the library. It assumes you have the library installed,
-if you don't check the :ref:`installing` portion.
+This page walks you through a first client, then the same client built with the
+commands extension. It assumes the library is installed; if it isn't, see
+:ref:`installing`.
 
-A Minimal Bot
----------------
+.. warning::
 
-Let's make a bot that responds to a specific message and walk you through it.
+    Automating a user account is against Discord's Terms of Service. Use a bot
+    account for anything a bot can do.
 
-It looks something like this:
+A minimal client
+------------------
 
 .. code-block:: python3
 
+    import os
     import discord
 
     client = discord.Client()
 
     @client.event
     async def on_ready():
-        print(f'We have logged in as {client.user}')
+        print(f'Logged in as {client.user} ({len(client.guilds)} guilds)')
 
     @client.event
     async def on_message(message):
+        # Only answer commands typed from this account
         if message.author != client.user:
             return
 
-        if message.content.startswith('$hello'):
-            await message.channel.send('Hello!')
+        if message.content == '!ping':
+            await message.channel.send(f'Pong! {client.latency * 1000:.0f} ms')
 
-    client.run('your token here')
+    client.run(os.environ['DISCORD_TOKEN'])
 
-Let's name this file ``example_bot.py``. Make sure not to name it ``discord.py`` as that'll conflict
-with the library.
+Save it as ``example_client.py``. Don't name it ``discord.py``: the file would
+shadow the library.
 
-There's a lot going on here, so let's walk you through it step by step.
+Step by step
+~~~~~~~~~~~~~~
 
-1. The first line just imports the library, if this raises a :exc:`ModuleNotFoundError` or :exc:`ImportError`
-   then head on over to :ref:`installing` section to properly install.
-2. Next, we create an instance of a :class:`Client`. This client is our connection to Discord.
-3. We then use the :meth:`Client.event` decorator to register an event. This library has many events.
-   Since this library is asynchronous, we do things in a "callback" style manner.
+1. ``import discord`` imports the library. If this raises
+   :exc:`ModuleNotFoundError`, see :ref:`installing`.
+2. :class:`Client` is the connection to Discord. Its keyword arguments tune
+   caching, presence and networking; the defaults suit most accounts.
+3. :meth:`Client.event` registers a coroutine as an event handler, named after
+   the event it handles. :func:`on_ready` runs once the account's data has
+   loaded; :func:`on_message` runs for every message the account can see.
+4. Because :func:`on_message` sees *every* message, the handler returns early
+   unless :attr:`Message.author` is :attr:`Client.user`. Without that check,
+   anyone could make your account reply.
+5. :attr:`Client.latency` is the gateway heartbeat latency, in seconds.
+6. :meth:`Client.run` logs in, sets up :doc:`logging <logging>` and runs until
+   you press Ctrl+C. Reading the token from an environment variable keeps it out
+   of your code; :doc:`authenticating` explains where to find it.
 
-   A callback is essentially a function that is called when something happens. In our case,
-   the :func:`on_ready` event is called when the bot has finished logging in and setting things
-   up and the :func:`on_message` event is called when the bot has received a message.
-4. Since the :func:`on_message` event triggers for *every* message received, we have to make
-   sure that we only respond to our own messages, so that other people cannot run commands on
-   our account. We do this by returning early if the :attr:`Message.author` is not the
-   :attr:`Client.user`.
-5. Afterwards, we check if the :class:`Message.content` starts with ``'$hello'``. If it does,
-   then we send a message in the channel it was used in with ``'Hello!'``. This is a basic way of
-   handling commands, which can be later automated with the :doc:`./ext/commands/index` framework.
-6. Finally, we run the bot with our login token. If you need help getting your token,
-   look in the :doc:`authenticating` section.
-
-
-Now that we've made a bot, we have to *run* the bot. Luckily, this is simple since this is just a
-Python script, we can run it directly.
-
-On Windows:
+Running it
+~~~~~~~~~~~~
 
 .. code-block:: shell
 
-    $ py -3 example_bot.py
+    $ export DISCORD_TOKEN='your token'
+    $ python3 example_client.py
 
-On other systems:
+On Windows, use ``set DISCORD_TOKEN=your token`` and ``py -3 example_client.py``.
+Type ``!ping`` in any channel from the same account to see the reply.
 
-.. code-block:: shell
+The same client with commands
+-------------------------------
 
-    $ python3 example_bot.py
+The :doc:`commands extension <ext/commands/index>` parses messages into commands
+with typed arguments, so you don't have to:
 
-Now you can try playing around with your basic bot.
+.. code-block:: python3
+
+    import os
+    from discord.ext import commands
+
+    bot = commands.Bot(command_prefix='!', self_bot=True)
+
+    @bot.command()
+    async def ping(ctx):
+        await ctx.send(f'Pong! {bot.latency * 1000:.0f} ms')
+
+    @bot.command()
+    async def repeat(ctx, times: int, *, text: str):
+        for _ in range(min(times, 5)):
+            await ctx.send(text)
+
+    bot.run(os.environ['DISCORD_TOKEN'])
+
+``self_bot=True`` makes the bot respond only to your own messages. The
+annotations convert arguments: ``!repeat 3 hello world`` calls
+``repeat(ctx, 3, 'hello world')``.
+
+Next steps
+------------
+
+- :ref:`Events <discord-api-events>` lists everything a client can react to.
+- :doc:`guild_subscriptions` explains which events and members a user account
+  receives, and how to get more.
+- :doc:`cache_tuning` sets memory limits for accounts in many or large guilds.
+- The `wiki <https://github.com/Demonic1594/better.py-self/wiki>`_ has
+  in-depth guides with runnable examples, including rate limits and pacing.

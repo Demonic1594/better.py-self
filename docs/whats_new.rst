@@ -28,6 +28,11 @@ Fixes
 - The browser version the client advertised didn't match its TLS fingerprint: :meth:`HeadersContext.default` put the latest stable Chrome (for example 159) in the ``User-Agent``, ``Sec-CH-UA`` and super properties while curl_cffi presented its newest Chrome profile (152 with curl_cffi 0.17, older with older versions). It now caps the advertised version at that profile, and logs when it does.
 - Chromium contexts with a given version, such as :meth:`HeadersContext.desktop` and user-built ones, always used curl_cffi's newest Chrome profile. They now use the profile closest to their version. The desktop client's own user agent isn't rewritten, so if its Chromium is newer than every profile, the two still differ. Android contexts keep curl_cffi's Android profile.
 
+Documentation
+~~~~~~~~~~~~~~
+
+- The documentation site is rebranded for this fork. It has a new landing page with feature overviews and a first client, a Guides section in its table of contents, and a quickstart rewritten for user accounts (token from an environment variable, the commands extension, next steps).
+
 .. _vp2p3p4:
 
 v2.3.4

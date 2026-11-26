@@ -1,5 +1,3 @@
-:orphan:
-
 .. currentmodule:: discord
 .. _faq:
 

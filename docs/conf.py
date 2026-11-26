@@ -84,8 +84,8 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-project = 'discord.py-self'
-copyright = '2015-present, Rapptz and 2021-present, Dolfies'
+project = 'better.py-self'
+copyright = '2015-present, Rapptz, 2021-present, Dolfies, and the better.py-self contributors'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -184,6 +184,7 @@ html_context = {
         ('discord.ext.native_voice', 'https://discord-ext-native-voice.readthedocs.io/en/latest/'),
     ],
     'project_github_url': 'https://github.com/Demonic1594/better.py-self',
+    'project_root_label': 'better.py-self',
 }
 
 resource_links = {
@@ -217,7 +218,7 @@ resource_links = {
 # The name of an image file (within the static path) to use as favicon of the
 # docs.  This file should be a Windows icon file (.ico) being 16x16 or 32x32
 # pixels large.
-html_favicon = './images/discord_py_logo.ico'
+html_favicon = './_static/logo.svg'
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -285,6 +286,7 @@ html_show_sphinx = False
 html_search_scorer = os.path.join(os.path.dirname(__file__), '_static/scorer.js')
 
 html_js_files = ['custom.js', 'settings.js', 'copy.js', 'sidebar.js']
+html_css_files = ['landing.css']
 
 # Output file base name for HTML help builder.
 htmlhelp_basename = 'discord.pydoc'
