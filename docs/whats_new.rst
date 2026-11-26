@@ -28,6 +28,9 @@ Fixes
 - The browser version the client advertised didn't match its TLS fingerprint: :meth:`HeadersContext.default` put the latest stable Chrome (for example 159) in the ``User-Agent``, ``Sec-CH-UA`` and super properties while curl_cffi presented its newest Chrome profile (152 with curl_cffi 0.17, older with older versions). It now caps the advertised version at that profile, and logs when it does.
 - Chromium contexts with a given version, such as :meth:`HeadersContext.desktop` and user-built ones, always used curl_cffi's newest Chrome profile. They now use the profile closest to their version. The desktop client's own user agent isn't rewritten, so if its Chromium is newer than every profile, the two still differ. Android contexts keep curl_cffi's Android profile.
 - On phones, the documentation site's landing page cut off its hero text, badges and install command at the right edge. It now fits the screen, and the top bars, headings, callouts and code blocks are more compact on small screens.
+- :class:`HeadersContext` built for iOS sent Chromium's ``Sec-CH-UA`` client hints over Safari's TLS fingerprint. Every iOS browser is built on WebKit and sends neither, so iOS contexts now send Safari's headers whatever their ``browser_type``.
+- :class:`HeadersContext` built for Android always used curl_cffi's default Android profile. It now uses the Android profile closest to its ``browser_major_version``.
+- A :class:`HeadersContext` whose user agent named a different platform, or a different browser version, than its ``platform`` and ``browser_major_version`` went out without a word. It now logs a warning naming both, so contexts built by hand can be corrected. Such contexts are still accepted, as upstream accepts them.
 
 Documentation
 ~~~~~~~~~~~~~~
