@@ -11,7 +11,7 @@ quirks that trip people up.
 |---|---|
 | **Python** | 3.10, 3.11, 3.12, 3.13 or 3.14 (`requires-python = ">=3.10"`). CI tests all five. |
 | **Operating systems** | Linux, macOS and Windows. Nothing in the library is platform-specific except voice (libopus, ffmpeg) and a few small details listed [below](#platform-notes). |
-| **Distribution name** | `discord.py-self` (the wheel file is `discord_py_self-2.3.4-py3-none-any.whl`). |
+| **Distribution name** | `discord.py-self` (the wheel file is `discord_py_self-2.3.5-py3-none-any.whl`). |
 | **Import name** | `discord`, as in upstream. |
 | **Where to get it** | This repository or its [GitHub releases](https://github.com/Demonic1594/better.py-self/releases). It is **not on PyPI**. |
 
@@ -30,7 +30,7 @@ Each [release](https://github.com/Demonic1594/better.py-self/releases) has a
 wheel. Installing it needs no git and no compiler:
 
 ```sh
-python3 -m pip install -U https://github.com/Demonic1594/better.py-self/releases/download/v2.3.4/discord_py_self-2.3.4-py3-none-any.whl
+python3 -m pip install -U https://github.com/Demonic1594/better.py-self/releases/download/v2.3.5/discord_py_self-2.3.5-py3-none-any.whl
 ```
 
 The wheel is pure Python (`py3-none-any`), so the same file works on every
@@ -44,7 +44,7 @@ the others) come from PyPI as usual.
 python3 -m pip install -U git+https://github.com/Demonic1594/better.py-self.git
 
 # A specific release tag or commit
-python3 -m pip install -U "git+https://github.com/Demonic1594/better.py-self.git@v2.3.4"
+python3 -m pip install -U "git+https://github.com/Demonic1594/better.py-self.git@v2.3.5"
 python3 -m pip install -U "git+https://github.com/Demonic1594/better.py-self.git@565d068f"
 ```
 
@@ -67,7 +67,7 @@ python3 -m pip install -U "discord.py-self[voice] @ git+https://github.com/Demon
 python3 -m pip install -U "discord.py-self[speed] @ git+https://github.com/Demonic1594/better.py-self.git"
 
 # Both, from the release wheel
-python3 -m pip install -U "discord.py-self[voice,speed] @ https://github.com/Demonic1594/better.py-self/releases/download/v2.3.4/discord_py_self-2.3.4-py3-none-any.whl"
+python3 -m pip install -U "discord.py-self[voice,speed] @ https://github.com/Demonic1594/better.py-self/releases/download/v2.3.5/discord_py_self-2.3.5-py3-none-any.whl"
 ```
 
 Quote the requirement: most shells treat `[` and `]` as wildcards.
@@ -76,14 +76,14 @@ Quote the requirement: most shells treat `[` and `]` as wildcards.
 
 ```text
 # requirements.txt
-discord.py-self[speed] @ https://github.com/Demonic1594/better.py-self/releases/download/v2.3.4/discord_py_self-2.3.4-py3-none-any.whl
+discord.py-self[speed] @ https://github.com/Demonic1594/better.py-self/releases/download/v2.3.5/discord_py_self-2.3.5-py3-none-any.whl
 ```
 
 ```toml
 # pyproject.toml
 [project]
 dependencies = [
-    "discord.py-self[speed] @ git+https://github.com/Demonic1594/better.py-self.git@v2.3.4",
+    "discord.py-self[speed] @ git+https://github.com/Demonic1594/better.py-self.git@v2.3.5",
 ]
 ```
 
@@ -137,7 +137,7 @@ browser it impersonates), aiohttp, davey, and the operating system:
 
 ```text
 - Python v3.13.18-final
-- discord.py-self v2.3.4-final
+- discord.py-self v2.3.5-final
     - discord-protos v1.2.419
 - curl_cffi v0.17.0 (curl vlibcurl/8.23.0-IMPERSONATE ... impersonating chrome152)
 - aiohttp v3.14.5
@@ -149,8 +149,8 @@ From Python:
 
 ```python
 import discord
-print(discord.__version__)        # '2.3.4'
-print(discord.version_info)       # _VersionInfo(major=2, minor=3, micro=4, releaselevel='final', serial=0)
+print(discord.__version__)        # '2.3.5'
+print(discord.version_info)       # _VersionInfo(major=2, minor=3, micro=5, releaselevel='final', serial=0)
 ```
 
 `python -m discord` also has `newbot` and `newcog` commands that generate a

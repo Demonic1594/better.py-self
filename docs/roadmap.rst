@@ -8,6 +8,14 @@ Roadmap
 This page lists the work planned for upcoming releases. Plans can change;
 :doc:`whats_new` is the record of what actually shipped.
 
+v2.3.5 (released)
+-----------------
+
+Header consistency: the advertised Chrome version matches the TLS fingerprint,
+and hand-built :class:`HeadersContext` objects for iOS, Android and mismatched
+user agents are corrected or warned about. The documentation site is published
+to GitHub Pages and revamped. See :doc:`whats_new`.
+
 v2.3.4 (released)
 -----------------
 
