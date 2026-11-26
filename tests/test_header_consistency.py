@@ -1,0 +1,150 @@
+"""The browser version the client advertises (User-Agent, Sec-CH-UA, super
+properties) must match the TLS fingerprint curl_cffi presents, as it does in a
+real browser."""
+
+from __future__ import annotations
+
+import base64
+import json
+
+import pytest
+
+from discord.tracking import HeadersContext
+
+TARGETS = [(124, 'chrome124'), (131, 'chrome131'), (145, 'chrome145'), (152, 'chrome152')]
+
+
+@pytest.fixture(autouse=True)
+def fixed_targets(monkeypatch):
+    # Independent of the installed curl_cffi version
+    monkeypatch.setattr(HeadersContext, '_tls_chrome_targets', staticmethod(lambda: list(TARGETS)), raising=False)
+
+
+def _web_properties(version: int, os: str = 'Windows', browser: str = 'Chrome') -> dict:
+    platform = {'Windows': 'Windows', 'Mac OS X': 'macOS', 'Linux': 'Linux'}[os]
+    brand = 'Edg' if browser == 'Edge' else None
+    properties = {
+        'os': os,
+        'browser': browser,
+        'browser_version': f'{version}.0.0.0',
+        'browser_user_agent': HeadersContext.format_chromium_user_agent(version, platform, brand),  # type: ignore
+        'client_build_number': 681034,
+    }
+    encoded = base64.b64encode(json.dumps(properties).encode()).decode()
+    return {'properties': properties, 'encoded': encoded, 'extra_gateway_properties': {'is_fast_connect': False}}
+
+
+def _decoded(context: HeadersContext) -> dict:
+    return json.loads(base64.b64decode(context.encoded_super_properties))
+
+
+def _patch_info_api(monkeypatch, answer: dict) -> None:
+    async def api(*args, **kwargs):
+        return answer
+
+    monkeypatch.setattr(HeadersContext, 'fetch_api_properties', staticmethod(api))
+
+
+@pytest.mark.asyncio
+async def test_info_api_version_newer_than_the_fingerprint_is_lowered(monkeypatch):
+    """The info API reported Chrome 159 while curl_cffi presented a Chrome 152
+    fingerprint; every header now says 152."""
+    _patch_info_api(monkeypatch, _web_properties(159))
+    context = await HeadersContext.default(None)  # type: ignore[arg-type]
+
+    assert context.browser_major_version == 152
+    assert context.impersonate == 'chrome152'
+    assert context.super_properties['browser_version'] == '152.0.0.0'
+    assert 'Chrome/152.0.0.0 ' in context.user_agent
+    assert '"Google Chrome";v="152"' in context.client_hints['Sec-CH-UA']
+    # The encoded header is rebuilt from the edited properties, not the info API's copy
+    assert _decoded(context)['browser_version'] == '152.0.0.0'
+    assert _decoded(context)['browser_user_agent'] == context.user_agent
+    # Everything else from the info API is kept
+    assert context.super_properties['client_build_number'] == 681034
+    assert context.extra_gateway_properties == {'is_fast_connect': False}
+
+
+@pytest.mark.asyncio
+async def test_info_api_version_within_the_fingerprints_is_kept(monkeypatch):
+    answer = _web_properties(145)
+    _patch_info_api(monkeypatch, answer)
+    context = await HeadersContext.default(None)  # type: ignore[arg-type]
+
+    assert context.browser_major_version == 145
+    assert context.impersonate == 'chrome145'
+    assert context.encoded_super_properties == answer['encoded']
+
+
+@pytest.mark.asyncio
+async def test_edge_keeps_its_brand_when_lowered(monkeypatch):
+    _patch_info_api(monkeypatch, _web_properties(159, browser='Edge'))
+    context = await HeadersContext.default(None)  # type: ignore[arg-type]
+
+    assert context.browser_type == 'edge'
+    assert context.user_agent.endswith('Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0')
+    assert context.impersonate == 'chrome152'
+
+
+@pytest.mark.asyncio
+async def test_mac_os_x_is_reported_as_macos_in_client_hints(monkeypatch):
+    """The super properties name the OS "Mac OS X"; Chrome's Sec-CH-UA-Platform says "macOS"."""
+    _patch_info_api(monkeypatch, _web_properties(159, os='Mac OS X'))
+    context = await HeadersContext.default(None)  # type: ignore[arg-type]
+
+    assert context.platform == 'macOS'
+    assert context.client_hints['Sec-CH-UA-Platform'] == '"macOS"'
+    assert context.super_properties['os'] == 'Mac OS X'
+    assert '(Macintosh; Intel Mac OS X 10_15_7)' in context.user_agent
+    assert 'Chrome/152.0.0.0' in context.user_agent
+
+
+@pytest.mark.asyncio
+async def test_manual_fallback_does_not_advertise_a_newer_chrome(monkeypatch):
+    async def api(*args, **kwargs):
+        raise RuntimeError('info API down')
+
+    async def build_number(*args, **kwargs):
+        return 12345
+
+    async def chrome_version(*args, **kwargs):
+        return '159.0.8154.34'
+
+    monkeypatch.setattr(HeadersContext, 'fetch_api_properties', staticmethod(api))
+    monkeypatch.setattr(HeadersContext, 'scrape_client_build_number', staticmethod(build_number))
+    monkeypatch.setattr(HeadersContext, 'fetch_chrome_version', staticmethod(chrome_version))
+    context = await HeadersContext.default(None)  # type: ignore[arg-type]
+
+    assert context.super_properties['browser_version'] == '152.0.0.0'
+    assert 'Chrome/152.0.0.0 ' in context.user_agent
+    assert context.impersonate == 'chrome152'
+
+
+@pytest.mark.parametrize(
+    'version, target',
+    [(152, 'chrome152'), (160, 'chrome152'), (145, 'chrome145'), (130, 'chrome131'), (138, 'chrome131'), (100, 'chrome124')],
+)
+def test_impersonate_picks_the_closest_fingerprint(version, target):
+    context = HeadersContext(super_properties={'browser_user_agent': 'ua'}, browser_major_version=version)
+    assert context.impersonate == target
+
+
+def test_electron_desktop_client_uses_its_chromium_version():
+    context = HeadersContext(
+        super_properties={'browser_user_agent': 'ua'}, browser_type='electron', browser_major_version=134
+    )
+    assert context.impersonate == 'chrome131'
+
+
+def test_without_targets_the_default_fingerprint_is_used(monkeypatch):
+    from curl_cffi import requests
+
+    monkeypatch.setattr(HeadersContext, '_tls_chrome_targets', staticmethod(lambda: []))
+    context = HeadersContext(super_properties={'browser_user_agent': 'ua'}, browser_major_version=152)
+    assert context.impersonate == requests.impersonate.DEFAULT_CHROME
+
+
+def test_api_requests_use_the_fetch_priority():
+    """Chrome sends u=0 only for page navigations; fetch() calls are u=1."""
+    context = HeadersContext(super_properties={'browser_user_agent': 'ua'}, browser_major_version=152)
+    assert context.client_hints['Priority'] == 'u=1, i'

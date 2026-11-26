@@ -115,10 +115,23 @@ handshake has a recognisable browser fingerprint. The library reproduces both.
 
 Every request and the gateway websocket go through
 [curl_cffi](https://github.com/lexiforest/curl_cffi), which uses a build of
-libcurl that reproduces a real browser's TLS and HTTP/2 handshake. The library
-picks the curl_cffi profile that matches the browser in the super properties
-(the newest Chrome profile by default). The startup log names it:
-`Found TLS fingerprint target "chrome1xx".` A plain Python HTTP client is
+libcurl that reproduces a real browser's TLS and HTTP/2 handshake. In a real
+browser, the version in the `User-Agent`, `Sec-CH-UA` and super properties is
+always the version whose handshake you see, and Cloudflare compares the two.
+The library keeps them consistent:
+
+- **The web client (the default).** The advertised Chrome version is capped at
+  the newest Chrome profile curl_cffi has. When the info API reports a newer
+  Chrome (Chrome ships about every four weeks; curl_cffi adds profiles less
+  often), the library advertises the profile's version instead and logs
+  `Advertising Chrome N instead of M to match the newest TLS fingerprint curl_cffi has`.
+  Upgrading curl_cffi brings newer profiles.
+- **Any other Chromium identity** (the desktop client, a custom
+  `HeadersContext`). The profile closest to the advertised version is used.
+
+The startup log names the profile: `Found TLS fingerprint target "chrome1xx".`
+API requests also carry the headers Chrome sends on `fetch()` calls, such as
+`Priority: u=1, i` and `Sec-Fetch-Mode: cors`. A plain Python HTTP client is
 easy to tell apart from a browser at this level, which is one reason
 Cloudflare used to block upstream's aiohttp-based requests.
 
@@ -138,9 +151,10 @@ Before the first request, `Client.headers_context()` builds a
      fails too, it logs **CRITICAL** `Could not retrieve client build number. Falling back to hardcoded value...`
      and uses `9999`. A wrong build number is conspicuous, so treat this log as
      a reason to stop and investigate (usually a network or proxy problem).
-   - **The Chrome version** comes from Google's version history API, then
-     from curl_cffi's newest Chrome profile, and as a last resort `136`
-     (logged at WARNING).
+   - **The Chrome version** comes from Google's version history API, capped at
+     curl_cffi's newest Chrome profile (see above). If the lookup fails, it is
+     the newest profile's version, and as a last resort `136` (logged at
+     WARNING).
 
 The result is logged once: `Found user agent "Mozilla/5.0 ...", build number 4xxxxx.`
 

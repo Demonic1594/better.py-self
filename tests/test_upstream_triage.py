@@ -122,6 +122,8 @@ async def test_default_headers_follow_the_returned_properties():
     hardcoded to Windows/Chrome while the super properties say otherwise."""
     session = _RecordingSession(_PROPERTIES)
     ctx = await discord.HeadersContext.default(session)  # type: ignore
-    assert ctx.platform == 'Mac OS X'
+    # The client-hint name for the OS (Sec-CH-UA-Platform: "macOS"), as typed on
+    # HeadersContext.platform; the super properties keep Discord's "Mac OS X"
+    assert ctx.platform == 'macOS'
     assert ctx.browser_type == 'chrome'
     assert ctx.super_properties['os'] == 'Mac OS X'

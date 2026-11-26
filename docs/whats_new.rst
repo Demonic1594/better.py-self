@@ -16,7 +16,12 @@ in specific versions.
 Unreleased
 -----------
 
-Nothing yet.
+Behaviour Changes
+~~~~~~~~~~~~~~~~~~
+
+- The browser version the client advertises now matches its TLS fingerprint. :meth:`HeadersContext.default` caps the Chrome version in the ``User-Agent``, ``Sec-CH-UA`` and super properties at the newest Chrome profile the installed curl_cffi has (it reported the latest stable Chrome, for example 159, over a Chrome 152 handshake), and logs when it does. Other Chromium contexts, such as :meth:`HeadersContext.desktop` and user-built ones, use the curl_cffi profile closest to their version instead of always the newest.
+- API requests send ``Priority: u=1, i``, the value Chrome uses for ``fetch()`` calls, instead of ``u=0, i``, which is for page navigations.
+- :attr:`HeadersContext.platform` is ``"macOS"`` when the info API reports ``"Mac OS X"``, so ``Sec-CH-UA-Platform`` carries the value Chrome sends. The super properties keep ``"Mac OS X"``.
 
 .. _vp2p3p4:
 
