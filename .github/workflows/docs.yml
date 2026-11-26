@@ -47,8 +47,6 @@ jobs:
       - name: Build docs
         working-directory: docs
         run: sphinx-build -b html -D language=en -j auto -n -T -W --keep-going . _build/html
-        env:
-          DOCS_LANGUAGE: en
 
       - name: Upload the site
         uses: actions/upload-pages-artifact@v3

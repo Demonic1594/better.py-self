@@ -296,8 +296,8 @@ for answer in msg.poll.answers:
         ...
 ```
 
-- **Duration is in hours.** Discord keeps only whole hours: in the live
-  test, a poll sent with 1 h 20 min came back as 1 h. The library sends what
+- **Duration is in hours.** Discord keeps only whole hours: a poll sent with
+  1 h 20 min comes back as 1 h. The library sends what
   you give it and rounds a received poll's duration to whole hours (ported
   from Rapptz in v2.3.2). Pass whole hours.
 - **Limits (Discord's):** a question of up to 300 characters, answers of up to

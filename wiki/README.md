@@ -12,7 +12,7 @@ reference: [`api.rst`](../docs/api.rst) for every class and method, and the
 [changelog](../docs/whats_new.rst). They are published, searchable, at
 [demonic1594.github.io/better.py-self](https://demonic1594.github.io/better.py-self/). Every statement here was checked against
 this repository's code at **v2.3.4**. Where a fact comes from somewhere else,
-such as Discord's behaviour, an upstream project or a live test, the page says
+such as Discord's documented behaviour or an upstream project, the page says
 so.
 
 These pages live in the repository's [`wiki/`](../wiki) folder and are
