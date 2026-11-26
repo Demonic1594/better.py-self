@@ -240,7 +240,7 @@ a.bp-card:hover {
     clear: both;
   }
   .bp-install {
-    /* Breaks only at the <wbr> points in the command, never inside a word */
+    /* Wraps at spaces and at the <wbr> points; the URL segments stay whole */
     white-space: normal;
     align-items: flex-start;
     font-size: 0.8rem;

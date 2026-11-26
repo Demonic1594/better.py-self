@@ -32,6 +32,7 @@ Documentation
 ~~~~~~~~~~~~~~
 
 - The documentation site is rebranded for this fork. It has a new landing page with feature overviews and a first client, a Guides section in its table of contents, and a quickstart rewritten for user accounts (token from an environment variable, the commands extension, next steps).
+- On phones, the landing page's hero box cut off its text, badges and install command at the right edge. It now fits the screen. The top bars, headings, callouts and code blocks are also more compact on small screens.
 
 .. _vp2p3p4:
 
