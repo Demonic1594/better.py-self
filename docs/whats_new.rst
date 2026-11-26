@@ -11,10 +11,22 @@ Changelog
 This page keeps a detailed human friendly rendering of what's new and changed
 in specific versions.
 
-.. _vp2p3p5_unreleased:
+.. _vp2p3p6_unreleased:
 
 Unreleased
 -----------
+
+Nothing yet.
+
+.. _vp2p3p5:
+
+v2.3.5
+-------
+
+Header consistency: the browser version the client advertises now matches the
+TLS fingerprint curl_cffi presents, and contexts built by hand for iOS, Android
+or with a mismatched user agent are corrected or warned about. The
+documentation site is published and revamped.
 
 Behaviour Changes
 ~~~~~~~~~~~~~~~~~~

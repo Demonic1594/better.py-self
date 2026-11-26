@@ -107,6 +107,19 @@ for the full tuning guide):
   about 50 MB of DEBUG logs. Redaction works on a fixed list of key names, so
   still treat DEBUG logs as sensitive.
 
+**New in v2.3.5**
+
+- The advertised Chrome version matches the TLS fingerprint: the default
+  client used to put the latest Chrome (159) in the user agent and client hints
+  over curl_cffi's older Chrome profile (152). Contexts with a given version use
+  the closest profile.
+- Hand-built ``HeadersContext`` objects are more consistent: iOS sends Safari's
+  headers, Android uses the closest Android profile, and a user agent that
+  contradicts the context's platform or version logs a warning.
+- The API reference is published at
+  https://demonic1594.github.io/better.py-self/ with a new landing page,
+  guides and a phone-friendly layout.
+
 **New in v2.3.4**
 
 - The last attempt of a request now fails at once on a 429, a deferral or a
@@ -188,8 +201,8 @@ Installing
 **Python 3.10 or higher is required.**
 
 This fork is not published to PyPI. Install it from the
-repository, or from the `v2.3.4 release
-<https://github.com/Demonic1594/better.py-self/releases/tag/v2.3.4>`_
+repository, or from the `v2.3.5 release
+<https://github.com/Demonic1594/better.py-self/releases/tag/v2.3.5>`_
 wheel:
 
 .. code:: sh
@@ -198,7 +211,7 @@ wheel:
     python3 -m pip install -U git+https://github.com/Demonic1594/better.py-self.git
 
     # From the release wheel
-    python3 -m pip install -U https://github.com/Demonic1594/better.py-self/releases/download/v2.3.4/discord_py_self-2.3.4-py3-none-any.whl
+    python3 -m pip install -U https://github.com/Demonic1594/better.py-self/releases/download/v2.3.5/discord_py_self-2.3.5-py3-none-any.whl
 
 For voice support, add the ``[voice]`` extra:
 
@@ -237,7 +250,7 @@ Differences From Upstream
 --------------------------
 
 - The package still installs as ``discord`` (import ``discord`` as usual);
-  the distribution name on the v2.3.4 wheel is ``discord_py_self``.
+  the distribution name on the v2.3.5 wheel is ``discord_py_self``.
 - Upstream's ``selfcord.py`` renamed build (the ``renamed`` branch) is not
   carried by this fork; it was removed together with the destructive
   rename/publish workflows.
