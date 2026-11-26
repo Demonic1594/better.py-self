@@ -30,17 +30,19 @@ jobs:
       contents: write  # create the tag and the release
     env:
       VERSION: ${{ inputs.version }}
-      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          # Keep the write token out of .git/config, where the build could read it
+          persist-credentials: false
 
       - name: Set up CPython
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Check the version, notes and tag
+      - name: Check the version and notes
         run: |
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([ab]|rc)?[0-9]*$ ]]; then
             echo "::error::'$VERSION' is not a version like 2.3.5"; exit 1
@@ -52,9 +54,6 @@ jobs:
           if [ ! -s ".github/release-notes/v$VERSION.md" ]; then
             echo "::error::.github/release-notes/v$VERSION.md is missing or empty"; exit 1
           fi
-          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null; then
-            echo "::error::Tag v$VERSION already exists"; exit 1
-          fi
 
       - name: Build distributions
         run: |
@@ -65,7 +64,17 @@ jobs:
           test -f "dist/discord_py_self-$VERSION.tar.gz"
 
       - name: Create the tag and the release
+        env:
+          # Only this step gets the token; the build above runs third-party build backends
+          GH_TOKEN: ${{ github.token }}
         run: |
+          # gh would attach a release to an existing tag and ignore --target, so refuse instead.
+          # 404 means there is no such tag; any other failure stops the run.
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$VERSION" --silent 2>/tmp/tag-check; then
+            echo "::error::Tag v$VERSION already exists"; exit 1
+          elif ! grep -q 'HTTP 404' /tmp/tag-check; then
+            cat /tmp/tag-check; echo "::error::Could not check whether tag v$VERSION exists"; exit 1
+          fi
           gh release create "v$VERSION" \
             "dist/discord_py_self-$VERSION-py3-none-any.whl" \
             "dist/discord_py_self-$VERSION.tar.gz" \
