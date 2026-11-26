@@ -16,10 +16,11 @@
 }
 
 :root[data-theme="dark"] {
-  --bp-accent: #7983f5;
-  --bp-accent-strong: #a3aaf8;
+  /* WCAG AA for text: 6.6:1 on the cards (grey-8), 5.4:1 on the page (grey-7) */
+  --bp-accent: #a3aaf8;
+  --bp-accent-strong: #c3c8fb;
   --bp-accent-text: #0c0c0d;
-  --bp-card-background: var(--grey-6);
+  --bp-card-background: var(--grey-8);
   --bp-card-border: var(--grey-5);
   --bp-muted-text: var(--grey-2);
   --bp-hero-background: linear-gradient(135deg, rgba(121, 131, 245, 0.18), rgba(59, 47, 184, 0.08));

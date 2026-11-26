@@ -49,7 +49,7 @@ Everything discord.py-self offers, plus:
       </a>
       <a class="bp-card" href="api.html#discord.Client.http_throttle_events">
         <span class="bp-card-title">Visible rate limits</span>
-        <span class="bp-card-text">Every 429 the library waits out, and every retry, is reported through events and per-route summaries.</span>
+        <span class="bp-card-text">Every 429 the library waits out fires <code>on_http_throttle</code>, and throttles and retries are summarised per route.</span>
         <span class="bp-card-link">Throttle events &rarr;</span>
       </a>
       <a class="bp-card" href="api.html#discord.Client">
@@ -64,7 +64,7 @@ Everything discord.py-self offers, plus:
       </a>
       <a class="bp-card" href="api.html#discord.Client.cache_stats">
         <span class="bp-card-title">Observable internals</span>
-        <span class="bp-card-text">Cache sizes, hit rates, evictions, the handler backlog and event-loop lag, in one call.</span>
+        <span class="bp-card-text">Cache sizes, hit and miss counts, evictions, the handler backlog and event-loop lag, in one call.</span>
         <span class="bp-card-link">cache_stats() &rarr;</span>
       </a>
       <a class="bp-card" href="whats_new.html">
@@ -156,6 +156,9 @@ Contents
 
   ext/commands/index.rst
   ext/tasks/index.rst
+
+External extension: `discord.ext.native_voice <https://discord-ext-native-voice.readthedocs.io/en/latest/>`_
+(native voice support).
 
 .. toctree::
   :caption: API reference
