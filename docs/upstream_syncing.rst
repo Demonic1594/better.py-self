@@ -531,6 +531,13 @@ Published docs (2026-11-26)
     sets ``html_context['project_github_url']`` and the ``wiki`` resource link
     to this fork. Keep both when syncing ``conf.py``.
 
+Release workflow (2026-11-26)
+    ``.github/workflows/release.yml`` is run by hand on ``master``: it checks
+    that the requested version matches ``discord.__version__`` and that
+    ``.github/release-notes/vX.Y.Z.md`` exists, builds the wheel and sdist, and
+    creates the tag and the GitHub release with ``gh release create``. Upstream
+    publishes to PyPI from its own workflow, which this fork does not carry.
+
 Audit fixes, round 4 (2026-11-04)
     Docs and packaging only: install instructions point at this fork,
     ``ESRBRating``/``PromotionType`` are exported (dolfies/discord.py-self
