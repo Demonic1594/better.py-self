@@ -10,8 +10,8 @@ what you get back, and the events that tell you what happened. The code is in
 [`discord/interactions.py`](../discord/interactions.py).
 
 > Automating interactions with other people's bots is exactly what Discord's
-> anti-automation looks for. Pace clicks and commands (3.0 s lanes held up in
-> live tests; see [Rate limits and pacing](rate-limits-and-pacing.md)).
+> anti-automation looks for. Pace clicks and commands (3.0 s lanes; see
+> [Rate limits and pacing](rate-limits-and-pacing.md)).
 
 ## How interactions work here
 

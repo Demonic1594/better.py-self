@@ -5,9 +5,8 @@ step by step when you call `run()` or `login()`, how the client makes itself
 look like the Discord web client, captchas, the errors you can get, and what
 makes Discord flag an account.
 
-> Automating a user account is against Discord's Terms of Service. Nothing
-> here makes it safe; it can only make it less conspicuous. Use a throwaway
-> account while you experiment.
+> Automating a user account is against Discord's Terms of Service, and nothing
+> on this page changes that or makes it risk-free.
 
 ## The token
 

@@ -8,7 +8,7 @@ and the tracking context the client sends. The full reference is
 the traps are.
 
 > Many of these touch money or credentials. Read the docstring of anything
-> you call here, and test with a throwaway account.
+> you call here before you use it.
 
 ## Applications and teams
 

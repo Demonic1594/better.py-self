@@ -508,6 +508,12 @@ Audit fixes, round 5 (2026-11-04)
     version; ``sane_wait_for`` cancels the tasks it created on timeout. Left as
     upstream: a repeated CALL_CREATE still replaces the call object.
 
+Published docs (2026-11-26)
+    ``.github/workflows/docs.yml`` publishes these docs to GitHub Pages from
+    ``master``; upstream publishes on Read the Docs instead. ``docs/conf.py``
+    sets ``html_context['project_github_url']`` and the ``wiki`` resource link
+    to this fork. Keep both when syncing ``conf.py``.
+
 Audit fixes, round 4 (2026-11-04)
     Docs and packaging only: install instructions point at this fork,
     ``ESRBRating``/``PromotionType`` are exported (dolfies/discord.py-self

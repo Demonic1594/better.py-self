@@ -125,9 +125,8 @@ than loaded into the wrong client.
 
 ## Measured
 
-- **Live test, v2.3.2 (this fork's test accounts):** a 207 KB snapshot for a
-  22-guild account. The next login replayed it and reached READY in 2.4 s with
-  all 22 guilds.
+- **A 22-guild account:** a 207 KB snapshot. The next login replayed it and
+  reached READY in 2.4 s with all 22 guilds.
 - **October 2026 live validation**
   ([`docs/live_validation_2026-10.md`](../docs/live_validation_2026-10.md)):
   8 guilds restored from a 161 KiB snapshot in 20 to 59 ms. That run also
