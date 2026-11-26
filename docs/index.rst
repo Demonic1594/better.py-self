@@ -20,7 +20,7 @@ better.py-self
           <li>Drop-in for discord.py-self</li>
           <li>MIT licensed</li>
         </ul>
-        <div class="bp-install">python3 -m pip install -U git+https://github.com/Demonic1594/better.py-self.git</div>
+        <div class="bp-install"><span>python3 -m pip install -U <wbr><span class="bp-nowrap">git+https://github.com/</span><wbr><span class="bp-nowrap">Demonic1594/</span><wbr><span class="bp-nowrap">better.py-self.git</span></span></div>
         <div class="bp-actions">
           <a class="bp-button bp-primary" href="quickstart.html">Quickstart</a>
           <a class="bp-button" href="api.html">API reference</a>

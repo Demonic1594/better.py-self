@@ -1,4 +1,5 @@
-/* Landing page and shared components for better.py-self.
+/* better.py-self: landing page components and site-wide refinements.
+   Loaded after the theme's style.css (see _templates/layout.html).
    Colours come from the theme's variables in style.css, so light and dark
    themes (and the user's choice in the settings dialog) both apply. */
 
@@ -83,6 +84,9 @@
   overflow-x: auto;
   white-space: nowrap;
 }
+.bp-nowrap {
+  white-space: nowrap;
+}
 .bp-install::before {
   content: '$';
   color: var(--bp-muted-text);
@@ -154,18 +158,6 @@ a.bp-card:hover {
   color: var(--bp-accent);
 }
 
-@media screen and (max-width: 600px) {
-  .bp-hero {
-    flex-direction: column;
-    align-items: flex-start;
-    padding: 1.25rem;
-  }
-  .bp-hero-logo {
-    width: 64px;
-    height: 64px;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   a.bp-card {
     transition: none;
@@ -174,3 +166,103 @@ a.bp-card:hover {
     transform: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Phones and small tablets (the theme's desktop layout starts at 768px)
+   --------------------------------------------------------------------------- */
+@media screen and (max-width: 767px) {
+  /* Slimmer top bars: the menu/settings bar and the title bar */
+  aside {
+    padding-top: 0.35em;
+    padding-bottom: 0.35em;
+  }
+  aside .material-icons,
+  .settings > .material-icons {
+    font-size: 1.6em;
+  }
+  header > nav {
+    padding: 0.45em 0.8em;
+  }
+  header > nav .main-heading {
+    font-weight: 600;
+  }
+
+  /* Content: a little more room, calmer headings */
+  .grid-item {
+    padding: 0.8em 1em;
+  }
+  main h1 { font-size: 1.75em; }
+  main h2 { font-size: 1.4em; }
+  main h3 { font-size: 1.15em; }
+  main h2,
+  main h3 { margin-top: 1.2em; }
+
+  /* Lighter admonitions */
+  div.admonition {
+    border-left-width: 4px;
+    padding: 0 0.7em 0.6em 0.7em !important;
+  }
+  p.admonition-title {
+    padding: 0.3rem 0.6rem 0.3rem 2.2rem;
+    font-size: 0.95em;
+  }
+  p.admonition-title::before {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+    left: 8px;
+  }
+
+  /* Code: smaller type so more of each line fits; blocks still scroll */
+  pre {
+    font-size: 0.8em;
+    padding: 8px 10px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Hero: one column that fits the screen */
+  .bp-hero {
+    display: block;
+    padding: 1rem;
+    margin-bottom: 1.25rem;
+  }
+  .bp-hero-logo {
+    float: left;
+    width: 44px;
+    height: 44px;
+    margin: 0.15rem 0.75rem 0.25rem 0;
+  }
+  .bp-hero-tagline {
+    font-size: 1rem;
+    line-height: 1.5;
+  }
+  .bp-pills {
+    clear: both;
+  }
+  .bp-install {
+    /* Breaks only at the <wbr> points in the command, never inside a word */
+    white-space: normal;
+    align-items: flex-start;
+    font-size: 0.8rem;
+  }
+  .bp-actions {
+    gap: 0.5rem;
+  }
+  a.bp-button {
+    flex: 1 1 auto;
+    text-align: center;
+    white-space: nowrap;
+    padding: 0.5rem 0.75rem;
+  }
+
+  /* Cards: one column, tighter */
+  .bp-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.65rem;
+    margin: 0.75rem 0 1.5rem;
+  }
+  a.bp-card {
+    padding: 0.85rem 0.95rem;
+  }
+}
+
