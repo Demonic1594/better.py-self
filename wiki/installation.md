@@ -331,8 +331,10 @@ Consequences:
   with both old and new versions (for example the client theme fields that
   disappeared in recent versions); see [Settings](settings.md).
 - **curl_cffi** updates change the browser fingerprint the library
-  impersonates. That's expected: the newest Chrome profile is used, and
-  `python -m discord -v` shows which one.
+  impersonates, and the Chrome version it advertises follows it (see
+  [Tokens and login](tokens-and-login.md#the-tls-fingerprint)). Keep curl_cffi
+  up to date: an old one makes the library claim an old Chrome.
+  `python -m discord -v` shows the profile.
 
 ## Troubleshooting installation
 

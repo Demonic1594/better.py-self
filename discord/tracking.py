@@ -30,6 +30,7 @@ import datetime
 import json
 import logging
 import random
+import functools
 import re
 from typing import Any, Callable, Dict, Final, List, Literal, Optional, Tuple, TypedDict, TYPE_CHECKING, Union
 import uuid
@@ -359,6 +360,9 @@ class HeadersContext:
     FALLBACK_BUILD_NUMBER: Final[int] = 9999
     FALLBACK_BROWSER_VERSION: Final[int] = 136
 
+    # Super properties name the OS as the client reports it; client hints use these names
+    _OS_PLATFORMS: Final[Dict[str, str]] = {'Mac OS X': 'macOS'}
+
     # TODO: Migrate this off aiohttp for the eventual deprecation
 
     def __init__(
@@ -431,12 +435,35 @@ class HeadersContext:
                 if browser not in ('chrome', 'edge', 'firefox', 'safari'):
                     _log.warning('Info API returned an unknown browser %r; impersonating Chrome.', browser)
                     browser = 'chrome'
+                os_name = properties.get('os') or 'Windows'
+                # Browsers send "macOS" in Sec-CH-UA-Platform; the super properties say "Mac OS X"
+                platform = cls._OS_PLATFORMS.get(os_name, os_name)
+                encoded = data.get('encoded')
+                if browser in ('chrome', 'edge') and platform in ('Windows', 'macOS', 'Linux'):
+                    newest = cls._newest_tls_chrome_version()
+                    if newest is not None and browser_major_version > newest:
+                        _log.info(
+                            'Advertising %s %d instead of %d to match the newest TLS fingerprint curl_cffi has; '
+                            'upgrade curl_cffi for a newer one.',
+                            properties.get('browser') or 'Chrome',
+                            newest,
+                            browser_major_version,
+                        )
+                        brand = 'Edg' if browser == 'edge' else None
+                        properties = {
+                            **properties,
+                            # The reduced form Chrome itself reports since User-Agent reduction
+                            'browser_version': f'{newest}.0.0.0',
+                            'browser_user_agent': cls.format_chromium_user_agent(newest, platform, brand),
+                        }
+                        browser_major_version = newest
+                        encoded = MISSING  # re-encoded from the edited properties
                 return cls(
-                    platform=properties.get('os') or 'Windows',
+                    platform=platform,  # type: ignore
                     browser_type=browser,
                     browser_major_version=browser_major_version,
                     super_properties=properties,
-                    encoded_super_properties=data.get('encoded'),
+                    encoded_super_properties=encoded,
                     extra_gateway_properties=data.get('extra_gateway_properties'),
                 )
 
@@ -449,6 +476,15 @@ class HeadersContext:
         try:
             fbv = await cls.fetch_chrome_version(session, proxy=proxy, proxy_auth=proxy_auth)
             bv = int(fbv.split('.')[0])
+            newest = cls._newest_tls_chrome_version()
+            if newest is not None and bv > newest:
+                _log.info(
+                    'Advertising Chrome %d instead of %d to match the newest TLS fingerprint curl_cffi has; '
+                    'upgrade curl_cffi for a newer one.',
+                    newest,
+                    bv,
+                )
+                bv = newest
         except Exception:
             _log.warning('Could not retrieve browser version. Falling back to local value...')
             try:
@@ -550,7 +586,8 @@ class HeadersContext:
 
         if self.browser_type in ('chrome', 'electron', 'edge'):
             return {
-                'Priority': 'u=0, i',
+                # What Chrome sends for fetch() calls; u=0 is for page navigations
+                'Priority': 'u=1, i',
                 'Sec-CH-UA': ', '.join(
                     [
                         f'"{brand}";v="{version}"'
@@ -585,10 +622,43 @@ class HeadersContext:
             else:
                 if self.platform == 'Android':
                     return requests.impersonate.DEFAULT_CHROME_ANDROID
-                return requests.impersonate.DEFAULT_CHROME
+                # A real browser's TLS fingerprint always matches the version in its
+                # user agent, and Cloudflare compares the two; use the closest one
+                target = self._closest_tls_chrome_target(self.browser_major_version)
+                return target or requests.impersonate.DEFAULT_CHROME
         except Exception:
             # Guard breaking change
             return 'chrome'
+
+    @staticmethod
+    @functools.lru_cache(maxsize=1)
+    def _tls_chrome_targets() -> Tuple[Tuple[int, str], ...]:
+        # The desktop Chrome fingerprints the installed curl_cffi offers, oldest first
+        # (e.g. (152, 'chrome152')). Variants such as chrome133a or chrome151_macos
+        # are left out: the plain target is the Windows/Linux capture.
+        targets: List[Tuple[int, str]] = []
+        try:
+            names = [getattr(t, 'value', t) for t in requests.impersonate.BrowserType]
+        except Exception:
+            return ()
+        for name in names:
+            match = re.fullmatch(r'chrome(\d+)', str(name))
+            if match:
+                targets.append((int(match.group(1)), match.group(0)))
+        return tuple(sorted(targets))
+
+    @classmethod
+    def _newest_tls_chrome_version(cls) -> Optional[int]:
+        targets = cls._tls_chrome_targets()
+        return targets[-1][0] if targets else None
+
+    @classmethod
+    def _closest_tls_chrome_target(cls, version: int) -> Optional[str]:
+        # The exact major if curl_cffi has it, else the nearest one (the older on a tie)
+        targets = cls._tls_chrome_targets()
+        if not targets or not isinstance(version, int):
+            return None
+        return min(targets, key=lambda t: (abs(t[0] - version), t[0]))[1]
 
     @property
     def gateway_properties(self) -> Dict[str, Any]:

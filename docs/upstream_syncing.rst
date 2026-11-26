@@ -508,6 +508,17 @@ Audit fixes, round 5 (2026-11-04)
     version; ``sane_wait_for`` cancels the tasks it created on timeout. Left as
     upstream: a repeated CALL_CREATE still replaces the call object.
 
+Header consistency (2026-11-26)
+    ``HeadersContext`` (``discord/tracking.py``): ``default`` caps the
+    advertised Chrome version at the newest curl_cffi Chrome profile
+    (``_newest_tls_chrome_version``) and rebuilds the encoded super properties
+    when it does; ``impersonate`` picks the closest profile
+    (``_closest_tls_chrome_target``) instead of ``DEFAULT_CHROME``; the info
+    API's ``"Mac OS X"`` becomes ``"macOS"`` for client hints
+    (``_OS_PLATFORMS``); Chromium ``Priority`` is ``u=1, i``. Upstream
+    advertises the latest stable Chrome over curl_cffi's newest profile.
+    **Conflict points:** ``HeadersContext.default`` and ``impersonate``.
+
 Published docs (2026-11-26)
     ``.github/workflows/docs.yml`` publishes these docs to GitHub Pages from
     ``master``; upstream publishes on Read the Docs instead. ``docs/conf.py``
