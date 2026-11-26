@@ -1,5 +1,3 @@
-:orphan:
-
 .. currentmodule:: discord
 
 .. _intro:
@@ -7,13 +5,15 @@
 Introduction
 ==============
 
-This is the documentation for discord.py-self, a library for Python to aid
-in creating bots running on user accounts that utilise the Discord API.
+This is the documentation for better.py-self, a Python library for automating
+Discord user accounts. It is a drop-in fork of discord.py-self: code written for
+discord.py-self runs unchanged, and the fork adds bounded caches, visible rate
+limits, warm restarts and credential-safe logging.
 
 Prerequisites
 ---------------
 
-discord.py-self works with Python 3.10 or higher. Support for earlier versions of Python
+better.py-self works with Python 3.10 or higher. Support for earlier versions of Python
 is not provided.
 
 
@@ -96,7 +96,7 @@ Congratulations. You now have a virtual environment all set up.
 Basic Concepts
 ---------------
 
-discord.py revolves around the concept of :ref:`events <discord-api-events>`.
+The library revolves around the concept of :ref:`events <discord-api-events>`.
 An event is something you listen to and then respond to. For example, when a message
 happens, you will receive an event about it that you can respond to.
 
