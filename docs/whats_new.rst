@@ -27,12 +27,12 @@ Fixes
 
 - The browser version the client advertised didn't match its TLS fingerprint: :meth:`HeadersContext.default` put the latest stable Chrome (for example 159) in the ``User-Agent``, ``Sec-CH-UA`` and super properties while curl_cffi presented its newest Chrome profile (152 with curl_cffi 0.17, older with older versions). It now caps the advertised version at that profile, and logs when it does.
 - Chromium contexts with a given version, such as :meth:`HeadersContext.desktop` and user-built ones, always used curl_cffi's newest Chrome profile. They now use the profile closest to their version. The desktop client's own user agent isn't rewritten, so if its Chromium is newer than every profile, the two still differ. Android contexts keep curl_cffi's Android profile.
+- On phones, the documentation site's landing page cut off its hero text, badges and install command at the right edge. It now fits the screen, and the top bars, headings, callouts and code blocks are more compact on small screens.
 
 Documentation
 ~~~~~~~~~~~~~~
 
 - The documentation site is rebranded for this fork. It has a new landing page with feature overviews and a first client, a Guides section in its table of contents, and a quickstart rewritten for user accounts (token from an environment variable, the commands extension, next steps).
-- On phones, the landing page's hero box cut off its text, badges and install command at the right edge. It now fits the screen. The top bars, headings, callouts and code blocks are also more compact on small screens.
 
 .. _vp2p3p4:
 
