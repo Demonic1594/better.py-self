@@ -1,0 +1,74 @@
+name: Release
+
+# Publishes a GitHub release for the version on master: builds the wheel and
+# sdist, creates the vX.Y.Z tag on the master commit, and attaches both files.
+# Run it by hand (Actions > Release > Run workflow, on master) after the release
+# PR is merged. The release notes are read from .github/release-notes/vX.Y.Z.md,
+# which the release PR adds.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, without the "v" (e.g. 2.3.5). Must match discord.__version__.'
+        required: true
+        type: string
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Only master is reviewed: a run from another branch must not tag or publish
+    if: github.repository == 'Demonic1594/better.py-self' && github.ref == 'refs/heads/master'
+    permissions:
+      contents: write  # create the tag and the release
+    env:
+      VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up CPython
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Check the version, notes and tag
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([ab]|rc)?[0-9]*$ ]]; then
+            echo "::error::'$VERSION' is not a version like 2.3.5"; exit 1
+          fi
+          code_version=$(sed -n "s/^__version__ = '\(.*\)'$/\1/p" discord/__init__.py)
+          if [ "$code_version" != "$VERSION" ]; then
+            echo "::error::discord.__version__ on master is '$code_version', not '$VERSION'"; exit 1
+          fi
+          if [ ! -s ".github/release-notes/v$VERSION.md" ]; then
+            echo "::error::.github/release-notes/v$VERSION.md is missing or empty"; exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null; then
+            echo "::error::Tag v$VERSION already exists"; exit 1
+          fi
+
+      - name: Build distributions
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+          ls -l dist
+          test -f "dist/discord_py_self-$VERSION-py3-none-any.whl"
+          test -f "dist/discord_py_self-$VERSION.tar.gz"
+
+      - name: Create the tag and the release
+        run: |
+          gh release create "v$VERSION" \
+            "dist/discord_py_self-$VERSION-py3-none-any.whl" \
+            "dist/discord_py_self-$VERSION.tar.gz" \
+            --target "$GITHUB_SHA" \
+            --title "v$VERSION" \
+            --notes-file ".github/release-notes/v$VERSION.md"
