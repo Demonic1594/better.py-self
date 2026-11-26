@@ -30,6 +30,7 @@ import datetime
 import json
 import logging
 import random
+import functools
 import re
 from typing import Any, Callable, Dict, Final, List, Literal, Optional, Tuple, TypedDict, TYPE_CHECKING, Union
 import uuid
@@ -451,6 +452,7 @@ class HeadersContext:
                         brand = 'Edg' if browser == 'edge' else None
                         properties = {
                             **properties,
+                            # The reduced form Chrome itself reports since User-Agent reduction
                             'browser_version': f'{newest}.0.0.0',
                             'browser_user_agent': cls.format_chromium_user_agent(newest, platform, brand),
                         }
@@ -629,7 +631,8 @@ class HeadersContext:
             return 'chrome'
 
     @staticmethod
-    def _tls_chrome_targets() -> List[Tuple[int, str]]:
+    @functools.lru_cache(maxsize=1)
+    def _tls_chrome_targets() -> Tuple[Tuple[int, str], ...]:
         # The desktop Chrome fingerprints the installed curl_cffi offers, oldest first
         # (e.g. (152, 'chrome152')). Variants such as chrome133a or chrome151_macos
         # are left out: the plain target is the Windows/Linux capture.
@@ -637,13 +640,12 @@ class HeadersContext:
         try:
             names = [getattr(t, 'value', t) for t in requests.impersonate.BrowserType]
         except Exception:
-            return targets
+            return ()
         for name in names:
             match = re.fullmatch(r'chrome(\d+)', str(name))
             if match:
                 targets.append((int(match.group(1)), match.group(0)))
-        targets.sort()
-        return targets
+        return tuple(sorted(targets))
 
     @classmethod
     def _newest_tls_chrome_version(cls) -> Optional[int]:

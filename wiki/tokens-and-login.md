@@ -128,6 +128,9 @@ The library keeps them consistent:
   Upgrading curl_cffi brings newer profiles.
 - **Any other Chromium identity** (the desktop client, a custom
   `HeadersContext`). The profile closest to the advertised version is used.
+  The advertised version isn't changed, so the desktop client still claims
+  its own Chromium version if curl_cffi has no profile that new. Android
+  identities use curl_cffi's Android profile.
 
 The startup log names the profile: `Found TLS fingerprint target "chrome1xx".`
 API requests also carry the headers Chrome sends on `fetch()` calls, such as
