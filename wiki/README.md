@@ -9,7 +9,8 @@ input, and features ported from [Rapptz/discord.py](https://github.com/Rapptz/di
 The wiki explains how things work, why, and what to watch out for, with
 examples you can run. The Sphinx docs in [`docs/`](../docs) are the API
 reference: [`api.rst`](../docs/api.rst) for every class and method, and the
-[changelog](../docs/whats_new.rst). Every statement here was checked against
+[changelog](../docs/whats_new.rst). They are published, searchable, at
+[demonic1594.github.io/better.py-self](https://demonic1594.github.io/better.py-self/). Every statement here was checked against
 this repository's code at **v2.3.4**. Where a fact comes from somewhere else,
 such as Discord's behaviour, an upstream project or a live test, the page says
 so.
@@ -20,7 +21,7 @@ the file in a pull request: edits made on the Wiki tab are overwritten.
 
 > **Before you start:** automating a user account is against Discord's Terms
 > of Service and can get the account disabled. Use a bot account for anything
-> a bot can do, and a throwaway account while you experiment.
+> a bot can do.
 
 ## Start here
 

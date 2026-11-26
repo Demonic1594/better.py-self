@@ -100,8 +100,8 @@ overwrites, bitrate, user limit...), including the fields Rapptz fixed in
 v2.3.2. Voice and stage channels take `category=`. A category's `clone()` only
 copies its name, overwrites and NSFW flag.
 
-Live test: text and voice clones had the same topic, NSFW flag, slowmode,
-category, overwrites, bitrate and user limit as their originals.
+A clone keeps the original's topic, NSFW flag, slowmode, category,
+permission overwrites, bitrate and user limit.
 
 ### Invites
 
@@ -221,8 +221,6 @@ async for thread in channel.archived_threads(private=True, joined=True):
 `on_raw_thread_delete` and `on_raw_thread_member_remove` (which fire for
 uncached threads too). See [Events](events.md).
 
-Live test: create, send, archive and delete all worked.
-
 ## Forums
 
 ```python
@@ -288,8 +286,7 @@ await partial.send('reply', thread=discord.Object(id=thread_id))
 - **Rate limits:** webhook sends retry up to 5 times on 429s; a 429 from
   Cloudflare (no `Via` header) raises at once.
 - **A webhook URL is a credential.** Anyone with it can post. Tokens are
-  masked in every logged URL; the live test found no webhook token in 12 MB
-  of DEBUG logs.
+  masked in every logged URL.
 
 The webhook adapter uses `aiohttp`. Webhooks bound to a client share its
 aiohttp session, which keeps cookies. That's why the Rapptz change that turns

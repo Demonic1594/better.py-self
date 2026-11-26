@@ -55,10 +55,9 @@ await channel.send('log attached', file=discord.File('run.log'), silent=True, de
 
 > **Gotcha: captchas on DMs.** Opening a DM, or sending in one, can return
 > `CaptchaRequired`. Discord does this to curb DM spam, based on the account.
-> In the v2.3.2 live tests both `create_dm` and a send in an existing DM
-> channel got one. See [Tokens and login](tokens-and-login.md#captchas).
+> Both `create_dm` and a send in an existing DM channel can get one. See [Tokens and login](tokens-and-login.md#captchas).
 
-Pace sends: lanes of 2.6 s caused no throttles in live tests. See
+Pace sends at 2.6 s or slower. See
 [Rate limits and pacing](rate-limits-and-pacing.md).
 
 ### Typing indicator
@@ -111,9 +110,7 @@ official client: the library asks for a pre-signed URL, uploads the file there
 (retrying on transient errors), then sends the message referring to it. The
 upload uses `aiohttp`, imported the first time it's needed; REST calls and the
 gateway use curl_cffi. Since v2.3.1 the local path isn't sent to Discord, and
-pre-signed URLs are masked in logs. Live test: a 1.6 KB text file was
-uploaded, read back with `Attachment.read()` and came back byte-for-byte
-identical.
+pre-signed URLs are masked in logs.
 
 ### Attachments you receive
 
@@ -198,7 +195,7 @@ for reaction in message.reactions:
 - **Super (burst) reactions** update `burst_count` and `me_burst`; normal ones
   `normal_count` and `me`; `count` is the sum. Before the November 2026 audit,
   a super reaction was counted as a normal one.
-- Pace reactions: 3.0 s lanes held up in live tests. The reaction bucket is
+- Pace reactions at 3.0 s or slower. The reaction bucket is
   shared across channels.
 
 ## History, pins and search
@@ -308,8 +305,8 @@ for answer in msg.poll.answers:
 - **Answers can't be added after sending:** `add_answer` on a sent poll raises
   `ClientException`.
 - **Ending a poll.** After `end_poll()`, Discord tallies the votes in the
-  background. The message `end_poll()` returns isn't finalised yet; fetched
-  again 5 seconds later, it was (live test).
+  background. The message `end_poll()` returns isn't finalised yet; fetch it
+  again a few seconds later for the final counts.
 - **Voting.** There's no method to vote from the library; vote in the
   client.
 - **Vote events.** `on_raw_poll_vote_add` / `_remove` fire for every vote;

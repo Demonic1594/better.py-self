@@ -107,9 +107,6 @@ async def ban_many(ctx, members: commands.Greedy[discord.Member], *, reason: str
 - `*, rest: str` takes everything after as one string.
 - Annotated types are converted; a failed conversion raises a `BadArgument`
   subclass (`MemberNotFound`, `ChannelNotFound`...).
-- **Live test (v2.3.2):** with `command_prefix='bpy!'` and `self_bot=True`,
-  sending `bpy!echo 7 hello world` parsed to `(7, 'hello world')`, and the
-  `Member` converter resolved a user ID.
 
 ### Converters
 
@@ -335,8 +332,7 @@ class MyClient(discord.Client):
   are UTC; give a `tzinfo` for local times. Since v2.3.1, times in different
   zones work together.
 - **`count`** limits the iterations (`None` forever; 0 or less raises
-  `ValueError`). Live test (v2.3.2): `tasks.loop(seconds=0.5, count=3)` ran
-  exactly 3 times and then stopped.
+  `ValueError`).
 - **No interval at all** (`@tasks.loop()`) runs back to back; the loop logs a
   warning once (`Loop ... has a zero interval and no count; ...`). Give it an
   interval or a `count`.

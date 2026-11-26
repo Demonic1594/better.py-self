@@ -183,6 +183,7 @@ html_context = {
         ('discord.ext.tasks', 'ext/tasks'),
         ('discord.ext.native_voice', 'https://discord-ext-native-voice.readthedocs.io/en/latest/'),
     ],
+    'project_github_url': 'https://github.com/Demonic1594/better.py-self',
 }
 
 resource_links = {
@@ -190,7 +191,7 @@ resource_links = {
     # This fork has no discussions board; the upstream community is the place to ask
     'discussions': 'https://github.com/dolfies/discord.py-self/discussions',
     'examples': 'https://github.com/Demonic1594/better.py-self/tree/master/examples',
-    'wiki': 'https://github.com/Demonic1594/better.py-self/blob/master/wiki/README.md',
+    'wiki': 'https://github.com/Demonic1594/better.py-self/wiki',
 }
 
 # Theme options are theme-specific and customize the look and feel of a theme

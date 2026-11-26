@@ -1,0 +1,71 @@
+name: Docs
+
+# Publishes the Sphinx documentation (the full API reference and the guides in
+# docs/) to GitHub Pages on every push to master that touches it. Requires
+# Settings > Pages > Source: "GitHub Actions".
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - 'docs/**'
+      - 'discord/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Only master is reviewed: a manual run from another branch must not publish
+    if: github.repository == 'Demonic1594/better.py-self' && github.ref == 'refs/heads/master'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: master
+          persist-credentials: false
+
+      - name: Set up CPython
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -U -r requirements.txt
+          pip install -e .[docs,speed,voice]
+
+      - name: Build docs
+        working-directory: docs
+        run: sphinx-build -b html -D language=en -j auto -n -T -W --keep-going . _build/html
+        env:
+          DOCS_LANGUAGE: en
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_build/html
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

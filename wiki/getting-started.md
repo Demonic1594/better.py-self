@@ -7,7 +7,7 @@ most people make in their first hour.
 
 > **Before you start:** automating a user account is against Discord's Terms
 > of Service and can get the account disabled. Use a bot account for anything
-> a bot can do, and use a throwaway account while you experiment. See
+> a bot can do. See
 > [Tokens and login](tokens-and-login.md) for what raises the risk.
 
 ## Install

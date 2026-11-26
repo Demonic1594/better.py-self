@@ -142,6 +142,7 @@ or `uv python install 3.10 3.14` are a quick way to get them locally.
 | `Lint` (`lint.yml`) | every push and pull request | pyright 1.1.394 and ruff 0.12. |
 | `Build` (`build.yml`) | every push and pull request | `python -m build` (wheel and sdist) and the Sphinx build with `-W`. |
 | `Wiki` (`wiki.yml`) | pushes to `master` that touch `wiki/` | Renders `wiki/` and pushes it to the GitHub Wiki. |
+| `Docs` (`docs.yml`) | pushes to `master` that touch `docs/` or `discord/` | Builds the Sphinx docs and publishes them to GitHub Pages. Needs Settings > Pages > Source: "GitHub Actions". |
 
 A pull request from a fork runs the same jobs. The `Test` workflow skips the
 duplicate `pull_request` run for branches in this repository, since the push
@@ -325,11 +326,11 @@ The same rules are written in `CLAUDE.md` and the CodeRabbit configuration.
 ## Live testing
 
 Live tests use real user accounts and are not part of CI. The results of past
-rounds are in [`docs/live_validation_2026-10.md`](../docs/live_validation_2026-10.md)
-and in the "Tested live" notes on the wiki pages. The rules:
+rounds are in [`docs/live_validation_2026-10.md`](../docs/live_validation_2026-10.md).
+The rules:
 
-- **Accounts and servers.** Use throwaway accounts, and a server you own for
-  anything that writes.
+- **Accounts and servers.** Use an account and a server you control for
+  anything that writes, never ones other people rely on.
 - **Pacing.** Sends at 2.6 s and reactions at 3.0 s or slower. See
   [Rate limits and pacing](rate-limits-and-pacing.md).
 - **Cleanup.** Delete everything the test creates, in a `finally`.

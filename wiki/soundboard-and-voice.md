@@ -231,8 +231,7 @@ Events: `on_stream_create`, `on_stream_available`, `on_stream_unavailable`,
 
 - **Reading:** `member.voice` is the cached `VoiceState` (`channel`,
   `self_mute`, `self_deaf`, `mute`, `deaf`, `self_stream`, `self_video`,
-  `suppress`, `requested_to_speak_at`), kept current by the gateway. It was
-  correct for both accounts in the live test. `on_voice_state_update(member, before, after)`
+  `suppress`, `requested_to_speak_at`), kept current by the gateway. `on_voice_state_update(member, before, after)`
   reports changes.
 - **`Member.fetch_voice(*, fallback_to_cache=True)`** was ported from Rapptz.
   - Discord serves the voice-state REST endpoints to bot accounts only: it
@@ -287,7 +286,7 @@ client.get_soundboard_sound(sound_id)
 Other calls:
 
 - `await client.fetch_soundboard_default_sounds()` returns Discord's built-in
-  sounds, which everyone can use. There were 6 at the time of the live test.
+  sounds, which everyone can use. There were 6 at the time of writing.
 - `await guild.fetch_soundboard_sound(id)` and `await guild.fetch_soundboard_sounds()`
   fetch sounds over REST.
 
@@ -351,8 +350,7 @@ await voice_channel.send_sound(sound)   # a SoundboardSound, or a SoundboardDefa
 These actions are `soundboard_sound_create`, `soundboard_sound_update` and
 `soundboard_sound_delete`:
 
-- **The target.** Discord sends these entries **without a `target_id`**
-  (found in the live test).
+- **The target.** Discord sends these entries **without a `target_id`**.
   - Create and delete entries take the sound's ID from their changes, so
     `entry.target` is the sound or an `Object`.
   - Update entries carry only the changed fields, so their `target` is
@@ -361,21 +359,6 @@ These actions are `soundboard_sound_create`, `soundboard_sound_update` and
 - **The emoji.** `AuditLogDiff.emoji` is built from both the `emoji_id` and
   the `emoji_name` change. A custom emoji keeps its ID, and a removed emoji
   reads `None`.
-
-### Tested live (v2.3.2)
-
-Each of these was run on user accounts:
-
-- creating an MP3 sound and an OGG sound (passed as a `memoryview`)
-- fetching sounds, one at a time and as a list
-- playing a guild sound and a default sound, with the listening account
-  receiving `on_voice_channel_effect`
-- editing (name, volume, emoji 🦆 → custom → 🎉 → none)
-- create, update and delete events reaching another account
-- reading the audit log
-- deleting the sounds
-
-Not tested live: playing a sound from another guild, which needs Nitro.
 
 ## A complete player
 

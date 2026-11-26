@@ -47,9 +47,8 @@ discord.errors.CaptchaRequired: 400 Bad Request (error code: -1): Captcha requir
 ```
 
 Discord's anti-spam sometimes requires an hCaptcha before an action. It's
-common on opening or sending DMs, joining guilds and friend requests. In the
-v2.3.2 live tests, `create_dm` **and** a send in an existing DM channel both
-got one. It's a decision Discord makes about the account (its age,
+common on opening or sending DMs, joining guilds and friend requests. Both
+`create_dm` and a send in an existing DM channel can get one. It's a decision Discord makes about the account (its age,
 reputation, recent activity) and the action, not a library bug, and retrying
 without solving it won't help.
 
