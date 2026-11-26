@@ -19,6 +19,8 @@
   <link rel="stylesheet" href="{{ pathto('_static/style.css', 1)|e }}" type="text/css" />
   <link rel="stylesheet" href="{{ pathto('_static/codeblocks.css', 1) }}" type="text/css" />
   <link rel="stylesheet" href="{{ pathto('_static/icons.css', 1)|e }}" type="text/css" />
+  <!-- better.py-self components and refinements; after the theme so equal selectors win -->
+  <link rel="stylesheet" href="{{ pathto('_static/site.css', 1)|e }}" type="text/css" />
   {%- block scripts %}
   <script id="documentation_options" data-url_root="{{ pathto('', 1) }}" src="{{ pathto('_static/documentation_options.js', 1) }}"></script>
   {%- for js in script_files %}

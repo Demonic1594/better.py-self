@@ -4,7 +4,7 @@
 Frequently Asked Questions
 ===========================
 
-This is a list of Frequently Asked Questions regarding using ``discord.py-self`` and its extension modules. Feel free to suggest a
+This is a list of Frequently Asked Questions regarding using better.py-self and its extension modules. Feel free to suggest a
 new question or submit one via pull requests.
 
 .. contents:: Questions
@@ -79,7 +79,7 @@ General questions regarding library usage belong here.
 Where can I find usage examples?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Example code can be found in the `examples folder <https://github.com/dolfies/discord.py-self/tree/master/examples>`_
+Example code can be found in the `examples folder <https://github.com/Demonic1594/better.py-self/tree/master/examples>`_
 in the repository.
 
 How do I set the "Playing" status?
@@ -255,7 +255,7 @@ this together we can do the following:
 How do I run something in the background?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-`Check the background_task.py example. <https://github.com/dolfies/discord.py-self/blob/master/examples/background_task.py>`_
+`Check the background_task.py example. <https://github.com/Demonic1594/better.py-self/blob/master/examples/background_task.py>`_
 
 How do I get a specific model?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

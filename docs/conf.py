@@ -286,7 +286,6 @@ html_show_sphinx = False
 html_search_scorer = os.path.join(os.path.dirname(__file__), '_static/scorer.js')
 
 html_js_files = ['custom.js', 'settings.js', 'copy.js', 'sidebar.js']
-html_css_files = ['landing.css']
 
 # Output file base name for HTML help builder.
 htmlhelp_basename = 'discord.pydoc'
