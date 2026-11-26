@@ -32,7 +32,7 @@ import logging
 import random
 import functools
 import re
-from typing import Any, Callable, Dict, Final, List, Literal, Optional, Tuple, TypedDict, TYPE_CHECKING, Union
+from typing import Any, Callable, Dict, Final, List, Literal, Optional, Sequence, Tuple, TypedDict, TYPE_CHECKING, Union
 import uuid
 
 import curl_cffi
@@ -390,6 +390,7 @@ class HeadersContext:
         self.platform: Literal['Windows', 'macOS', 'Linux', 'Android', 'iOS'] = platform
         self.browser_type: Literal['chrome', 'electron', 'edge', 'firefox', 'safari'] = browser_type
         self.browser_major_version: int = browser_major_version
+        self._warn_inconsistencies()
 
     def __repr__(self) -> str:
         return f'<HeadersContext impersonate={self.impersonate!r} user_agent={self.user_agent!r}>'
@@ -584,6 +585,13 @@ class HeadersContext:
         """Dict[:class:`str`, :class:`str`]: The client hints to be used for HTTP requests. Browser implementation-specific headers should go here."""
         brands = {'chrome': 'Google Chrome', 'electron': None, 'edge': 'Microsoft Edge'}
 
+        if self.platform == 'iOS':
+            # Every iOS browser (Chrome and Firefox included) is built on WebKit and
+            # sends Safari's headers, never Chromium's Sec-CH-UA client hints; the
+            # TLS fingerprint is Safari's too (see impersonate)
+            return {
+                'Priority': 'u=3, i',
+            }
         if self.browser_type in ('chrome', 'electron', 'edge'):
             return {
                 # What Chrome sends for fetch() calls; u=0 is for page navigations
@@ -621,7 +629,8 @@ class HeadersContext:
                 return requests.impersonate.DEFAULT_SAFARI
             else:
                 if self.platform == 'Android':
-                    return requests.impersonate.DEFAULT_CHROME_ANDROID
+                    target = self._closest_target(self._tls_chrome_android_targets(), self.browser_major_version)
+                    return target or requests.impersonate.DEFAULT_CHROME_ANDROID
                 # A real browser's TLS fingerprint always matches the version in its
                 # user agent, and Cloudflare compares the two; use the closest one
                 target = self._closest_tls_chrome_target(self.browser_major_version)
@@ -659,6 +668,80 @@ class HeadersContext:
         if not targets or not isinstance(version, int):
             return None
         return min(targets, key=lambda t: (abs(t[0] - version), t[0]))[1]
+
+    @staticmethod
+    @functools.lru_cache(maxsize=1)
+    def _tls_chrome_android_targets() -> Tuple[Tuple[int, str], ...]:
+        # The Android Chrome fingerprints the installed curl_cffi offers, oldest first
+        targets: List[Tuple[int, str]] = []
+        try:
+            names = [getattr(t, 'value', t) for t in requests.impersonate.BrowserType]
+        except Exception:
+            return ()
+        for name in names:
+            match = re.fullmatch(r'chrome(\d+)_android', str(name))
+            if match:
+                targets.append((int(match.group(1)), match.group(0)))
+        return tuple(sorted(targets))
+
+    @staticmethod
+    def _closest_target(targets: Sequence[Tuple[int, str]], version: int) -> Optional[str]:
+        # The exact major if available, else the nearest one (the older on a tie)
+        if not targets or not isinstance(version, int):
+            return None
+        return min(targets, key=lambda t: (abs(t[0] - version), t[0]))[1]
+
+    @staticmethod
+    def _user_agent_platform(user_agent: str) -> Optional[str]:
+        # The platform a user agent string names, or None if it names none we know.
+        # Order matters: Android user agents also say "Linux", iOS ones "Mac OS X".
+        if 'iPhone' in user_agent or 'iPad' in user_agent:
+            return 'iOS'
+        if 'Android' in user_agent:
+            return 'Android'
+        if 'Windows NT' in user_agent:
+            return 'Windows'
+        if 'Macintosh' in user_agent:
+            return 'macOS'
+        if 'X11' in user_agent or 'Linux' in user_agent:
+            return 'Linux'
+        return None
+
+    def _warn_inconsistencies(self) -> None:
+        # A real client never sends headers that contradict each other, and anti-abuse
+        # systems compare them. Contexts built by hand can; say so instead of raising,
+        # since discord.py-self accepts them (dolfies/discord.py-self compatibility)
+        user_agent = self.super_properties.get('browser_user_agent')
+        if not isinstance(user_agent, str):
+            return
+        ua_platform = self._user_agent_platform(user_agent)
+        # iPadOS asks for desktop sites with a Mac user agent ("Macintosh", no "iPad")
+        if ua_platform == 'macOS' and self.platform == 'iOS':
+            ua_platform = 'iOS'
+        if ua_platform is not None and ua_platform != self.platform:
+            _log.warning(
+                'HeadersContext platform is %r but its user agent describes %r; '
+                'the client hints and the user agent will contradict each other.',
+                self.platform,
+                ua_platform,
+            )
+        pattern = {
+            'chrome': r'Chrome/(\d+)',
+            'edge': r'Chrome/(\d+)',
+            'electron': r'Chrome/(\d+)',
+            'firefox': r'Firefox/(\d+)',
+        }
+        regex = pattern.get(self.browser_type)
+        if regex is None or not isinstance(self.browser_major_version, int) or self.platform == 'iOS':
+            return
+        match = re.search(regex, user_agent)
+        if match and int(match.group(1)) != self.browser_major_version:
+            _log.warning(
+                'HeadersContext browser_major_version is %d but its user agent says %s; '
+                'Sec-CH-UA and the user agent will name different versions.',
+                self.browser_major_version,
+                match.group(1),
+            )
 
     @property
     def gateway_properties(self) -> Dict[str, Any]:

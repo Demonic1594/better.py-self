@@ -148,3 +148,81 @@ def test_api_requests_use_the_fetch_priority():
     """Chrome sends u=0 only for page navigations; fetch() calls are u=1."""
     context = HeadersContext(super_properties={'browser_user_agent': 'ua'}, browser_major_version=152)
     assert context.client_hints['Priority'] == 'u=1, i'
+
+
+# --- Demonic1594/better.py-self#39: contexts built by hand --------------------------------
+
+ANDROID_TARGETS = [(99, 'chrome99_android'), (131, 'chrome131_android')]
+
+
+def test_ios_contexts_send_webkit_headers():
+    """Every iOS browser is WebKit: Safari's TLS fingerprint went out with
+    Chromium's Sec-CH-UA client hints, a combination no real client sends."""
+    from curl_cffi import requests
+
+    for browser in ('chrome', 'edge', 'firefox'):
+        context = HeadersContext(
+            platform='iOS',
+            browser_type=browser,  # type: ignore[arg-type]
+            browser_major_version=152,
+            super_properties={'browser_user_agent': 'ua'},
+        )
+        assert context.impersonate == requests.impersonate.DEFAULT_SAFARI_IOS
+        assert context.client_hints == {'Priority': 'u=3, i'}
+
+
+@pytest.mark.parametrize(
+    'version, target', [(159, 'chrome131_android'), (131, 'chrome131_android'), (100, 'chrome99_android')]
+)
+def test_android_contexts_use_the_closest_android_fingerprint(monkeypatch, version, target):
+    monkeypatch.setattr(
+        HeadersContext, '_tls_chrome_android_targets', staticmethod(lambda: list(ANDROID_TARGETS)), raising=False
+    )
+    context = HeadersContext(
+        platform='Android',
+        browser_major_version=version,
+        super_properties={'browser_user_agent': HeadersContext.format_chromium_user_agent(version, 'Android')},
+    )
+    assert context.impersonate == target
+
+
+def test_a_user_agent_for_another_platform_is_logged(caplog):
+    """A Windows user agent with platform='Android' went out silently: Sec-CH-UA-Mobile ?1
+    and Sec-CH-UA-Platform "Android" next to "Windows NT 10.0"."""
+    with caplog.at_level('WARNING', logger='discord.tracking'):
+        HeadersContext(
+            platform='Android',
+            browser_major_version=152,
+            super_properties={'browser_user_agent': HeadersContext.format_chromium_user_agent(152)},
+        )
+    assert "platform is 'Android' but its user agent describes 'Windows'" in caplog.text
+
+
+def test_a_user_agent_with_another_version_is_logged(caplog):
+    with caplog.at_level('WARNING', logger='discord.tracking'):
+        HeadersContext(
+            browser_major_version=152,
+            super_properties={'browser_user_agent': HeadersContext.format_chromium_user_agent(159)},
+        )
+    assert 'browser_major_version is 152 but its user agent says 159' in caplog.text
+
+
+@pytest.mark.parametrize(
+    'platform, user_agent',
+    [
+        ('Windows', HeadersContext.format_chromium_user_agent(152)),
+        ('macOS', HeadersContext.format_chromium_user_agent(152, 'macOS')),
+        ('Linux', HeadersContext.format_chromium_user_agent(152, 'Linux')),
+        ('Android', HeadersContext.format_chromium_user_agent(152, 'Android')),
+        ('Windows', 'a user agent naming no platform'),
+        # iPadOS requests desktop sites with a Mac user agent
+        (
+            'iOS',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15',
+        ),
+    ],
+)
+def test_consistent_contexts_log_nothing(caplog, platform, user_agent):
+    with caplog.at_level('WARNING', logger='discord.tracking'):
+        HeadersContext(platform=platform, browser_major_version=152, super_properties={'browser_user_agent': user_agent})
+    assert caplog.text == ''

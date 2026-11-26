@@ -518,6 +518,12 @@ Header consistency (2026-11-26)
     (``_OS_PLATFORMS``); Chromium ``Priority`` is ``u=1, i``. Upstream
     advertises the latest stable Chrome over curl_cffi's newest profile.
     **Conflict points:** ``HeadersContext.default`` and ``impersonate``.
+    Follow-up (#39): iOS contexts send WebKit headers (``client_hints``),
+    Android contexts use the closest ``chromeNNN_android`` profile
+    (``_tls_chrome_android_targets``), and ``__init__`` logs a warning when the
+    user agent's platform or version contradicts the context
+    (``_warn_inconsistencies``). Upstream accepts and sends such contexts
+    unchanged.
 
 Published docs (2026-11-26)
     ``.github/workflows/docs.yml`` publishes these docs to GitHub Pages from

@@ -130,7 +130,12 @@ The library keeps them consistent:
   `HeadersContext`). The profile closest to the advertised version is used.
   The advertised version isn't changed, so the desktop client still claims
   its own Chromium version if curl_cffi has no profile that new. Android
-  identities use curl_cffi's Android profile.
+  identities use the closest Android profile, and iOS identities use
+  Safari's fingerprint and headers, since every iOS browser is WebKit.
+- **Hand-built contexts are checked.** A `HeadersContext` whose user agent
+  names another platform or version than its `platform` and
+  `browser_major_version` logs a warning, because those headers would
+  contradict each other.
 
 The startup log names the profile: `Found TLS fingerprint target "chrome1xx".`
 API requests also carry the headers Chrome sends on `fetch()` calls, such as
