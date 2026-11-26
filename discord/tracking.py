@@ -715,6 +715,9 @@ class HeadersContext:
         if not isinstance(user_agent, str):
             return
         ua_platform = self._user_agent_platform(user_agent)
+        # iPadOS asks for desktop sites with a Mac user agent ("Macintosh", no "iPad")
+        if ua_platform == 'macOS' and self.platform == 'iOS':
+            ua_platform = 'iOS'
         if ua_platform is not None and ua_platform != self.platform:
             _log.warning(
                 'HeadersContext platform is %r but its user agent describes %r; '

@@ -215,6 +215,11 @@ def test_a_user_agent_with_another_version_is_logged(caplog):
         ('Linux', HeadersContext.format_chromium_user_agent(152, 'Linux')),
         ('Android', HeadersContext.format_chromium_user_agent(152, 'Android')),
         ('Windows', 'a user agent naming no platform'),
+        # iPadOS requests desktop sites with a Mac user agent
+        (
+            'iOS',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15',
+        ),
     ],
 )
 def test_consistent_contexts_log_nothing(caplog, platform, user_agent):

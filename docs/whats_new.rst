@@ -21,12 +21,14 @@ Behaviour Changes
 
 - API requests send ``Priority: u=1, i``, the value Chrome uses for ``fetch()`` calls, instead of ``u=0, i``, which is for page navigations.
 - :attr:`HeadersContext.platform` is ``"macOS"`` when the info API reports ``"Mac OS X"``, so ``Sec-CH-UA-Platform`` carries the value Chrome sends. The super properties keep ``"Mac OS X"``.
+- :class:`HeadersContext` with ``platform='iOS'`` sends Safari's headers (no ``Sec-CH-UA`` client hints) for every ``browser_type``. Android contexts use the curl_cffi Android profile closest to their version instead of the default one.
+- :class:`HeadersContext` logs a warning when its user agent names a different platform or browser version than the context itself.
 
 Fixes
 ~~~~~
 
 - The browser version the client advertised didn't match its TLS fingerprint: :meth:`HeadersContext.default` put the latest stable Chrome (for example 159) in the ``User-Agent``, ``Sec-CH-UA`` and super properties while curl_cffi presented its newest Chrome profile (152 with curl_cffi 0.17, older with older versions). It now caps the advertised version at that profile, and logs when it does.
-- Chromium contexts with a given version, such as :meth:`HeadersContext.desktop` and user-built ones, always used curl_cffi's newest Chrome profile. They now use the profile closest to their version. The desktop client's own user agent isn't rewritten, so if its Chromium is newer than every profile, the two still differ. Android contexts keep curl_cffi's Android profile.
+- Chromium contexts with a given version, such as :meth:`HeadersContext.desktop` and user-built ones, always used curl_cffi's newest Chrome profile. They now use the profile closest to their version. The desktop client's own user agent isn't rewritten, so if its Chromium is newer than every profile, the two still differ.
 - On phones, the documentation site's landing page cut off its hero text, badges and install command at the right edge. It now fits the screen, and the top bars, headings, callouts and code blocks are more compact on small screens.
 - :class:`HeadersContext` built for iOS sent Chromium's ``Sec-CH-UA`` client hints over Safari's TLS fingerprint. Every iOS browser is built on WebKit and sends neither, so iOS contexts now send Safari's headers whatever their ``browser_type``.
 - :class:`HeadersContext` built for Android always used curl_cffi's default Android profile. It now uses the Android profile closest to its ``browser_major_version``.
